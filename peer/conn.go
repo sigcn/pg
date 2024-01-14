@@ -92,7 +92,7 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	if c.peerConnected(tgtPeer) {
 		return c.writeToUDP(tgtPeer, p)
 	}
-	slog.Debug("WriteTo Relay", "addr", tgtPeer)
+	slog.Debug("WriteToRelay", "addr", tgtPeer)
 	return len(p), c.writeTo(p, tgtPeer, 0)
 }
 
