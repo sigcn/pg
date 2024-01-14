@@ -25,9 +25,15 @@ const (
 	OP_PEER_HEALTHCHECK = 10
 )
 
-type stunBindContext struct {
-	peerID peernet.PeerID
-	ctime  time.Time
+type STUNBindContext struct {
+	PeerID peernet.PeerID
+	CTime  time.Time
+}
+
+type PeerContext struct {
+	Addr          *net.UDPAddr
+	Conn          *net.UDPConn
+	LastValidTime time.Time
 }
 
 type PeerEvent struct {
@@ -46,7 +52,7 @@ type PeerPacketConn struct {
 	node        *Node
 	peerID      peernet.PeerID
 	nonce       byte
-	stunTxIDMap cmap.ConcurrentMap[string, stunBindContext]
+	stunTxIDMap cmap.ConcurrentMap[string, STUNBindContext]
 	ctx         context.Context
 	ctxCancel   context.CancelFunc
 
@@ -92,7 +98,7 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	if c.peerConnected(tgtPeer) {
 		return c.writeToUDP(tgtPeer, p)
 	}
-	slog.Debug("WriteToRelay", "addr", tgtPeer)
+	slog.Debug("[Relay] WriteTo", "addr", tgtPeer)
 	return len(p), c.writeTo(p, tgtPeer, 0)
 }
 
@@ -165,7 +171,8 @@ func (c *PeerPacketConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-func (c *PeerPacketConn) runReadLoop() {
+// keepState keep p2p connection
+func (c *PeerPacketConn) keepState() {
 	go c.runPeerEventEngine()
 	go c.runNATTraversalLoop()
 	go c.runPeersHealthcheck()
@@ -194,9 +201,9 @@ func (c *PeerPacketConn) runReadLoop() {
 		case peernet.CONTROL_RELAY:
 			c.inbound <- b
 		case peernet.CONTROL_PRE_NAT_TRAVERSAL:
-			c.requestSTUN(b)
+			go c.requestSTUN(b)
 		case peernet.CONTROL_NAT_TRAVERSAL:
-			c.natTraversal(b)
+			go c.natTraversal(b)
 		}
 	}
 }
@@ -207,36 +214,42 @@ func (c *PeerPacketConn) runPeerEventEngine() {
 		case <-c.ctx.Done():
 			return
 		case e := <-c.peerEvent:
-			switch e.Op {
-			case OP_PEER_DISCO1: // 创建发现 peer 事务
-				if peer, ok := c.peersMap[e.PeerID]; ok {
-					peer.conn.Close()
-					delete(c.peersMap, e.PeerID)
-					slog.Info("[UDP] remove peer", "peer", e.PeerID)
-				}
-				c.peersMap[e.PeerID] = &PeerContext{conn: e.Conn}
-			case OP_PEER_DISCO2: // 尝试设置事务 addr
-				if peerCtx, ok := c.peersMap[e.PeerID]; ok {
-					peerCtx.addr = e.Addr
-				}
-			case OP_PEER_CONFIRM: // 确认事务
-				slog.Debug("Heartbeat", "peer", e.PeerID, "addr", e.Addr)
-				if peer, ok := c.peersMap[e.PeerID]; ok {
-					updated := time.Since(peer.lastValidTime) > 2*c.node.peerKeepaliveInterval
-					if updated {
-						slog.Info("[UDP] add peer", "peer", e.PeerID, "addr", e.Addr)
-					}
-					peer.lastValidTime = time.Now()
-					peer.addr = e.Addr
-				}
-			case OP_PEER_HEALTHCHECK:
-				for k, v := range c.peersMap {
-					if time.Since(v.lastValidTime) > 2*c.node.peerKeepaliveInterval {
-						v.conn.Close()
-						delete(c.peersMap, k)
-						slog.Info("[UDP] remove peer", "peer", k)
-					}
-				}
+			c.handlePeerEvent(e)
+		}
+	}
+}
+
+func (c *PeerPacketConn) handlePeerEvent(e PeerEvent) {
+	c.peersMapMutex.Lock()
+	defer c.peersMapMutex.Unlock()
+	switch e.Op {
+	case OP_PEER_DISCO1: // 创建发现 peer 事务
+		if peer, ok := c.peersMap[e.PeerID]; ok {
+			peer.Conn.Close()
+			delete(c.peersMap, e.PeerID)
+			slog.Info("[UDP] Remove peer", "peer", e.PeerID, "addr", peer.Addr)
+		}
+		c.peersMap[e.PeerID] = &PeerContext{Conn: e.Conn}
+	case OP_PEER_DISCO2: // 尝试设置事务 addr
+		if peerCtx, ok := c.peersMap[e.PeerID]; ok {
+			peerCtx.Addr = e.Addr
+		}
+	case OP_PEER_CONFIRM: // 确认事务
+		slog.Debug("[UDP] Heartbeat", "peer", e.PeerID, "addr", e.Addr)
+		if peer, ok := c.peersMap[e.PeerID]; ok {
+			updated := time.Since(peer.LastValidTime) > 2*c.node.peerKeepaliveInterval
+			if updated {
+				slog.Info("[UDP] Add peer", "peer", e.PeerID, "addr", e.Addr)
+			}
+			peer.LastValidTime = time.Now()
+			peer.Addr = e.Addr
+		}
+	case OP_PEER_HEALTHCHECK:
+		for k, v := range c.peersMap {
+			if time.Since(v.LastValidTime) > 2*c.node.peerKeepaliveInterval {
+				v.Conn.Close()
+				delete(c.peersMap, k)
+				slog.Info("[UDP] Remove peer", "peer", k)
 			}
 		}
 	}
@@ -255,11 +268,11 @@ func (c *PeerPacketConn) runReadUDPLoop(udpConn *net.UDPConn) {
 			if !strings.Contains(err.Error(), "use of closed network connection") {
 				slog.Error("read from udp error", "err", err)
 			}
-			break
+			return
 		}
 
 		// ping
-		if n > 4 && string(buf[:5]) == "_ping" && n <= 259 {
+		if n > 4 && string(buf[:5]) == "_ping" && n <= 260 {
 			peerID := string(buf[5:n])
 			c.peerEvent <- PeerEvent{
 				Op:     OP_PEER_CONFIRM,
@@ -277,54 +290,51 @@ func (c *PeerPacketConn) runReadUDPLoop(udpConn *net.UDPConn) {
 			continue
 		}
 
+		// other
 		peerID := c.getPeerID(peerAddr)
-		bb := make([]byte, 2+len(peerID)+n)
-		bb[1] = peerID.Len()
-		copy(bb[2:], peerID.Bytes())
-		copy(bb[2+len(peerID):], buf[:n])
-		c.inbound <- bb
+		b := make([]byte, 2+len(peerID)+n)
+		b[1] = peerID.Len()
+		copy(b[2:], peerID.Bytes())
+		copy(b[2+len(peerID):], buf[:n])
+		c.inbound <- b
 	}
 }
 
 func (c *PeerPacketConn) requestSTUN(b []byte) {
-	go func() {
-		peerID := peernet.PeerID(b[2 : b[1]+2])
+	peerID := peernet.PeerID(b[2 : b[1]+2])
 
-		udpConn, err := net.ListenUDP("udp", nil)
+	udpConn, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		slog.Error("listen udp error", "err", err)
+		return
+	}
+	go c.runReadUDPLoop(udpConn)
+
+	c.peerEvent <- PeerEvent{
+		Op:     OP_PEER_DISCO1,
+		PeerID: peerID,
+		Conn:   udpConn,
+	}
+
+	json.Unmarshal(b[b[1]+2:], &c.stunServers)
+	txID := stun.NewTxID()
+	c.stunTxIDMap.Set(string(txID[:]), STUNBindContext{PeerID: peerID, CTime: time.Now()})
+	for _, stunServer := range c.stunServers {
+		uaddr, err := net.ResolveUDPAddr("udp", stunServer)
 		if err != nil {
-			slog.Error("listen udp error", "err", err)
-			return
+			slog.Error(err.Error())
+			continue
 		}
-		go c.runReadUDPLoop(udpConn)
-
-		c.peerEvent <- PeerEvent{
-			Op:     OP_PEER_DISCO1,
-			PeerID: peerID,
-			Conn:   udpConn,
+		_, err = udpConn.WriteToUDP(stun.Request(txID), uaddr)
+		if err != nil {
+			slog.Error(err.Error())
+			continue
 		}
-
-		json.Unmarshal(b[b[1]+2:], &c.stunServers)
-		for _, stunServer := range c.stunServers {
-			uaddr, err := net.ResolveUDPAddr("udp", stunServer)
-			if err != nil {
-				slog.Error(err.Error())
-				continue
-			}
-
-			txID := stun.NewTxID()
-			c.stunTxIDMap.Set(string(txID[:]), stunBindContext{peerID: peerID, ctime: time.Now()})
-			req := stun.Request(txID)
-			_, err = udpConn.WriteToUDP(req, uaddr)
-			if err != nil {
-				slog.Error(err.Error())
-				continue
-			}
-			time.Sleep(3 * time.Second)
-			if c.peerConnected(peerID) {
-				break
-			}
+		time.Sleep(3 * time.Second)
+		if c.peerConnected(peerID) {
+			break
 		}
-	}()
+	}
 }
 
 func (c *PeerPacketConn) runNATTraversalLoop() {
@@ -342,7 +352,7 @@ func (c *PeerPacketConn) runNATTraversalLoop() {
 			continue
 		}
 
-		stunBindCtx, ok := c.stunTxIDMap.Get(string(txid[:]))
+		tx, ok := c.stunTxIDMap.Get(string(txid[:]))
 		if !ok {
 			slog.Error("Skipped unknown stun response", "txid", hex.EncodeToString(txid[:]))
 			continue
@@ -353,7 +363,7 @@ func (c *PeerPacketConn) runNATTraversalLoop() {
 			continue
 		}
 		for i := 0; i < 3; i++ {
-			err := c.writeTo([]byte(saddr.String()), stunBindCtx.peerID, peernet.CONTROL_NAT_TRAVERSAL)
+			err := c.writeTo([]byte(saddr.String()), tx.PeerID, peernet.CONTROL_NAT_TRAVERSAL)
 			if err == nil {
 				break
 			}
@@ -371,40 +381,38 @@ func (c *PeerPacketConn) natTraversal(b []byte) {
 		slog.Error("Resolve udp addr error", "err", err)
 		return
 	}
-	go func() {
-		c.peerEvent <- PeerEvent{
-			Op:     OP_PEER_DISCO2,
-			PeerID: targetPeerID,
-			Addr:   udpAddr,
+	c.peerEvent <- PeerEvent{
+		Op:     OP_PEER_DISCO2,
+		PeerID: targetPeerID,
+		Addr:   udpAddr,
+	}
+	interval := 500 * time.Millisecond
+	for i := 0; ; i++ {
+		select {
+		case <-c.ctx.Done():
+			slog.Info("[UDP] Ping exit", "peer", targetPeerID)
+			return
+		default:
 		}
-		interval := 500 * time.Millisecond
-		for i := 0; ; i++ {
-			select {
-			case <-c.ctx.Done():
-				slog.Info("Ping exit", "peer", targetPeerID)
-				return
-			default:
-			}
-			peerDiscovered := c.getPeerID(udpAddr) != ""
-			if interval == c.node.peerKeepaliveInterval && !peerDiscovered {
-				break
-			}
-			if peerDiscovered || i >= 16 {
-				interval = c.node.peerKeepaliveInterval
-			}
-			slog.Debug("Ping", "peer", targetPeerID, "addr", udpAddr)
-			c.writeToUDP(targetPeerID, []byte("_ping"+c.peerID))
-			time.Sleep(interval)
+		peerDiscovered := c.getPeerID(udpAddr) != ""
+		if interval == c.node.peerKeepaliveInterval && !peerDiscovered {
+			break
 		}
-	}()
+		if peerDiscovered || i >= 16 {
+			interval = c.node.peerKeepaliveInterval
+		}
+		slog.Debug("[UDP] Ping", "peer", targetPeerID, "addr", udpAddr)
+		c.writeToUDP(targetPeerID, []byte("_ping"+c.peerID))
+		time.Sleep(interval)
+	}
 }
 
 func (c *PeerPacketConn) writeToUDP(peerID peernet.PeerID, p []byte) (int, error) {
 	c.peersMapMutex.RLock()
 	defer c.peersMapMutex.RUnlock()
-	if udpCtx, ok := c.peersMap[peerID]; ok {
-		slog.Debug("WriteToUDP", "peer", peerID, "addr", udpCtx.addr)
-		return udpCtx.conn.WriteToUDP(p, udpCtx.addr)
+	if peerCtx, ok := c.peersMap[peerID]; ok {
+		slog.Debug("[UDP] WriteTo", "peer", peerID, "addr", peerCtx.Addr)
+		return peerCtx.Conn.WriteToUDP(p, peerCtx.Addr)
 	}
 	return 0, io.ErrClosedPipe
 }
@@ -413,7 +421,7 @@ func (c *PeerPacketConn) peerConnected(peerID peernet.PeerID) bool {
 	c.peersMapMutex.RLock()
 	defer c.peersMapMutex.RUnlock()
 	peerCtx, ok := c.peersMap[peerID]
-	return ok && time.Since(peerCtx.lastValidTime) <= 2*c.node.peerKeepaliveInterval
+	return ok && time.Since(peerCtx.LastValidTime) <= 2*c.node.peerKeepaliveInterval
 }
 
 func (c *PeerPacketConn) getPeerID(udpAddr *net.UDPAddr) peernet.PeerID {
@@ -423,13 +431,13 @@ func (c *PeerPacketConn) getPeerID(udpAddr *net.UDPAddr) peernet.PeerID {
 	c.peersMapMutex.RLock()
 	defer c.peersMapMutex.RUnlock()
 	for k, v := range c.peersMap {
-		if v.addr == nil {
+		if v.Addr == nil {
 			continue
 		}
-		if time.Since(v.lastValidTime) > 2*c.node.peerKeepaliveInterval {
+		if time.Since(v.LastValidTime) > 2*c.node.peerKeepaliveInterval {
 			continue
 		}
-		if v.addr.IP.Equal(udpAddr.IP) && v.addr.Port == udpAddr.Port {
+		if v.Addr.IP.Equal(udpAddr.IP) && v.Addr.Port == udpAddr.Port {
 			return peernet.PeerID(k)
 		}
 	}

@@ -81,7 +81,7 @@ func (p *Peer) Start() {
 		b := make([]byte, 2+len(p.id)+len(stuns))
 		b[0] = 1
 		b[1] = p.id.Len()
-		copy(b[2:len(p.id)+2], p.id.Bytes())
+		copy(b[2:], p.id.Bytes())
 		copy(b[len(p.id)+2:], stuns)
 		for i, v := range b {
 			b[i] = v ^ peer.Val.nonce
@@ -91,7 +91,7 @@ func (p *Peer) Start() {
 		b1 := make([]byte, 2+len(peer.Val.id)+len(stuns))
 		b1[0] = 1
 		b1[1] = peer.Val.id.Len()
-		copy(b1[2:len(peer.Val.id)+2], peer.Val.id.Bytes())
+		copy(b1[2:], peer.Val.id.Bytes())
 		copy(b1[len(peer.Val.id)+2:], stuns)
 		for i, v := range b1 {
 			b1[i] = v ^ p.nonce

@@ -12,16 +12,6 @@ import (
 	"github.com/rkonfj/peerguard/peernet"
 )
 
-type Peer interface {
-	ListenPacket(peerID peernet.PeerID) (net.PacketConn, error)
-}
-
-type PeerContext struct {
-	addr          *net.UDPAddr
-	conn          *net.UDPConn
-	lastValidTime time.Time
-}
-
 type Node struct {
 	networkID             peernet.NetworkID
 	servers               []string
@@ -52,14 +42,14 @@ func (n *Node) ListenPacket(peerID peernet.PeerID) (net.PacketConn, error) {
 			node:        n,
 			peerID:      peerID,
 			nonce:       peernet.MustParseNonce(httpResp.Header.Get("X-Nonce")),
-			stunTxIDMap: cmap.New[stunBindContext](),
+			stunTxIDMap: cmap.New[STUNBindContext](),
 		}
 		conn.ctx, conn.ctxCancel = context.WithCancel(context.Background())
-		go conn.runReadLoop()
+		go conn.keepState()
 		break
 	}
 	if conn == nil {
-		return nil, errors.New("no server available")
+		return nil, errors.New("no peermap server available")
 	}
 	return conn, nil
 }
