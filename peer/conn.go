@@ -2,11 +2,14 @@ package peer
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -15,22 +18,39 @@ import (
 	"tailscale.com/net/stun"
 )
 
+const (
+	OP_PEER_DISCO1      = 0
+	OP_PEER_DISCO2      = 1
+	OP_PEER_CONFIRM     = 2
+	OP_PEER_HEALTHCHECK = 10
+)
+
 type stunBindContext struct {
 	peerID peernet.PeerID
 	ctime  time.Time
 }
 
+type PeerEvent struct {
+	Op     int
+	Addr   *net.UDPAddr
+	Conn   *net.UDPConn
+	PeerID peernet.PeerID
+}
+
 type PeerPacketConn struct {
-	node          *Node
-	udpPacketConn *net.UDPConn
-	peerID        peernet.PeerID
-	wsConn        *websocket.Conn
-	nonce         byte
-	inbound       chan []byte
-	ctx           context.Context
-	ctxCancel     context.CancelFunc
-	stunTxIDMap   cmap.ConcurrentMap[string, stunBindContext]
-	stunChan      chan []byte
+	peersMap    map[peernet.PeerID]*PeerContext
+	peerEvent   chan PeerEvent
+	inbound     chan []byte
+	stunChan    chan []byte
+	wsConn      *websocket.Conn
+	node        *Node
+	peerID      peernet.PeerID
+	nonce       byte
+	stunTxIDMap cmap.ConcurrentMap[string, stunBindContext]
+	ctx         context.Context
+	ctxCancel   context.CancelFunc
+
+	peersMapMutex sync.RWMutex
 	stunServers   []string
 }
 
@@ -69,9 +89,10 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		return 0, errors.New("not a p2p address")
 	}
 	tgtPeer := addr.(peernet.PeerID)
-	if tgtUDPAddr := c.node.PeerUDPAddr(tgtPeer); tgtUDPAddr != nil {
-		return c.udpPacketConn.WriteTo(p, c.node.PeerUDPAddr(tgtPeer))
+	if c.peerConnected(tgtPeer) {
+		return c.writeToUDP(tgtPeer, p)
 	}
+	slog.Debug("WriteTo Relay", "addr", tgtPeer)
 	return len(p), c.writeTo(p, tgtPeer, 0)
 }
 
@@ -93,7 +114,7 @@ func (c *PeerPacketConn) Close() error {
 	c.ctxCancel()
 	close(c.stunChan)
 	close(c.inbound)
-	c.wsConn.WriteControl(websocket.CloseMessage,
+	_ = c.wsConn.WriteControl(websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(2*time.Second))
 	return c.wsConn.Close()
 }
@@ -145,13 +166,9 @@ func (c *PeerPacketConn) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *PeerPacketConn) runReadLoop() {
-	udpConn, err := net.ListenUDP("udp", nil)
-	if err != nil {
-		slog.Error("listen udp error", "err", err)
-	}
-	c.udpPacketConn = udpConn
-	go c.runReadUDPLoop()
+	go c.runPeerEventEngine()
 	go c.runNATTraversalLoop()
+	go c.runPeersHealthcheck()
 	for {
 		mt, b, err := c.wsConn.ReadMessage()
 		if err != nil {
@@ -177,14 +194,55 @@ func (c *PeerPacketConn) runReadLoop() {
 		case peernet.CONTROL_RELAY:
 			c.inbound <- b
 		case peernet.CONTROL_PRE_NAT_TRAVERSAL:
-			c.startNATTraversalEngine(b)
+			c.requestSTUN(b)
 		case peernet.CONTROL_NAT_TRAVERSAL:
 			c.natTraversal(b)
 		}
 	}
 }
 
-func (c *PeerPacketConn) runReadUDPLoop() {
+func (c *PeerPacketConn) runPeerEventEngine() {
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case e := <-c.peerEvent:
+			switch e.Op {
+			case OP_PEER_DISCO1: // 创建发现 peer 事务
+				if peer, ok := c.peersMap[e.PeerID]; ok {
+					peer.conn.Close()
+					delete(c.peersMap, e.PeerID)
+					slog.Info("[UDP] remove peer", "peer", e.PeerID)
+				}
+				c.peersMap[e.PeerID] = &PeerContext{conn: e.Conn}
+			case OP_PEER_DISCO2: // 尝试设置事务 addr
+				if peerCtx, ok := c.peersMap[e.PeerID]; ok {
+					peerCtx.addr = e.Addr
+				}
+			case OP_PEER_CONFIRM: // 确认事务
+				slog.Debug("Heartbeat", "peer", e.PeerID, "addr", e.Addr)
+				if peer, ok := c.peersMap[e.PeerID]; ok {
+					updated := time.Since(peer.lastValidTime) > 2*c.node.peerKeepaliveInterval
+					if updated {
+						slog.Info("[UDP] add peer", "peer", e.PeerID, "addr", e.Addr)
+					}
+					peer.lastValidTime = time.Now()
+					peer.addr = e.Addr
+				}
+			case OP_PEER_HEALTHCHECK:
+				for k, v := range c.peersMap {
+					if time.Since(v.lastValidTime) > 2*c.node.peerKeepaliveInterval {
+						v.conn.Close()
+						delete(c.peersMap, k)
+						slog.Info("[UDP] remove peer", "peer", k)
+					}
+				}
+			}
+		}
+	}
+}
+
+func (c *PeerPacketConn) runReadUDPLoop(udpConn *net.UDPConn) {
 	buf := make([]byte, 65535)
 	for {
 		select {
@@ -192,20 +250,25 @@ func (c *PeerPacketConn) runReadUDPLoop() {
 			return
 		default:
 		}
-		n, peerAddr, err := c.udpPacketConn.ReadFromUDP(buf)
+		n, peerAddr, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
-			slog.Error("read from udp error", "err", err)
+			if !strings.Contains(err.Error(), "use of closed network connection") {
+				slog.Error("read from udp error", "err", err)
+			}
 			break
 		}
+
 		// ping
 		if n > 4 && string(buf[:5]) == "_ping" && n <= 259 {
 			peerID := string(buf[5:n])
-			updated := c.node.UpdatePeer(peernet.PeerID(peerID), peerAddr)
-			if updated {
-				slog.Info("[udp] add peer", "id", peerID, "addr", peerAddr)
+			c.peerEvent <- PeerEvent{
+				Op:     OP_PEER_CONFIRM,
+				PeerID: peernet.PeerID(peerID),
+				Addr:   peerAddr,
 			}
 			continue
 		}
+
 		// stun
 		if stun.Is(buf[:n]) {
 			b := make([]byte, n)
@@ -214,7 +277,7 @@ func (c *PeerPacketConn) runReadUDPLoop() {
 			continue
 		}
 
-		peerID := c.node.PeerID(peerAddr)
+		peerID := c.getPeerID(peerAddr)
 		bb := make([]byte, 2+len(peerID)+n)
 		bb[1] = peerID.Len()
 		copy(bb[2:], peerID.Bytes())
@@ -223,9 +286,23 @@ func (c *PeerPacketConn) runReadUDPLoop() {
 	}
 }
 
-func (c *PeerPacketConn) startNATTraversalEngine(b []byte) {
+func (c *PeerPacketConn) requestSTUN(b []byte) {
 	go func() {
 		peerID := peernet.PeerID(b[2 : b[1]+2])
+
+		udpConn, err := net.ListenUDP("udp", nil)
+		if err != nil {
+			slog.Error("listen udp error", "err", err)
+			return
+		}
+		go c.runReadUDPLoop(udpConn)
+
+		c.peerEvent <- PeerEvent{
+			Op:     OP_PEER_DISCO1,
+			PeerID: peerID,
+			Conn:   udpConn,
+		}
+
 		json.Unmarshal(b[b[1]+2:], &c.stunServers)
 		for _, stunServer := range c.stunServers {
 			uaddr, err := net.ResolveUDPAddr("udp", stunServer)
@@ -237,13 +314,13 @@ func (c *PeerPacketConn) startNATTraversalEngine(b []byte) {
 			txID := stun.NewTxID()
 			c.stunTxIDMap.Set(string(txID[:]), stunBindContext{peerID: peerID, ctime: time.Now()})
 			req := stun.Request(txID)
-			_, err = c.udpPacketConn.WriteToUDP(req, uaddr)
+			_, err = udpConn.WriteToUDP(req, uaddr)
 			if err != nil {
 				slog.Error(err.Error())
 				continue
 			}
 			time.Sleep(3 * time.Second)
-			if c.node.PeerUDPAddr(peerID) != nil {
+			if c.peerConnected(peerID) {
 				break
 			}
 		}
@@ -259,19 +336,20 @@ func (c *PeerPacketConn) runNATTraversalLoop() {
 		}
 		stunResp := <-c.stunChan
 
-		tid, saddr, err := stun.ParseResponse(stunResp)
+		txid, saddr, err := stun.ParseResponse(stunResp)
 		if err != nil {
-			slog.Error(err.Error())
+			slog.Error("Skipped invalid stun response", "err", err.Error())
 			continue
 		}
 
-		stunBindCtx, ok := c.stunTxIDMap.Get(string(tid[:]))
+		stunBindCtx, ok := c.stunTxIDMap.Get(string(txid[:]))
 		if !ok {
-			slog.Error("txid mismatch", "got", tid)
+			slog.Error("Skipped unknown stun response", "txid", hex.EncodeToString(txid[:]))
 			continue
 		}
 
 		if !saddr.IsValid() {
+			slog.Error("Skipped invalid UDP addr", "addr", saddr)
 			continue
 		}
 		for i := 0; i < 3; i++ {
@@ -281,31 +359,93 @@ func (c *PeerPacketConn) runNATTraversalLoop() {
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
-		c.stunTxIDMap.Remove(string(tid[:]))
+		c.stunTxIDMap.Remove(string(txid[:]))
 	}
 }
 
 func (c *PeerPacketConn) natTraversal(b []byte) {
+	targetPeerID := peernet.PeerID(b[2 : b[1]+2])
 	targetUDPAddr := b[b[1]+2:]
 	udpAddr, err := net.ResolveUDPAddr("udp", string(targetUDPAddr))
 	if err != nil {
-		slog.Error("resolve udp addr error", "err", err)
+		slog.Error("Resolve udp addr error", "err", err)
 		return
 	}
 	go func() {
-		interval := 200 * time.Millisecond
-		for {
+		c.peerEvent <- PeerEvent{
+			Op:     OP_PEER_DISCO2,
+			PeerID: targetPeerID,
+			Addr:   udpAddr,
+		}
+		interval := 500 * time.Millisecond
+		for i := 0; ; i++ {
 			select {
 			case <-c.ctx.Done():
+				slog.Info("Ping exit", "peer", targetPeerID)
 				return
 			default:
 			}
-			if len(c.node.PeerID(udpAddr)) > 0 {
-				interval = 10 * time.Second
+			peerDiscovered := c.getPeerID(udpAddr) != ""
+			if interval == c.node.peerKeepaliveInterval && !peerDiscovered {
+				break
 			}
-			slog.Debug("Sending ping", "peer", c.node.PeerID(udpAddr), "addr", udpAddr)
-			c.udpPacketConn.WriteToUDP([]byte("_ping"+c.peerID), udpAddr)
+			if peerDiscovered || i >= 16 {
+				interval = c.node.peerKeepaliveInterval
+			}
+			slog.Debug("Ping", "peer", targetPeerID, "addr", udpAddr)
+			c.writeToUDP(targetPeerID, []byte("_ping"+c.peerID))
 			time.Sleep(interval)
 		}
 	}()
+}
+
+func (c *PeerPacketConn) writeToUDP(peerID peernet.PeerID, p []byte) (int, error) {
+	c.peersMapMutex.RLock()
+	defer c.peersMapMutex.RUnlock()
+	if udpCtx, ok := c.peersMap[peerID]; ok {
+		slog.Debug("WriteToUDP", "peer", peerID, "addr", udpCtx.addr)
+		return udpCtx.conn.WriteToUDP(p, udpCtx.addr)
+	}
+	return 0, io.ErrClosedPipe
+}
+
+func (c *PeerPacketConn) peerConnected(peerID peernet.PeerID) bool {
+	c.peersMapMutex.RLock()
+	defer c.peersMapMutex.RUnlock()
+	peerCtx, ok := c.peersMap[peerID]
+	return ok && time.Since(peerCtx.lastValidTime) <= 2*c.node.peerKeepaliveInterval
+}
+
+func (c *PeerPacketConn) getPeerID(udpAddr *net.UDPAddr) peernet.PeerID {
+	if udpAddr == nil {
+		return ""
+	}
+	c.peersMapMutex.RLock()
+	defer c.peersMapMutex.RUnlock()
+	for k, v := range c.peersMap {
+		if v.addr == nil {
+			continue
+		}
+		if time.Since(v.lastValidTime) > 2*c.node.peerKeepaliveInterval {
+			continue
+		}
+		if v.addr.IP.Equal(udpAddr.IP) && v.addr.Port == udpAddr.Port {
+			return peernet.PeerID(k)
+		}
+	}
+	return ""
+}
+
+func (c *PeerPacketConn) runPeersHealthcheck() {
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		default:
+		}
+		time.Sleep(c.node.peerKeepaliveInterval/2 + time.Second)
+		c.peerEvent <- PeerEvent{
+			Op: OP_PEER_HEALTHCHECK,
+		}
+	}
 }

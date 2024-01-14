@@ -58,6 +58,8 @@ func (p *Peer) close() error {
 	if peers, ok := p.peerMap.networkMap.Get(string(p.networkID)); ok {
 		peers.Remove(string(p.id))
 	}
+	_ = p.conn.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(2*time.Second))
 	return p.conn.Close()
 }
 

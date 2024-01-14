@@ -16,16 +16,17 @@ type Peer interface {
 	ListenPacket(peerID peernet.PeerID) (net.PacketConn, error)
 }
 
-type VolatileUDPAddr struct {
-	*net.UDPAddr
+type PeerContext struct {
+	addr          *net.UDPAddr
+	conn          *net.UDPConn
 	lastValidTime time.Time
 }
 
 type Node struct {
-	networkID peernet.NetworkID
-	servers   []string
-	peersMap  cmap.ConcurrentMap[string, *VolatileUDPAddr]
-	closedSig chan int
+	networkID             peernet.NetworkID
+	servers               []string
+	closedSig             chan int
+	peerKeepaliveInterval time.Duration
 }
 
 func (n *Node) ListenPacket(peerID peernet.PeerID) (net.PacketConn, error) {
@@ -43,12 +44,14 @@ func (n *Node) ListenPacket(peerID peernet.PeerID) (net.PacketConn, error) {
 			continue
 		}
 		conn = &PeerPacketConn{
-			node:        n,
-			wsConn:      wsConn,
-			peerID:      peerID,
-			nonce:       peernet.MustParseNonce(httpResp.Header.Get("X-Nonce")),
+			peersMap:    make(map[peernet.PeerID]*PeerContext),
+			peerEvent:   make(chan PeerEvent),
 			inbound:     make(chan []byte, 10),
 			stunChan:    make(chan []byte),
+			wsConn:      wsConn,
+			node:        n,
+			peerID:      peerID,
+			nonce:       peernet.MustParseNonce(httpResp.Header.Get("X-Nonce")),
 			stunTxIDMap: cmap.New[stunBindContext](),
 		}
 		conn.ctx, conn.ctxCancel = context.WithCancel(context.Background())
@@ -61,63 +64,17 @@ func (n *Node) ListenPacket(peerID peernet.PeerID) (net.PacketConn, error) {
 	return conn, nil
 }
 
-func (n *Node) PeerUDPAddr(peerID peernet.PeerID) *net.UDPAddr {
-	if udpAddr, ok := n.peersMap.Get(string(peerID)); ok {
-		return udpAddr.UDPAddr
-	}
-	return nil
-}
-
-func (n *Node) PeerID(udpAddr *net.UDPAddr) peernet.PeerID {
-	if udpAddr == nil {
-		return ""
-	}
-	for item := range n.peersMap.IterBuffered() {
-		if item.Val.UDPAddr.IP.Equal(udpAddr.IP) && item.Val.UDPAddr.Port == udpAddr.Port {
-			return peernet.PeerID(item.Key)
-		}
-	}
-	return ""
-}
-
-func (n *Node) UpdatePeer(peerID peernet.PeerID, udpAddr *net.UDPAddr) (updated bool) {
-	updated = true
-	if peer, ok := n.peersMap.Get(string(peerID)); ok {
-		updated = time.Since(peer.lastValidTime) > 15*time.Second
-	}
-	n.peersMap.Set(string(peerID),
-		&VolatileUDPAddr{UDPAddr: udpAddr, lastValidTime: time.Now()})
-	return
-}
-
 func (n *Node) Close() error {
 	close(n.closedSig)
 	return nil
 }
 
-func (n *Node) udpPeersHealthcheck() {
-	for {
-		select {
-		case <-n.closedSig:
-			return
-		default:
-		}
-		for item := range n.peersMap.IterBuffered() {
-			if time.Since(item.Val.lastValidTime) > 15*time.Second {
-				n.peersMap.Remove(item.Key)
-			}
-		}
-		time.Sleep(3 * time.Second)
-	}
-}
-
 func New(networkID peernet.NetworkID, servers []string) (*Node, error) {
 	node := Node{
-		networkID: networkID,
-		servers:   servers,
-		peersMap:  cmap.New[*VolatileUDPAddr](),
-		closedSig: make(chan int),
+		networkID:             networkID,
+		servers:               servers,
+		closedSig:             make(chan int),
+		peerKeepaliveInterval: 16 * time.Second,
 	}
-	go node.udpPeersHealthcheck()
 	return &node, nil
 }

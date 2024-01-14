@@ -2,7 +2,11 @@ package chat
 
 import (
 	"fmt"
+	"math/rand"
+	"net/http"
 	"strings"
+
+	_ "net/http/pprof"
 
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peernet"
@@ -39,6 +43,13 @@ func init() {
 }
 
 func runInteraction(network, peerID string, servers []string) error {
+
+	go func() {
+		port := 3000 + rand.Intn(100)
+		fmt.Println("listen ", port)
+		http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
+	}()
+
 	node, err := peer.New(peernet.NetworkID(network), servers)
 	if err != nil {
 		return err
