@@ -8,8 +8,8 @@ import (
 
 	_ "net/http/pprof"
 
+	"github.com/rkonfj/peerguard/p2p"
 	"github.com/rkonfj/peerguard/peer"
-	"github.com/rkonfj/peerguard/peernet"
 	"github.com/spf13/cobra"
 )
 
@@ -46,15 +46,15 @@ func runInteraction(network, peerID string, servers []string) error {
 
 	go func() {
 		port := 3000 + rand.Intn(100)
-		fmt.Println("listen ", port)
+		fmt.Printf("pprof: :%d/debug/pprof\n", port)
 		http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 	}()
 
-	node, err := peer.New(peernet.NetworkID(network), servers)
+	node, err := p2p.New(peer.NetworkID(network), servers)
 	if err != nil {
 		return err
 	}
-	packetConn, err := node.ListenPacket(peernet.PeerID(peerID))
+	packetConn, err := node.ListenPacket(peer.PeerID(peerID))
 	if err != nil {
 		return err
 	}
@@ -80,6 +80,6 @@ func runInteraction(network, peerID string, servers []string) error {
 			fmt.Println("usage: peer,msg")
 			continue
 		}
-		packetConn.WriteTo([]byte(msg[1]), peernet.PeerID(msg[0]))
+		packetConn.WriteTo([]byte(msg[1]), peer.PeerID(msg[0]))
 	}
 }

@@ -1,4 +1,4 @@
-package peernet
+package peer
 
 import (
 	"crypto/rand"

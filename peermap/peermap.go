@@ -13,14 +13,14 @@ import (
 
 	"github.com/gorilla/websocket"
 	cmap "github.com/orcaman/concurrent-map/v2"
-	"github.com/rkonfj/peerguard/peernet"
+	"github.com/rkonfj/peerguard/peer"
 )
 
 type Peer struct {
 	peerMap   *PeerMap
 	conn      *websocket.Conn
-	networkID peernet.NetworkID
-	id        peernet.PeerID
+	networkID peer.NetworkID
+	id        peer.PeerID
 	nonce     byte
 	wMut      sync.Mutex
 }
@@ -122,7 +122,7 @@ func (p *Peer) readMessageLoope() {
 		for i, v := range b {
 			b[i] = v ^ p.nonce
 		}
-		tgtPeerID := peernet.PeerID(b[2 : b[1]+2])
+		tgtPeerID := peer.PeerID(b[2 : b[1]+2])
 		if tgtPeer, err := p.peerMap.FindPeer(p.networkID, tgtPeerID); err == nil {
 			data := b[b[1]+2:]
 			bb := make([]byte, 2+len(p.id)+len(data))
@@ -154,7 +154,7 @@ type PeerMap struct {
 	opts       Options
 }
 
-func (pm *PeerMap) FindPeer(networkID peernet.NetworkID, peerID peernet.PeerID) (*Peer, error) {
+func (pm *PeerMap) FindPeer(networkID peer.NetworkID, peerID peer.PeerID) (*Peer, error) {
 	if peers, ok := pm.networkMap.Get(string(networkID)); ok {
 		if peer, ok := peers.Get(string(peerID)); ok {
 			return peer, nil
@@ -226,13 +226,13 @@ func (pm *PeerMap) handleWebsocket(w http.ResponseWriter, r *http.Request) {
 func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Request) {
 	networkID := r.Header.Get("X-Network")
 	peerID := r.Header.Get("X-PeerID")
-	nonce := peernet.MustParseNonce(r.Header.Get("X-Nonce"))
+	nonce := peer.MustParseNonce(r.Header.Get("X-Nonce"))
 	pm.networkMap.SetIfAbsent(networkID, cmap.New[*Peer]())
 	peersMap, _ := pm.networkMap.Get(networkID)
 	peer := Peer{
 		peerMap:   pm,
-		networkID: peernet.NetworkID(networkID),
-		id:        peernet.PeerID(peerID),
+		networkID: peer.NetworkID(networkID),
+		id:        peer.PeerID(peerID),
 		nonce:     nonce,
 	}
 	if ok := peersMap.SetIfAbsent(peerID, &peer); !ok {

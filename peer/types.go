@@ -1,4 +1,4 @@
-package peernet
+package peer
 
 const (
 	CONTROL_RELAY             = 0

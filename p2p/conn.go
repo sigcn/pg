@@ -1,4 +1,4 @@
-package peer
+package p2p
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	cmap "github.com/orcaman/concurrent-map/v2"
-	"github.com/rkonfj/peerguard/peernet"
+	"github.com/rkonfj/peerguard/peer"
 	"tailscale.com/net/stun"
 )
 
@@ -26,7 +26,7 @@ const (
 )
 
 type STUNBindContext struct {
-	PeerID peernet.PeerID
+	PeerID peer.PeerID
 	CTime  time.Time
 }
 
@@ -40,17 +40,17 @@ type PeerEvent struct {
 	Op     int
 	Addr   *net.UDPAddr
 	Conn   *net.UDPConn
-	PeerID peernet.PeerID
+	PeerID peer.PeerID
 }
 
 type PeerPacketConn struct {
-	peersMap    map[peernet.PeerID]*PeerContext
+	peersMap    map[peer.PeerID]*PeerContext
 	peerEvent   chan PeerEvent
 	inbound     chan []byte
 	stunChan    chan []byte
 	wsConn      *websocket.Conn
 	node        *Node
-	peerID      peernet.PeerID
+	peerID      peer.PeerID
 	nonce       byte
 	stunTxIDMap cmap.ConcurrentMap[string, STUNBindContext]
 	ctx         context.Context
@@ -81,7 +81,7 @@ func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 	default:
 	}
 	b := <-c.inbound
-	addr = peernet.PeerID(b[2 : b[1]+2])
+	addr = peer.PeerID(b[2 : b[1]+2])
 	n = copy(p, b[b[1]+2:])
 	return
 }
@@ -91,10 +91,10 @@ func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 // fixed time limit; see SetDeadline and SetWriteDeadline.
 // On packet-oriented connections, write timeouts are rare.
 func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	if _, ok := addr.(peernet.PeerID); !ok {
+	if _, ok := addr.(peer.PeerID); !ok {
 		return 0, errors.New("not a p2p address")
 	}
-	tgtPeer := addr.(peernet.PeerID)
+	tgtPeer := addr.(peer.PeerID)
 	if c.peerConnected(tgtPeer) {
 		return c.writeToUDP(tgtPeer, p)
 	}
@@ -102,7 +102,7 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	return len(p), c.writeTo(p, tgtPeer, 0)
 }
 
-func (c *PeerPacketConn) writeTo(p []byte, tgtPeer peernet.PeerID, action byte) error {
+func (c *PeerPacketConn) writeTo(p []byte, tgtPeer peer.PeerID, action byte) error {
 	b := make([]byte, 0, 2+len(tgtPeer)+len(p))
 	b = append(b, action)             // relay
 	b = append(b, tgtPeer.Len())      // addr length
@@ -198,11 +198,11 @@ func (c *PeerPacketConn) keepState() {
 			b[i] = v ^ c.nonce
 		}
 		switch b[0] {
-		case peernet.CONTROL_RELAY:
+		case peer.CONTROL_RELAY:
 			c.inbound <- b
-		case peernet.CONTROL_PRE_NAT_TRAVERSAL:
+		case peer.CONTROL_PRE_NAT_TRAVERSAL:
 			go c.requestSTUN(b)
-		case peernet.CONTROL_NAT_TRAVERSAL:
+		case peer.CONTROL_NAT_TRAVERSAL:
 			go c.natTraversal(b)
 		}
 	}
@@ -276,7 +276,7 @@ func (c *PeerPacketConn) runReadUDPLoop(udpConn *net.UDPConn) {
 			peerID := string(buf[5:n])
 			c.peerEvent <- PeerEvent{
 				Op:     OP_PEER_CONFIRM,
-				PeerID: peernet.PeerID(peerID),
+				PeerID: peer.PeerID(peerID),
 				Addr:   peerAddr,
 			}
 			continue
@@ -301,7 +301,7 @@ func (c *PeerPacketConn) runReadUDPLoop(udpConn *net.UDPConn) {
 }
 
 func (c *PeerPacketConn) requestSTUN(b []byte) {
-	peerID := peernet.PeerID(b[2 : b[1]+2])
+	peerID := peer.PeerID(b[2 : b[1]+2])
 
 	udpConn, err := net.ListenUDP("udp", nil)
 	if err != nil {
@@ -363,7 +363,7 @@ func (c *PeerPacketConn) runNATTraversalLoop() {
 			continue
 		}
 		for i := 0; i < 3; i++ {
-			err := c.writeTo([]byte(saddr.String()), tx.PeerID, peernet.CONTROL_NAT_TRAVERSAL)
+			err := c.writeTo([]byte(saddr.String()), tx.PeerID, peer.CONTROL_NAT_TRAVERSAL)
 			if err == nil {
 				break
 			}
@@ -374,7 +374,7 @@ func (c *PeerPacketConn) runNATTraversalLoop() {
 }
 
 func (c *PeerPacketConn) natTraversal(b []byte) {
-	targetPeerID := peernet.PeerID(b[2 : b[1]+2])
+	targetPeerID := peer.PeerID(b[2 : b[1]+2])
 	targetUDPAddr := b[b[1]+2:]
 	udpAddr, err := net.ResolveUDPAddr("udp", string(targetUDPAddr))
 	if err != nil {
@@ -407,7 +407,7 @@ func (c *PeerPacketConn) natTraversal(b []byte) {
 	}
 }
 
-func (c *PeerPacketConn) writeToUDP(peerID peernet.PeerID, p []byte) (int, error) {
+func (c *PeerPacketConn) writeToUDP(peerID peer.PeerID, p []byte) (int, error) {
 	c.peersMapMutex.RLock()
 	defer c.peersMapMutex.RUnlock()
 	if peerCtx, ok := c.peersMap[peerID]; ok {
@@ -417,14 +417,14 @@ func (c *PeerPacketConn) writeToUDP(peerID peernet.PeerID, p []byte) (int, error
 	return 0, io.ErrClosedPipe
 }
 
-func (c *PeerPacketConn) peerConnected(peerID peernet.PeerID) bool {
+func (c *PeerPacketConn) peerConnected(peerID peer.PeerID) bool {
 	c.peersMapMutex.RLock()
 	defer c.peersMapMutex.RUnlock()
 	peerCtx, ok := c.peersMap[peerID]
 	return ok && time.Since(peerCtx.LastValidTime) <= 2*c.node.peerKeepaliveInterval
 }
 
-func (c *PeerPacketConn) getPeerID(udpAddr *net.UDPAddr) peernet.PeerID {
+func (c *PeerPacketConn) getPeerID(udpAddr *net.UDPAddr) peer.PeerID {
 	if udpAddr == nil {
 		return ""
 	}
@@ -438,7 +438,7 @@ func (c *PeerPacketConn) getPeerID(udpAddr *net.UDPAddr) peernet.PeerID {
 			continue
 		}
 		if v.Addr.IP.Equal(udpAddr.IP) && v.Addr.Port == udpAddr.Port {
-			return peernet.PeerID(k)
+			return peer.PeerID(k)
 		}
 	}
 	return ""

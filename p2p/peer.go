@@ -1,4 +1,4 @@
-package peer
+package p2p
 
 import (
 	"context"
@@ -9,23 +9,23 @@ import (
 
 	"github.com/gorilla/websocket"
 	cmap "github.com/orcaman/concurrent-map/v2"
-	"github.com/rkonfj/peerguard/peernet"
+	"github.com/rkonfj/peerguard/peer"
 )
 
 type Node struct {
-	networkID             peernet.NetworkID
+	networkID             peer.NetworkID
 	servers               []string
 	closedSig             chan int
 	peerKeepaliveInterval time.Duration
 }
 
-func (n *Node) ListenPacket(peerID peernet.PeerID) (net.PacketConn, error) {
+func (n *Node) ListenPacket(peerID peer.PeerID) (net.PacketConn, error) {
 	var conn *PeerPacketConn
 	for _, server := range n.servers {
 		handshake := http.Header{}
 		handshake.Set("X-Network", string(n.networkID))
 		handshake.Set("X-PeerID", string(peerID))
-		handshake.Set("X-Nonce", peernet.NewNonce())
+		handshake.Set("X-Nonce", peer.NewNonce())
 		wsConn, httpResp, err := websocket.DefaultDialer.Dial(server, handshake)
 		if httpResp != nil && httpResp.StatusCode == http.StatusBadRequest {
 			return nil, errors.New("address is already in used")
@@ -34,14 +34,14 @@ func (n *Node) ListenPacket(peerID peernet.PeerID) (net.PacketConn, error) {
 			continue
 		}
 		conn = &PeerPacketConn{
-			peersMap:    make(map[peernet.PeerID]*PeerContext),
+			peersMap:    make(map[peer.PeerID]*PeerContext),
 			peerEvent:   make(chan PeerEvent),
 			inbound:     make(chan []byte, 10),
 			stunChan:    make(chan []byte),
 			wsConn:      wsConn,
 			node:        n,
 			peerID:      peerID,
-			nonce:       peernet.MustParseNonce(httpResp.Header.Get("X-Nonce")),
+			nonce:       peer.MustParseNonce(httpResp.Header.Get("X-Nonce")),
 			stunTxIDMap: cmap.New[STUNBindContext](),
 		}
 		conn.ctx, conn.ctxCancel = context.WithCancel(context.Background())
@@ -59,7 +59,7 @@ func (n *Node) Close() error {
 	return nil
 }
 
-func New(networkID peernet.NetworkID, servers []string) (*Node, error) {
+func New(networkID peer.NetworkID, servers []string) (*Node, error) {
 	node := Node{
 		networkID:             networkID,
 		servers:               servers,
