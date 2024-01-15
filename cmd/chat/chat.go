@@ -50,14 +50,15 @@ func runInteraction(network, peerID string, servers []string) error {
 		http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 	}()
 
-	node, err := p2p.New(peer.NetworkID(network), servers)
+	node, err := p2p.New(
+		peer.NetworkID(network),
+		servers,
+		p2p.ListenPeerID(peer.PeerID(peerID)),
+	)
 	if err != nil {
 		return err
 	}
-	packetConn, err := node.ListenPacket(peer.PeerID(peerID))
-	if err != nil {
-		return err
-	}
+	packetConn := node.ListenPacket()
 	go func() {
 		buf := make([]byte, 1024)
 		for {

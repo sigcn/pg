@@ -1,10 +1,9 @@
 package peer
 
 const (
-	CONTROL_RELAY               = 0
-	CONTROL_PRE_NAT_TRAVERSAL   = 1
-	CONTROL_REQUEST_PUBLIC_ADDR = 2
-	CONTROL_NAT_TRAVERSAL       = 3
+	CONTROL_RELAY             = 0
+	CONTROL_PRE_NAT_TRAVERSAL = 1
+	CONTROL_NAT_TRAVERSAL     = 2
 )
 
 type NetworkID string
