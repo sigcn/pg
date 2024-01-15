@@ -34,16 +34,15 @@ func (n *Node) ListenPacket(peerID peer.PeerID) (net.PacketConn, error) {
 			continue
 		}
 		conn = &PeerPacketConn{
-			peersMap:         make(map[peer.PeerID]*PeerContext),
-			peerEvent:        make(chan PeerEvent),
-			inbound:          make(chan []byte, 10),
-			stunChan:         make(chan []byte),
-			wsConn:           wsConn,
-			node:             n,
-			peerID:           peerID,
-			nonce:            peer.MustParseNonce(httpResp.Header.Get("X-Nonce")),
-			stunTxIDMap:      cmap.New[STUNBindContext](),
-			healthcheckTimer: *time.NewTimer(n.peerKeepaliveInterval/2 + time.Second),
+			peersMap:    make(map[peer.PeerID]*PeerContext),
+			peerEvent:   make(chan PeerEvent),
+			inbound:     make(chan []byte, 10),
+			stunChan:    make(chan []byte),
+			wsConn:      wsConn,
+			node:        n,
+			peerID:      peerID,
+			nonce:       peer.MustParseNonce(httpResp.Header.Get("X-Nonce")),
+			stunTxIDMap: cmap.New[STUNBindContext](),
 		}
 		conn.ctx, conn.ctxCancel = context.WithCancel(context.Background())
 		go conn.keepState()
@@ -65,7 +64,7 @@ func New(networkID peer.NetworkID, servers []string) (*Node, error) {
 		networkID:             networkID,
 		servers:               servers,
 		closedSig:             make(chan int),
-		peerKeepaliveInterval: 16 * time.Second,
+		peerKeepaliveInterval: 5 * time.Second,
 	}
 	return &node, nil
 }

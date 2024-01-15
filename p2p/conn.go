@@ -31,10 +31,10 @@ type STUNBindContext struct {
 }
 
 type PeerContext struct {
-	Addr          *net.UDPAddr
-	Conn          *net.UDPConn
-	LastValidTime time.Time
-	UpdateTime    time.Time
+	Addr           *net.UDPAddr
+	Conn           *net.UDPConn
+	LastActiveTime time.Time
+	CreateTime     time.Time
 }
 
 type PeerEvent struct {
@@ -45,18 +45,17 @@ type PeerEvent struct {
 }
 
 type PeerPacketConn struct {
-	peersMap         map[peer.PeerID]*PeerContext
-	peerEvent        chan PeerEvent
-	inbound          chan []byte
-	stunChan         chan []byte
-	wsConn           *websocket.Conn
-	node             *Node
-	peerID           peer.PeerID
-	nonce            byte
-	stunTxIDMap      cmap.ConcurrentMap[string, STUNBindContext]
-	healthcheckTimer time.Timer
-	ctx              context.Context
-	ctxCancel        context.CancelFunc
+	peersMap    map[peer.PeerID]*PeerContext
+	peerEvent   chan PeerEvent
+	inbound     chan []byte
+	stunChan    chan []byte
+	wsConn      *websocket.Conn
+	node        *Node
+	peerID      peer.PeerID
+	nonce       byte
+	stunTxIDMap cmap.ConcurrentMap[string, STUNBindContext]
+	ctx         context.Context
+	ctxCancel   context.CancelFunc
 
 	peersMapMutex sync.RWMutex
 	stunServers   []string
@@ -120,7 +119,6 @@ func (c *PeerPacketConn) writeTo(p []byte, tgtPeer peer.PeerID, action byte) err
 // Any blocked ReadFrom or WriteTo operations will be unblocked and return errors.
 func (c *PeerPacketConn) Close() error {
 	c.ctxCancel()
-	c.healthcheckTimer.Stop()
 	close(c.stunChan)
 	close(c.inbound)
 	close(c.peerEvent)
@@ -228,8 +226,7 @@ func (c *PeerPacketConn) handlePeerEvent(e PeerEvent) {
 	defer c.peersMapMutex.Unlock()
 	switch e.Op {
 	case OP_PEER_DISCO1: // 创建发现 peer 事务
-		c.healthcheckTimer.Reset(c.node.peerKeepaliveInterval/2 + time.Second)
-		peerCtx := PeerContext{Conn: e.Conn}
+		peerCtx := PeerContext{Conn: e.Conn, CreateTime: time.Now()}
 		if peer, ok := c.peersMap[e.PeerID]; ok {
 			peer.Conn.Close()
 			slog.Info("[UDP] Clean peer", "peer", e.PeerID, "addr", peer.Addr)
@@ -249,16 +246,17 @@ func (c *PeerPacketConn) handlePeerEvent(e PeerEvent) {
 	case OP_PEER_CONFIRM: // 确认事务
 		slog.Debug("[UDP] Heartbeat", "peer", e.PeerID, "addr", e.Addr)
 		if peer, ok := c.peersMap[e.PeerID]; ok {
-			updated := time.Since(peer.LastValidTime) > 2*c.node.peerKeepaliveInterval
+			updated := time.Since(peer.LastActiveTime) > 2*c.node.peerKeepaliveInterval
 			if updated {
 				slog.Info("[UDP] Add peer", "peer", e.PeerID, "addr", e.Addr)
 			}
-			peer.LastValidTime = time.Now()
+			peer.LastActiveTime = time.Now()
 			peer.Addr = e.Addr
 		}
 	case OP_PEER_HEALTHCHECK:
 		for k, v := range c.peersMap {
-			if time.Since(v.LastValidTime) > 2*c.node.peerKeepaliveInterval {
+			if time.Since(v.CreateTime) > 2*c.node.peerKeepaliveInterval &&
+				time.Since(v.LastActiveTime) > 3*c.node.peerKeepaliveInterval {
 				v.Conn.Close()
 				slog.Info("[UDP] Remove peer", "peer", k, "addr", v.Addr)
 				delete(c.peersMap, k)
@@ -377,7 +375,7 @@ func (c *PeerPacketConn) runNATTraversalLoop() {
 		for i := 0; i < 3; i++ {
 			err := c.writeTo([]byte(saddr.String()), tx.PeerID, peer.CONTROL_NAT_TRAVERSAL)
 			if err == nil {
-				slog.Info("[UDP] Node public address found", "addr", saddr.String())
+				slog.Info("[UDP] Public address found", "addr", saddr.String())
 				break
 			}
 			time.Sleep(200 * time.Millisecond)
@@ -411,11 +409,10 @@ func (c *PeerPacketConn) natTraversal(b []byte) {
 		if interval == c.node.peerKeepaliveInterval && !peerDiscovered {
 			break
 		}
-		if peerDiscovered || i >= 24 {
+		if peerDiscovered || i >= 32 {
 			interval = c.node.peerKeepaliveInterval
 		}
-		slog.Debug("[UDP] Ping", "peer", targetPeerID, "addr", udpAddr)
-		c.writeToUDP(targetPeerID, []byte("_ping"+c.peerID))
+		c.ping(targetPeerID)
 		time.Sleep(interval)
 	}
 }
@@ -430,11 +427,22 @@ func (c *PeerPacketConn) writeToUDP(peerID peer.PeerID, p []byte) (int, error) {
 	return 0, io.ErrClosedPipe
 }
 
+func (c *PeerPacketConn) ping(peerID peer.PeerID) {
+	c.peersMapMutex.RLock()
+	defer c.peersMapMutex.RUnlock()
+	if peerCtx, ok := c.peersMap[peerID]; ok && peerCtx.Addr != nil {
+		slog.Debug("[UDP] Ping", "peer", peerID, "addr", peerCtx.Addr)
+		peerCtx.Conn.WriteToUDP([]byte("_ping"+c.peerID), peerCtx.Addr)
+		return
+	}
+	slog.Debug("[UDP] Ping peer not found", "peer", peerID)
+}
+
 func (c *PeerPacketConn) peerConnected(peerID peer.PeerID) bool {
 	c.peersMapMutex.RLock()
 	defer c.peersMapMutex.RUnlock()
 	peerCtx, ok := c.peersMap[peerID]
-	return ok && time.Since(peerCtx.LastValidTime) <= 2*c.node.peerKeepaliveInterval
+	return ok && time.Since(peerCtx.LastActiveTime) <= 2*c.node.peerKeepaliveInterval
 }
 
 func (c *PeerPacketConn) getPeerID(udpAddr *net.UDPAddr) peer.PeerID {
@@ -447,7 +455,7 @@ func (c *PeerPacketConn) getPeerID(udpAddr *net.UDPAddr) peer.PeerID {
 		if v.Addr == nil {
 			continue
 		}
-		if time.Since(v.LastValidTime) > 2*c.node.peerKeepaliveInterval {
+		if time.Since(v.LastActiveTime) > 2*c.node.peerKeepaliveInterval {
 			continue
 		}
 		if v.Addr.IP.Equal(udpAddr.IP) && v.Addr.Port == udpAddr.Port {
@@ -458,15 +466,16 @@ func (c *PeerPacketConn) getPeerID(udpAddr *net.UDPAddr) peer.PeerID {
 }
 
 func (c *PeerPacketConn) runPeersHealthcheck() {
+	ticker := time.NewTicker(c.node.peerKeepaliveInterval/2 + time.Second)
 	for {
 		select {
 		case <-c.ctx.Done():
+			ticker.Stop()
 			return
-		case <-c.healthcheckTimer.C:
+		case <-ticker.C:
 			c.peerEvent <- PeerEvent{
 				Op: OP_PEER_HEALTHCHECK,
 			}
-			c.healthcheckTimer.Reset(c.node.peerKeepaliveInterval/2 + time.Second)
 		}
 	}
 }
