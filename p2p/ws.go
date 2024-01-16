@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/rkonfj/peerguard/peer"
@@ -19,8 +20,9 @@ type peermapServerConn struct {
 	doNT           chan []byte
 	closedSig      chan int
 
-	wsConn *websocket.Conn
-	nonce  byte
+	writeMutex sync.Mutex
+	wsConn     *websocket.Conn
+	nonce      byte
 }
 
 func (c *peermapServerConn) dialPeermapServer() error {
@@ -90,6 +92,8 @@ func (c *peermapServerConn) writeToRelay(p []byte, peerID peer.PeerID, op byte) 
 	for i, v := range b {
 		b[i] = v ^ c.nonce
 	}
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
 	if wsConn := c.wsConn; wsConn != nil {
 		return wsConn.WriteMessage(websocket.BinaryMessage, b)
 	}
