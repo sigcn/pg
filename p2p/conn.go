@@ -7,15 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/rkonfj/peerguard/peer"
 	"tailscale.com/net/stun"
@@ -25,22 +22,22 @@ type PeerPacketConn struct {
 	cfg                   Config
 	networkID             peer.NetworkID
 	udpConn               *net.UDPConn
-	wsConn                *websocket.Conn
+	serverConn            *peermapServerConn
 	closedSig             chan int
 	peerKeepaliveInterval time.Duration
 
-	peersMap  map[peer.PeerID]*PeerContext
-	inbound   chan []byte
-	peerEvent chan PeerEvent
-	stunChan  chan []byte
-	nonce     byte
-
-	stunSession cmap.ConcurrentMap[string, STUNBindContext]
+	peermapServers []string
+	peersMap       map[peer.PeerID]*PeerContext
+	inbound        chan []byte
+	peerEvent      chan PeerEvent
+	stunChan       chan []byte
+	stunSession    cmap.ConcurrentMap[string, STUNBindContext]
+	localIPv6Addrs []string
+	localIPv4Addrs []string
 
 	peersMapMutex sync.RWMutex
+	closeWait     sync.WaitGroup
 	stunServers   []string
-	localIPv6     []string
-	localIPv4     []string
 }
 
 // ReadFrom reads a packet from the connection,
@@ -55,7 +52,7 @@ type PeerPacketConn struct {
 func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 	select {
 	case <-c.closedSig:
-		err = io.ErrClosedPipe
+		err = ErrUseOfClosedConnection
 		c.Close()
 		return
 	default:
@@ -79,7 +76,7 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		return c.writeToUDP(tgtPeer, p)
 	}
 	slog.Debug("[Relay] WriteTo", "addr", tgtPeer)
-	return len(p), c.writeToRelay(p, tgtPeer, 0)
+	return len(p), c.serverConn.writeToRelay(p, tgtPeer, 0)
 }
 
 // Close closes the connection.
@@ -135,40 +132,37 @@ func (c *PeerPacketConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-func (c *PeerPacketConn) runWebSocketEventLoop() {
-	for {
-		mt, b, err := c.wsConn.ReadMessage()
-		if err != nil {
-			if !websocket.IsCloseError(err,
-				websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				slog.Error(err.Error())
+func (c *PeerPacketConn) listenUDP() error {
+	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{Port: c.cfg.UDPPort})
+	if err != nil {
+		return fmt.Errorf("listen udp error: %w", err)
+	}
+	c.udpConn = udpConn
+	ips, err := ListLocalIPs()
+	if err != nil {
+		return fmt.Errorf("list local ips error: %w", err)
+	}
+	for _, ip := range ips {
+		addr := net.JoinHostPort(ip.String(), fmt.Sprintf("%d", c.cfg.UDPPort))
+		if ip.To4() != nil {
+			if c.cfg.DisableIPv4 {
+				continue
 			}
-			c.wsConn.Close()
-			return
-		}
-		switch mt {
-		case websocket.PingMessage:
-			c.wsConn.WriteMessage(websocket.PongMessage, nil)
-			continue
-		case websocket.BinaryMessage:
-		default:
-			continue
-		}
-		for i, v := range b {
-			b[i] = v ^ c.nonce
-		}
-		switch b[0] {
-		case peer.CONTROL_RELAY:
-			c.inbound <- b
-		case peer.CONTROL_PRE_NAT_TRAVERSAL:
-			go c.requestSTUN(b)
-		case peer.CONTROL_NAT_TRAVERSAL:
-			go c.traverseNAT(b)
+			c.localIPv4Addrs = append(c.localIPv4Addrs, addr)
+		} else {
+			if c.cfg.DisableIPv6 {
+				continue
+			}
+			c.localIPv6Addrs = append(c.localIPv6Addrs, addr)
 		}
 	}
+	go c.runPacketEventLoop()
+	return nil
 }
 
 func (c *PeerPacketConn) runPacketEventLoop() {
+	c.closeWait.Add(1)
+	defer c.closeWait.Done()
 	buf := make([]byte, 65535)
 	for {
 		select {
@@ -178,7 +172,7 @@ func (c *PeerPacketConn) runPacketEventLoop() {
 		}
 		n, peerAddr, err := c.udpConn.ReadFromUDP(buf)
 		if err != nil {
-			if !strings.Contains(err.Error(), "use of closed network connection") {
+			if !strings.Contains(err.Error(), ErrUseOfClosedConnection.Error()) {
 				slog.Error("read from udp error", "err", err)
 			}
 			return
@@ -213,32 +207,61 @@ func (c *PeerPacketConn) runPacketEventLoop() {
 	}
 }
 
+func (c *PeerPacketConn) runPeerFindEventLoop() {
+	c.closeWait.Add(1)
+	defer c.closeWait.Done()
+	for {
+		select {
+		case <-c.closedSig:
+			return
+		case b := <-c.serverConn.preNTChannel():
+			go c.traverseNAT1(b)
+		case b := <-c.serverConn.doNTChannel():
+			go c.traverseNAT2(b)
+		}
+	}
+}
+
 func (c *PeerPacketConn) runPeerEventLoop() {
+	c.closeWait.Add(1)
+	defer c.closeWait.Done()
 	handlePeerEvent := func(e PeerEvent) {
 		c.peersMapMutex.Lock()
 		defer c.peersMapMutex.Unlock()
 		switch e.Op {
 		case OP_PEER_DISCO: // 收到 peer addr
-			if peerCtx, ok := c.peersMap[e.PeerID]; ok {
-				peerCtx.Addr = e.Addr
-				break
+			if _, ok := c.peersMap[e.PeerID]; !ok {
+				peerCtx := PeerContext{
+					States:     make(map[string]*PeerState),
+					CreateTime: time.Now()}
+				c.peersMap[e.PeerID] = &peerCtx
 			}
-			c.peersMap[e.PeerID] = &PeerContext{Addr: e.Addr, CreateTime: time.Now()}
+			peerCtx := c.peersMap[e.PeerID]
+			peerCtx.States[e.Addr.String()] = &PeerState{Addr: e.Addr}
 		case OP_PEER_CONFIRM: // 确认事务
 			slog.Debug("[UDP] Heartbeat", "peer", e.PeerID, "addr", e.Addr)
 			if peer, ok := c.peersMap[e.PeerID]; ok {
-				updated := time.Since(peer.LastActiveTime) > 2*c.peerKeepaliveInterval
-				if updated {
-					slog.Info("[UDP] Add peer", "peer", e.PeerID, "addr", e.Addr)
+				for _, state := range peer.States {
+					if state.Addr.IP.Equal(e.Addr.IP) && state.Addr.Port == e.Addr.Port {
+						updated := time.Since(state.LastActiveTime) > 2*c.peerKeepaliveInterval
+						if updated {
+							slog.Info("[UDP] AddPeer", "peer", e.PeerID, "addr", e.Addr)
+						}
+						state.LastActiveTime = time.Now()
+					}
 				}
-				peer.LastActiveTime = time.Now()
-				peer.Addr = e.Addr
 			}
 		case OP_PEER_HEALTHCHECK:
 			for k, v := range c.peersMap {
-				if time.Since(v.CreateTime) > 3*c.peerKeepaliveInterval &&
-					time.Since(v.LastActiveTime) > 2*c.peerKeepaliveInterval {
-					slog.Info("[UDP] Remove peer", "peer", k, "addr", v.Addr)
+				if time.Since(v.CreateTime) > 3*c.peerKeepaliveInterval {
+					for addr, state := range v.States {
+						if time.Since(state.LastActiveTime) > 2*c.peerKeepaliveInterval {
+							slog.Info("[UDP] RemovePeer", "peer", k, "addr", state.Addr)
+							delete(v.States, addr)
+						}
+					}
+				}
+				if len(v.States) == 0 {
 					delete(c.peersMap, k)
 				}
 			}
@@ -255,6 +278,8 @@ func (c *PeerPacketConn) runPeerEventLoop() {
 }
 
 func (c *PeerPacketConn) runSTUNEventLoop() {
+	c.closeWait.Add(1)
+	defer c.closeWait.Done()
 	for {
 		select {
 		case <-c.closedSig:
@@ -278,19 +303,14 @@ func (c *PeerPacketConn) runSTUNEventLoop() {
 			slog.Error("Skipped invalid UDP addr", "addr", saddr)
 			continue
 		}
-		for i := 0; i < 3; i++ {
-			err := c.writeToRelay([]byte(saddr.String()), tx.PeerID, peer.CONTROL_NAT_TRAVERSAL)
-			if err == nil {
-				slog.Info("ListenUDP", "addr", saddr.String())
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
+		c.dialPeerStartNT2(saddr.String(), tx.PeerID)
 		c.stunSession.Remove(string(txid[:]))
 	}
 }
 
 func (c *PeerPacketConn) runPeersHealthcheckLoop() {
+	c.closeWait.Add(1)
+	defer c.closeWait.Done()
 	ticker := time.NewTicker(c.peerKeepaliveInterval/2 + time.Second)
 	for {
 		select {
@@ -312,13 +332,13 @@ func (c *PeerPacketConn) findPeerID(udpAddr *net.UDPAddr) peer.PeerID {
 	c.peersMapMutex.RLock()
 	defer c.peersMapMutex.RUnlock()
 	for k, v := range c.peersMap {
-		if v.Addr == nil {
-			continue
-		}
-		if time.Since(v.LastActiveTime) > 2*c.peerKeepaliveInterval {
-			continue
-		}
-		if v.Addr.IP.Equal(udpAddr.IP) && v.Addr.Port == udpAddr.Port {
+		for _, state := range v.States {
+			if !state.Addr.IP.Equal(udpAddr.IP) || state.Addr.Port != udpAddr.Port {
+				continue
+			}
+			if time.Since(state.LastActiveTime) > 2*c.peerKeepaliveInterval {
+				return ""
+			}
 			return peer.PeerID(k)
 		}
 	}
@@ -328,36 +348,22 @@ func (c *PeerPacketConn) findPeerID(udpAddr *net.UDPAddr) peer.PeerID {
 func (c *PeerPacketConn) findPeer(peerID peer.PeerID) (*PeerContext, bool) {
 	c.peersMapMutex.RLock()
 	defer c.peersMapMutex.RUnlock()
-	if peer, ok := c.peersMap[peerID]; ok {
-		return peer, time.Since(peer.LastActiveTime) <= 2*c.peerKeepaliveInterval
+	if peer, ok := c.peersMap[peerID]; ok && peer.Ready() {
+		return peer, true
 	}
 	return nil, false
 }
 
-func (n *PeerPacketConn) writeToRelay(p []byte, peerID peer.PeerID, op byte) error {
-	b := make([]byte, 0, 2+len(peerID)+len(p))
-	b = append(b, op)                // relay
-	b = append(b, peerID.Len())      // addr length
-	b = append(b, peerID.Bytes()...) // addr
-	b = append(b, p...)              // data
-	for i, v := range b {
-		b[i] = v ^ n.nonce
-	}
-	return n.wsConn.WriteMessage(websocket.BinaryMessage, b)
-}
-
 func (n *PeerPacketConn) writeToUDP(peerID peer.PeerID, p []byte) (int, error) {
-
-	if peer, ok := n.findPeer(peerID); ok && peer.Addr != nil {
-		slog.Debug("[UDP] WriteTo", "peer", peerID, "addr", peer.Addr)
-		return n.udpConn.WriteToUDP(p, peer.Addr)
+	if peer, ok := n.findPeer(peerID); ok {
+		addr := peer.Select()
+		slog.Debug("[UDP] WriteTo", "peer", peerID, "addr", addr)
+		return n.udpConn.WriteToUDP(p, addr)
 	}
-	return 0, io.ErrClosedPipe
+	return 0, ErrUseOfClosedConnection
 }
 
-func (n *PeerPacketConn) requestSTUN(b []byte) {
-	peerID := peer.PeerID(b[2 : b[1]+2])
-	json.Unmarshal(b[b[1]+2:], &n.stunServers)
+func (n *PeerPacketConn) requestSTUN(peerID peer.PeerID) {
 	txID := stun.NewTxID()
 	n.stunSession.Set(string(txID[:]), STUNBindContext{PeerID: peerID, CTime: time.Now()})
 	for _, stunServer := range n.stunServers {
@@ -378,7 +384,36 @@ func (n *PeerPacketConn) requestSTUN(b []byte) {
 	}
 }
 
-func (n *PeerPacketConn) traverseNAT(b []byte) {
+func (c *PeerPacketConn) dialPeerStartNT2(udpAddr string, targetPeerID peer.PeerID) {
+	for i := 0; i < 3; i++ {
+		err := c.serverConn.writeToRelay([]byte(udpAddr), targetPeerID, peer.CONTROL_NAT_TRAVERSAL)
+		if err == nil {
+			slog.Info("ListenUDP", "addr", udpAddr)
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func (c *PeerPacketConn) traverseNAT1(b []byte) {
+	// write addr to peer use writeToRelay
+	peerID := peer.PeerID(b[2 : b[1]+2])
+	json.Unmarshal(b[b[1]+2:], &c.stunServers)
+	for _, addr := range c.localIPv4Addrs {
+		c.dialPeerStartNT2(addr, peerID)
+	}
+	time.AfterFunc(3*time.Second, func() {
+		if ctx, ok := c.findPeer(peerID); !ok || !ctx.IPv4Ready() {
+			c.requestSTUN(peerID)
+		}
+	})
+
+	for _, addr := range c.localIPv6Addrs {
+		c.dialPeerStartNT2(addr, peerID)
+	}
+}
+
+func (c *PeerPacketConn) traverseNAT2(b []byte) {
 	targetPeerID := peer.PeerID(b[2 : b[1]+2])
 	targetUDPAddr := b[b[1]+2:]
 	udpAddr, err := net.ResolveUDPAddr("udp", string(targetUDPAddr))
@@ -386,43 +421,33 @@ func (n *PeerPacketConn) traverseNAT(b []byte) {
 		slog.Error("Resolve udp addr error", "err", err)
 		return
 	}
-	n.peerEvent <- PeerEvent{
+	c.peerEvent <- PeerEvent{
 		Op:     OP_PEER_DISCO,
 		PeerID: targetPeerID,
 		Addr:   udpAddr,
 	}
-	interval := 300 * time.Millisecond
+	defer slog.Debug("[UDP] Ping exit", "peer", targetPeerID, "addr", udpAddr)
+	interval := 500 * time.Millisecond
 	for i := 0; ; i++ {
 		select {
-		case <-n.closedSig:
-			slog.Info("[UDP] Ping exit", "peer", targetPeerID)
+		case <-c.closedSig:
 			return
 		default:
 		}
-		peerDiscovered := n.findPeerID(udpAddr) != ""
-		if interval == n.peerKeepaliveInterval && !peerDiscovered {
+		peerDiscovered := c.findPeerID(udpAddr) != ""
+		if interval == c.peerKeepaliveInterval && !peerDiscovered {
 			break
 		}
-		if peerDiscovered || i >= 50 {
-			interval = n.peerKeepaliveInterval
+		if peerDiscovered || i >= 32 {
+			interval = c.peerKeepaliveInterval
 		}
-		n.pingPeer(targetPeerID)
+		slog.Debug("[UDP] Ping", "peer", targetPeerID, "addr", udpAddr)
+		c.udpConn.WriteToUDP([]byte("_ping"+c.cfg.PeerID), udpAddr)
 		time.Sleep(interval)
 	}
 }
 
-func (c *PeerPacketConn) pingPeer(peerID peer.PeerID) {
-	c.peersMapMutex.RLock()
-	defer c.peersMapMutex.RUnlock()
-	if peer, ok := c.peersMap[peerID]; ok && peer.Addr != nil {
-		slog.Debug("[UDP] Ping", "peer", peerID, "addr", peer.Addr)
-		c.udpConn.WriteToUDP([]byte("_ping"+c.cfg.PeerID), peer.Addr)
-		return
-	}
-	slog.Debug("[UDP] Ping peer not found", "peer", peerID)
-}
-
-func ListenPacket(networkID peer.NetworkID, servers []string, opts ...Option) (*PeerPacketConn, error) {
+func ListenPacket(networkID peer.NetworkID, peermapServers []string, opts ...Option) (*PeerPacketConn, error) {
 	id := make([]byte, 32)
 	rand.Read(id)
 	cfg := Config{
@@ -435,75 +460,43 @@ func ListenPacket(networkID peer.NetworkID, servers []string, opts ...Option) (*
 		}
 	}
 
-	var wsConn *websocket.Conn
-	var nonce byte
-	for _, server := range servers {
-		handshake := http.Header{}
-		handshake.Set("X-Network", string(networkID))
-		handshake.Set("X-PeerID", string(cfg.PeerID))
-		handshake.Set("X-Nonce", peer.NewNonce())
-		conn, httpResp, err := websocket.DefaultDialer.Dial(server, handshake)
-		if httpResp != nil && httpResp.StatusCode == http.StatusBadRequest {
-			return nil, fmt.Errorf("address[%s] is already in used", cfg.PeerID)
-		}
-		if err != nil {
-			continue
-		}
-		wsConn = conn
-		nonce = peer.MustParseNonce(httpResp.Header.Get("X-Nonce"))
-		break
-	}
-	if wsConn == nil {
-		return nil, errors.New("no peermap server available")
-	}
-
-	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{Port: cfg.UDPPort})
-	if err != nil {
-		return nil, fmt.Errorf("listen udp error: %w", err)
-	}
-	ips, err := ListLocalIPs()
-	if err != nil {
-		return nil, fmt.Errorf("list local ips error: %w", err)
-	}
-	var ipv6 []string
-	var ipv4 []string
-
-	for _, ip := range ips {
-		if ip.To4() != nil {
-			if cfg.DisableIPv4 {
-				continue
-			}
-			ipv4 = append(ipv4, ip.String())
-		} else {
-			if cfg.DisableIPv6 {
-				continue
-			}
-			ipv6 = append(ipv6, ip.String())
-		}
-		slog.Info("ListenUDP", "addr", net.JoinHostPort(ip.String(), fmt.Sprintf("%d", cfg.UDPPort)))
-	}
-
 	node := PeerPacketConn{
 		cfg:                   cfg,
 		networkID:             networkID,
-		udpConn:               udpConn,
-		wsConn:                wsConn,
 		closedSig:             make(chan int),
-		peerKeepaliveInterval: 5 * time.Second,
-		peersMap:              make(map[peer.PeerID]*PeerContext),
-		inbound:               make(chan []byte, 100),
-		peerEvent:             make(chan PeerEvent),
-		stunChan:              make(chan []byte),
-		stunSession:           cmap.New[STUNBindContext](),
-		nonce:                 nonce,
-		localIPv6:             ipv6,
-		localIPv4:             ipv4,
+		peerKeepaliveInterval: 10 * time.Second,
+
+		peermapServers: peermapServers,
+		peersMap:       make(map[peer.PeerID]*PeerContext),
+		inbound:        make(chan []byte, 100),
+		peerEvent:      make(chan PeerEvent),
+		stunChan:       make(chan []byte),
+		stunSession:    cmap.New[STUNBindContext](),
 	}
-	go node.runPacketEventLoop()
+
+	node.serverConn = &peermapServerConn{
+		peermapServers: peermapServers,
+		networkID:      networkID,
+		peerID:         cfg.PeerID,
+		inbound:        node.inbound,
+		closedSig:      node.closedSig,
+		preNT:          make(chan []byte, 10),
+		doNT:           make(chan []byte, 10),
+	}
+
+	if err := node.serverConn.dialPeermapServer(); err != nil {
+		return nil, err
+	}
+
+	if err := node.listenUDP(); err != nil {
+		return nil, fmt.Errorf("listen udp error: %w", err)
+	}
+
 	go node.runPeerEventLoop()
 	go node.runSTUNEventLoop()
-	go node.runWebSocketEventLoop()
+	go node.runPeerFindEventLoop()
 	go node.runPeersHealthcheckLoop()
+	go node.serverConn.runWebSocketEventLoop()
 	slog.Info("ListenPeer", "addr", node.LocalAddr())
 	return &node, nil
 }
