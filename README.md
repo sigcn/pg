@@ -1,6 +1,6 @@
 ### Example
 ```go
-node, err := p2p.New(
+packetConn, err := p2p.ListenPacket(
     peer.NetworkID("HXncIcQ4ocsGtOOrQQiG4H2WHXPplZakuq4f6EJR1cg="),
     []string{"wss://synf.in/pg"},
 )
@@ -10,12 +10,12 @@ if err != nil {
 
 for {
     buf := make([]byte, 1024) 
-    n, peerID, err := node.PacketConn().ReadFrom(buf)
+    n, peerID, err := packetConn.ReadFrom(buf)
     if err != nil {
         panic(err)
     }
     fmt.Println("Echo packet to", peerID, string(buf[:n]))
-    _, err = node.PacketConn().WriteTo(peerID, buf[:n])
+    _, err = packetConn.WriteTo(peerID, buf[:n])
     if err != nil {
         panic(err)
     }
