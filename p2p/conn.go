@@ -32,8 +32,7 @@ type PeerPacketConn struct {
 	peerEvent      chan PeerEvent
 	stunChan       chan []byte
 	stunSession    cmap.ConcurrentMap[string, STUNBindContext]
-	localIPv6Addrs []string
-	localIPv4Addrs []string
+	localAddrs     []string
 
 	peersMapMutex sync.RWMutex
 	closeWait     sync.WaitGroup
@@ -148,13 +147,12 @@ func (c *PeerPacketConn) listenUDP() error {
 			if c.cfg.DisableIPv4 {
 				continue
 			}
-			c.localIPv4Addrs = append(c.localIPv4Addrs, addr)
 		} else {
 			if c.cfg.DisableIPv6 {
 				continue
 			}
-			c.localIPv6Addrs = append(c.localIPv6Addrs, addr)
 		}
+		c.localAddrs = append(c.localAddrs, addr)
 	}
 	go c.runPacketEventLoop()
 	return nil
@@ -256,7 +254,11 @@ func (c *PeerPacketConn) runPeerEventLoop() {
 				if time.Since(v.CreateTime) > 3*c.peerKeepaliveInterval {
 					for addr, state := range v.States {
 						if time.Since(state.LastActiveTime) > 2*c.peerKeepaliveInterval {
-							slog.Info("[UDP] RemovePeer", "peer", k, "addr", state.Addr)
+							if state.LastActiveTime.IsZero() {
+								slog.Debug("[UDP] RemovePeer", "peer", k, "addr", state.Addr)
+							} else {
+								slog.Info("[UDP] RemovePeer", "peer", k, "addr", state.Addr)
+							}
 							delete(v.States, addr)
 						}
 					}
@@ -396,21 +398,16 @@ func (c *PeerPacketConn) dialPeerStartNT2(udpAddr string, targetPeerID peer.Peer
 }
 
 func (c *PeerPacketConn) traverseNAT1(b []byte) {
-	// write addr to peer use writeToRelay
 	peerID := peer.PeerID(b[2 : b[1]+2])
 	json.Unmarshal(b[b[1]+2:], &c.stunServers)
-	for _, addr := range c.localIPv4Addrs {
+	for _, addr := range c.localAddrs {
 		c.dialPeerStartNT2(addr, peerID)
 	}
-	time.AfterFunc(3*time.Second, func() {
+	time.AfterFunc(2*time.Second, func() {
 		if ctx, ok := c.findPeer(peerID); !ok || !ctx.IPv4Ready() {
 			c.requestSTUN(peerID)
 		}
 	})
-
-	for _, addr := range c.localIPv6Addrs {
-		c.dialPeerStartNT2(addr, peerID)
-	}
 }
 
 func (c *PeerPacketConn) traverseNAT2(b []byte) {
@@ -487,7 +484,6 @@ func ListenPacket(networkID peer.NetworkID, peermapServers []string, opts ...Opt
 	if err := node.serverConn.dialPeermapServer(); err != nil {
 		return nil, err
 	}
-
 	if err := node.listenUDP(); err != nil {
 		return nil, fmt.Errorf("listen udp error: %w", err)
 	}
@@ -507,7 +503,6 @@ func ListLocalIPs() ([]net.IP, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	for _, addr := range addresses {
 		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 			ips = append(ips, ipnet.IP)
