@@ -2,11 +2,16 @@ package peer
 
 const (
 	CONTROL_RELAY             = 0
-	CONTROL_PRE_NAT_TRAVERSAL = 1
-	CONTROL_NAT_TRAVERSAL     = 2
+	CONTROL_NEW_PEER          = 1
+	CONTROL_NEW_PEER_UDP_ADDR = 2
 )
 
 type NetworkID string
+
+func (id NetworkID) String() string {
+	return string(id)
+}
+
 type PeerID string
 
 func (id PeerID) String() string {

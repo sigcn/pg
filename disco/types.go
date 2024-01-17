@@ -1,4 +1,4 @@
-package p2p
+package disco
 
 import (
 	"errors"
@@ -17,11 +17,6 @@ const (
 	OP_PEER_CONFIRM     = 2
 	OP_PEER_HEALTHCHECK = 10
 )
-
-type STUNBindContext struct {
-	PeerID peer.PeerID
-	CTime  time.Time
-}
 
 type PeerContext struct {
 	States     map[string]*PeerState
@@ -61,8 +56,28 @@ type PeerState struct {
 	LastActiveTime time.Time
 }
 
-type PeerEvent struct {
+type PeerOP struct {
 	Op     int
 	Addr   *net.UDPAddr
 	PeerID peer.PeerID
+}
+
+type STUNSession struct {
+	PeerID peer.PeerID
+	CTime  time.Time
+}
+
+type Datagram struct {
+	PeerID peer.PeerID
+	Data   []byte
+}
+
+type PeerFindEvent struct {
+	PeerID peer.PeerID
+	STUNs  []string
+}
+
+type PeerUDPAddrEvent struct {
+	PeerID peer.PeerID
+	Addr   *net.UDPAddr
 }
