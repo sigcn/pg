@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"time"
 
 	"github.com/rkonfj/peerguard/disco"
@@ -14,10 +15,11 @@ import (
 )
 
 type PeerPacketConn struct {
-	closedSig chan int
-	peerID    peer.PeerID
-	udpConn   *disco.UDPConn
-	wsConn    *disco.WSConn
+	closedSig   chan struct{}
+	readTimeout chan struct{}
+	peerID      peer.PeerID
+	udpConn     *disco.UDPConn
+	wsConn      *disco.WSConn
 }
 
 // ReadFrom reads a packet from the connection,
@@ -34,6 +36,9 @@ func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 	case <-c.closedSig:
 		err = disco.ErrUseOfClosedConnection
 		c.Close()
+		return
+	case <-c.readTimeout:
+		err = os.ErrDeadlineExceeded
 		return
 	case datagram := <-c.wsConn.Datagrams():
 		addr = datagram.PeerID
@@ -67,6 +72,7 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 // Any blocked ReadFrom or WriteTo operations will be unblocked and return errors.
 func (c *PeerPacketConn) Close() error {
 	close(c.closedSig)
+	close(c.readTimeout)
 	return nil
 }
 
@@ -97,13 +103,17 @@ func (c *PeerPacketConn) LocalAddr() net.Addr {
 //
 // A zero value for t means I/O operations will not time out.
 func (c *PeerPacketConn) SetDeadline(t time.Time) error {
-	return nil
+	return c.SetReadDeadline(t)
 }
 
 // SetReadDeadline sets the deadline for future ReadFrom calls
 // and any currently-blocked ReadFrom call.
 // A zero value for t means ReadFrom will not time out.
 func (c *PeerPacketConn) SetReadDeadline(t time.Time) error {
+	timeout := time.Until(t)
+	if timeout > 0 {
+		time.AfterFunc(timeout, func() { c.readTimeout <- struct{}{} })
+	}
 	return nil
 }
 
@@ -143,10 +153,11 @@ func ListenPacket(networkID peer.NetworkID, peermapServers []string, opts ...Opt
 
 	slog.Info("ListenPeer", "addr", cfg.PeerID)
 	return &PeerPacketConn{
-		peerID:    cfg.PeerID,
-		closedSig: make(chan int),
-		udpConn:   udpConn,
-		wsConn:    wsConn,
+		peerID:      cfg.PeerID,
+		closedSig:   make(chan struct{}),
+		readTimeout: make(chan struct{}),
+		udpConn:     udpConn,
+		wsConn:      wsConn,
 	}, nil
 }
 
