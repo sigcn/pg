@@ -241,7 +241,6 @@ func (c *UDPConn) runPeersHealthcheckLoop() {
 }
 
 func (c *UDPConn) requestSTUN(peerID peer.PeerID, stunServers []string) {
-	fmt.Println("RequestSTUN")
 	txID := stun.NewTxID()
 	c.stunSessions.Set(string(txID[:]), STUNSession{PeerID: peerID, CTime: time.Now()})
 	for _, stunServer := range stunServers {

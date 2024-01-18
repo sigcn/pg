@@ -138,6 +138,7 @@ func (c *PeerPacketConn) SetWriteBuffer(bytes int) error {
 	return c.udpConn.SetWriteBuffer(bytes)
 }
 
+// ListenPacket listen the p2p network for read/write packets
 func ListenPacket(networkID peer.NetworkID, peermapServers []string, opts ...Option) (*PeerPacketConn, error) {
 	id := make([]byte, 32)
 	rand.Read(id)
