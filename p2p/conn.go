@@ -126,6 +126,18 @@ func (c *PeerPacketConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+// SetReadBuffer sets the size of the operating system's
+// receive buffer associated with the connection.
+func (c *PeerPacketConn) SetReadBuffer(bytes int) error {
+	return c.udpConn.SetReadBuffer(bytes)
+}
+
+// SetWriteBuffer sets the size of the operating system's
+// transmit buffer associated with the connection.
+func (c *PeerPacketConn) SetWriteBuffer(bytes int) error {
+	return c.udpConn.SetWriteBuffer(bytes)
+}
+
 func ListenPacket(networkID peer.NetworkID, peermapServers []string, opts ...Option) (*PeerPacketConn, error) {
 	id := make([]byte, 32)
 	rand.Read(id)
