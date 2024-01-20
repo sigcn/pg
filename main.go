@@ -17,9 +17,10 @@ var (
 
 func main() {
 	cmd := &cobra.Command{
-		Use:     "peerguard",
-		Version: fmt.Sprintf("%s, commit %s", Version, Commit),
-		Short:   "A peer to peer network toolset",
+		Use:          "peerguard",
+		Version:      fmt.Sprintf("%s, commit %s", Version, Commit),
+		Short:        "A peer to peer network toolset",
+		SilenceUsage: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			verbose, err := cmd.Flags().GetInt("verbose")
 			if err != nil {
