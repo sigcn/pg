@@ -36,7 +36,7 @@ func init() {
 			return runInteraction(network, id, servers)
 		},
 	}
-	Cmd.Flags().StringP("network", "n", "default", "network")
+	Cmd.Flags().StringP("network", "n", "", "network")
 	Cmd.Flags().String("id", "", "peer id")
 	Cmd.Flags().StringSliceP("server", "s", []string{}, "peermap server")
 
@@ -51,9 +51,9 @@ func runInteraction(network, peerID string, servers []string) error {
 	}()
 
 	packetConn, err := p2p.ListenPacket(
-		peer.NetworkID(network),
-		servers,
-		p2p.ListenPeerID(peer.PeerID(peerID)),
+		network,
+		p2p.Peermap(servers...),
+		p2p.ListenPeerID(peerID),
 	)
 	if err != nil {
 		return err

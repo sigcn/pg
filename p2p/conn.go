@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/peer"
+	"storj.io/common/base58"
 )
 
 type PeerPacketConn struct {
@@ -139,12 +139,12 @@ func (c *PeerPacketConn) SetWriteBuffer(bytes int) error {
 }
 
 // ListenPacket listen the p2p network for read/write packets
-func ListenPacket(networkID peer.NetworkID, peermapServers []string, opts ...Option) (*PeerPacketConn, error) {
+func ListenPacket(network string, cluster peer.PeermapCluster, opts ...Option) (*PeerPacketConn, error) {
 	id := make([]byte, 32)
 	rand.Read(id)
 	cfg := Config{
 		UDPPort: 29877,
-		PeerID:  peer.PeerID(base64.StdEncoding.EncodeToString(id)),
+		PeerID:  peer.PeerID(base58.Encode(id)),
 	}
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
@@ -157,7 +157,7 @@ func ListenPacket(networkID peer.NetworkID, peermapServers []string, opts ...Opt
 		return nil, err
 	}
 
-	wsConn, err := disco.DialPeermapServer(networkID, cfg.PeerID, peermapServers)
+	wsConn, err := disco.DialPeermapServer(peer.NetworkID(network), cfg.PeerID, cluster)
 	if err != nil {
 		return nil, err
 	}

@@ -1,8 +1,8 @@
 ### Example
 ```go
 packetConn, err := p2p.ListenPacket(
-    peer.NetworkID("HXncIcQ4ocsGtOOrQQiG4H2WHXPplZakuq4f6EJR1cg="),
-    []string{"wss://synf.in/pg"},
+    p2p.Network("8EBTbAcAEKfMUjWKnrhQgC7mmFXrkVhWzMNs8P7h6tXsxBhxB9VnncTScXyaw22JkZ"),
+    p2p.Peermap("wss://synf.in/pg"),
 )
 if err != nil {
     panic(err)

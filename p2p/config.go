@@ -18,8 +18,9 @@ func ListenUDPPort(port int) Option {
 	}
 }
 
-func ListenPeerID(peerID peer.PeerID) Option {
+func ListenPeerID(id string) Option {
 	return func(cfg *Config) error {
+		peerID := peer.PeerID(id)
 		if peerID.Len() > 0 {
 			cfg.PeerID = peerID
 		}
@@ -41,4 +42,12 @@ func ListenIPv4Only() Option {
 		cfg.DisableIPv6 = true
 		return nil
 	}
+}
+
+func Network(network string) peer.NetworkID {
+	return peer.NetworkID(network)
+}
+
+func Peermap(servers ...string) peer.PeermapCluster {
+	return peer.PeermapCluster(servers)
 }

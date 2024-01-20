@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/peermap/auth"
 )
 
 type Peer struct {
@@ -148,10 +149,11 @@ func (p *Peer) keepalive() {
 }
 
 type PeerMap struct {
-	httpServer *http.Server
-	wsUpgrader *websocket.Upgrader
-	networkMap cmap.ConcurrentMap[string, cmap.ConcurrentMap[string, *Peer]]
-	opts       Options
+	httpServer    *http.Server
+	wsUpgrader    *websocket.Upgrader
+	networkMap    cmap.ConcurrentMap[string, cmap.ConcurrentMap[string, *Peer]]
+	opts          Options
+	authenticator auth.Authenticator
 }
 
 func (pm *PeerMap) FindPeer(networkID peer.NetworkID, peerID peer.PeerID) (*Peer, error) {
@@ -180,27 +182,35 @@ func (pm *PeerMap) close() {
 type Options struct {
 	Listen       string
 	AdvertiseURL string
+	ClusterKey   string
 	STUNs        []string
 }
 
-func (opts *Options) applyDefaults() {
+func (opts *Options) applyDefaults() error {
 	if opts.Listen == "" {
 		opts.Listen = ":9987"
 	}
+	if opts.ClusterKey == "" {
+		return errors.New("cluster key is required")
+	}
+	return nil
 }
 
-func New(opts Options) *PeerMap {
-	opts.applyDefaults()
+func New(opts Options) (*PeerMap, error) {
+	if err := opts.applyDefaults(); err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	pm := PeerMap{
-		httpServer: &http.Server{Handler: mux, Addr: opts.Listen},
-		wsUpgrader: &websocket.Upgrader{},
-		networkMap: cmap.New[cmap.ConcurrentMap[string, *Peer]](),
-		opts:       opts,
+		httpServer:    &http.Server{Handler: mux, Addr: opts.Listen},
+		wsUpgrader:    &websocket.Upgrader{},
+		networkMap:    cmap.New[cmap.ConcurrentMap[string, *Peer]](),
+		authenticator: auth.NewAuthenticator(opts.ClusterKey),
+		opts:          opts,
 	}
 	mux.HandleFunc("/", pm.handleWebsocket)
 	mux.HandleFunc("/peermap", pm.handleQueryPeermap)
-	return &pm
+	return &pm, nil
 }
 
 func (pm *PeerMap) handleQueryPeermap(w http.ResponseWriter, r *http.Request) {
@@ -224,8 +234,15 @@ func (pm *PeerMap) handleWebsocket(w http.ResponseWriter, r *http.Request) {
 }
 
 func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Request) {
-	networkID := r.Header.Get("X-Network")
+	networkID, err := pm.authenticator.VerifyToken(r.Header.Get("X-Network"))
+	if err != nil {
+		slog.Debug("authenticate failed", "err", err, "network", r.Header.Get("X-Network"))
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	peerID := r.Header.Get("X-PeerID")
+
 	nonce := peer.MustParseNonce(r.Header.Get("X-Nonce"))
 	pm.networkMap.SetIfAbsent(networkID, cmap.New[*Peer]())
 	peersMap, _ := pm.networkMap.Get(networkID)

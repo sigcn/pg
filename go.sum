@@ -14,5 +14,7 @@ golang.org/x/net v0.18.0 h1:mIYleuAkSbHh0tCv7RvjL3F6ZVbLjq4+R7zbOn3Kokg=
 golang.org/x/net v0.18.0/go.mod h1:/czyP5RqHAH4odGYxBJ1qz0+CE5WZ+2j1YgoEo8F2jQ=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+storj.io/common v0.0.0-20240116121339-670742423093 h1:tdIfoS97TtVaPTRgdSjwLn4IIWMOzZCaW40EaVe4/f4=
+storj.io/common v0.0.0-20240116121339-670742423093/go.mod h1:s3e2Lyg2jCwqL9TLFmesDgoZBPQIByBiKZ+AJOI9qvc=
 tailscale.com v1.56.1 h1:V3HBDJai3u7xo22Xlv7ioqKNZQdxOJebLYCNqCXVwZg=
 tailscale.com v1.56.1/go.mod h1:XQk6fCN8oMJ+qbCmW+2WS/VM3jTA9nIHT6O19t0hZeQ=

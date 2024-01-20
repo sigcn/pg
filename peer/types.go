@@ -29,3 +29,5 @@ func (id PeerID) Len() byte {
 func (id PeerID) Bytes() []byte {
 	return []byte(id)
 }
+
+type PeermapCluster []string

@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,7 +25,10 @@ func init() {
 			if err != nil {
 				return err
 			}
-			srv := peermap.New(opts)
+			srv, err := peermap.New(opts)
+			if err != nil {
+				return err
+			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
 			if err := srv.Serve(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -35,7 +39,10 @@ func init() {
 	}
 	Cmd.Flags().StringP("listen", "l", "127.0.0.1:9987", "listen address for this peermap server")
 	Cmd.Flags().String("advertise-url", "", "advertised url for this peermap server (default: auto-detect)")
+	Cmd.Flags().String("cluster-key", "", "Key to generate token and auth nodes (cluster nodes must use a shared key)")
 	Cmd.Flags().StringSlice("stun", []string{}, "stun server for peers NAT traversal (empty disable NAT traversal)")
+
+	Cmd.MarkFlagRequired("cluster-key")
 }
 
 func processOptions(cmd *cobra.Command) (opts peermap.Options, err error) {
@@ -43,9 +50,16 @@ func processOptions(cmd *cobra.Command) (opts peermap.Options, err error) {
 	if err != nil {
 		return
 	}
+	opts.ClusterKey, err = cmd.Flags().GetString("cluster-key")
+	if err != nil {
+		return
+	}
 	opts.STUNs, err = cmd.Flags().GetStringSlice("stun")
 	if err != nil {
 		return
+	}
+	if len(opts.STUNs) == 0 {
+		slog.Warn("STUN not set and peers direct connect is disabled")
 	}
 	opts.AdvertiseURL, err = cmd.Flags().GetString("advertise-url")
 	return

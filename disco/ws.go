@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/rkonfj/peerguard/peer"
@@ -15,15 +16,40 @@ import (
 
 type WSConn struct {
 	*websocket.Conn
-	closedSig     chan int
-	datagrams     chan *Datagram
-	peers         chan *PeerFindEvent
-	peersUDPAddrs chan *PeerUDPAddrEvent
-	nonce         byte
-	writeMutex    sync.Mutex
+	networkID      peer.NetworkID
+	peerID         peer.PeerID
+	peermapServers []string
+	closedSig      chan int
+	datagrams      chan *Datagram
+	peers          chan *PeerFindEvent
+	peersUDPAddrs  chan *PeerUDPAddrEvent
+	nonce          byte
+	writeMutex     sync.Mutex
 }
 
-func DialPeermapServer(networkID peer.NetworkID, peerID peer.PeerID, peermapServers []string) (*WSConn, error) {
+func DialPeermapServer(networkID peer.NetworkID, peerID peer.PeerID, peermapServers peer.PeermapCluster) (*WSConn, error) {
+	conn, nonce, err := dialPeermapServer(networkID, peerID, peermapServers)
+	if err != nil {
+		return nil, err
+	}
+
+	wsConn := WSConn{
+		Conn:           conn,
+		networkID:      networkID,
+		peerID:         peerID,
+		peermapServers: peermapServers,
+		closedSig:      make(chan int),
+		datagrams:      make(chan *Datagram, 50),
+		peers:          make(chan *PeerFindEvent, 20),
+		peersUDPAddrs:  make(chan *PeerUDPAddrEvent, 20),
+		nonce:          nonce,
+	}
+	go wsConn.runWebSocketEventLoop()
+	return &wsConn, nil
+}
+
+func dialPeermapServer(networkID peer.NetworkID, peerID peer.PeerID, peermapServers []string) (
+	*websocket.Conn, byte, error) {
 	for _, server := range peermapServers {
 		handshake := http.Header{}
 		handshake.Set("X-Network", networkID.String())
@@ -31,23 +57,18 @@ func DialPeermapServer(networkID peer.NetworkID, peerID peer.PeerID, peermapServ
 		handshake.Set("X-Nonce", peer.NewNonce())
 		conn, httpResp, err := websocket.DefaultDialer.Dial(server, handshake)
 		if httpResp != nil && httpResp.StatusCode == http.StatusBadRequest {
-			return nil, fmt.Errorf("address[%s] is already in used", peerID)
+			return nil, 0, fmt.Errorf("address: %s is already in used", peerID)
+		}
+		if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
+			return nil, 0, fmt.Errorf("join to network denied: %s", networkID)
 		}
 		if err != nil {
 			continue
 		}
-		wsConn := WSConn{
-			Conn:          conn,
-			closedSig:     make(chan int),
-			datagrams:     make(chan *Datagram, 50),
-			peers:         make(chan *PeerFindEvent, 20),
-			peersUDPAddrs: make(chan *PeerUDPAddrEvent, 20),
-			nonce:         peer.MustParseNonce(httpResp.Header.Get("X-Nonce")),
-		}
-		go wsConn.runWebSocketEventLoop()
-		return &wsConn, nil
+		slog.Info("Connect peermap succeed", "server", server)
+		return conn, peer.MustParseNonce(httpResp.Header.Get("X-Nonce")), nil
 	}
-	return nil, errors.New("no peermap server available")
+	return nil, 0, errors.New("no peermap server available")
 }
 
 func (c *WSConn) runWebSocketEventLoop() {
@@ -64,6 +85,17 @@ func (c *WSConn) runWebSocketEventLoop() {
 				slog.Error(err.Error())
 			}
 			c.Conn.Close()
+			for {
+				time.Sleep(5 * time.Second)
+				conn, nonce, err := dialPeermapServer(c.networkID, c.peerID, c.peermapServers)
+				if err != nil {
+					slog.Error("Connect peermap error", "err", err)
+					continue
+				}
+				c.Conn = conn
+				c.nonce = nonce
+				break
+			}
 			return
 		}
 		switch mt {
