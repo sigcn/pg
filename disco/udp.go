@@ -2,6 +2,7 @@ package disco
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -297,6 +298,29 @@ func (n *UDPConn) WriteToUDP(p []byte, peerID peer.PeerID) (int, error) {
 		return n.UDPConn.WriteToUDP(p, addr)
 	}
 	return 0, ErrUseOfClosedConnection
+}
+
+func (c *UDPConn) Broadcast(b []byte) (peerCount int, err error) {
+	c.peersMapMutex.RLock()
+	peerCount = len(c.peersMap)
+	peers := make([]peer.PeerID, 0, peerCount)
+	for k := range c.peersMap {
+		peers = append(peers, k)
+	}
+	c.peersMapMutex.RUnlock()
+
+	var errs []error
+	for _, peer := range peers {
+		_, err := c.WriteToUDP(b, peer)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		err = errors.Join(errs...)
+	}
+	return
 }
 
 func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.PeerID) (*UDPConn, error) {

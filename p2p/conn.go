@@ -14,6 +14,10 @@ import (
 	"storj.io/common/base58"
 )
 
+type PacketBroadcaster interface {
+	Broadcast([]byte) error
+}
+
 type PeerPacketConn struct {
 	closedSig   chan struct{}
 	readTimeout chan struct{}
@@ -136,6 +140,11 @@ func (c *PeerPacketConn) SetReadBuffer(bytes int) error {
 // transmit buffer associated with the connection.
 func (c *PeerPacketConn) SetWriteBuffer(bytes int) error {
 	return c.udpConn.SetWriteBuffer(bytes)
+}
+
+// Broadcast broadcast packet to all found peers using direct udpConn
+func (c *PeerPacketConn) Broadcast(b []byte) (int, error) {
+	return c.udpConn.Broadcast(b)
 }
 
 // ListenPacket listen the p2p network for read/write packets

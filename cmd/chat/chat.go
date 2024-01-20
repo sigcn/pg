@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
-	"strings"
 
 	_ "net/http/pprof"
 
 	"github.com/rkonfj/peerguard/p2p"
-	"github.com/rkonfj/peerguard/peer"
 	"github.com/spf13/cobra"
 )
 
@@ -73,13 +71,13 @@ func runInteraction(network, peerID string, servers []string) error {
 		var read string
 		_, err := fmt.Scanln(&read)
 		if err != nil {
-			panic(err)
-		}
-		msg := strings.Split(read, ",")
-		if len(msg) != 2 {
-			fmt.Println("usage: peer,msg")
+			fmt.Println("ERR", err)
 			continue
 		}
-		packetConn.WriteTo([]byte(msg[1]), peer.PeerID(msg[0]))
+		count, err := packetConn.Broadcast([]byte(read))
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(count, "peers sent")
 	}
 }
