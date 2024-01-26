@@ -8,6 +8,7 @@ import (
 	"github.com/rkonfj/peerguard/cmd/chat"
 	"github.com/rkonfj/peerguard/cmd/serve"
 	"github.com/rkonfj/peerguard/cmd/token"
+	"github.com/rkonfj/peerguard/cmd/vpn"
 	"github.com/spf13/cobra"
 )
 
@@ -38,6 +39,7 @@ func main() {
 	cmd.AddCommand(serve.Cmd)
 	cmd.AddCommand(token.Cmd)
 	cmd.AddCommand(chat.Cmd)
+	cmd.AddCommand(vpn.Cmd)
 
 	cmd.PersistentFlags().IntP("verbose", "v", 0, "logger verbosity level")
 
