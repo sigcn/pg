@@ -55,6 +55,6 @@ func init() {
 	Cmd.Flags().Int("mtu", 1200, "mtu")
 
 	Cmd.MarkFlagRequired("network")
-	Cmd.MarkFlagRequired("ip")
+	Cmd.MarkFlagRequired("cidr")
 	Cmd.MarkFlagRequired("peermap")
 }
