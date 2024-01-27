@@ -44,7 +44,7 @@ func NewVPN(cfg Config) *VPN {
 		inbound:  make(chan []byte, 1000),
 		exitSig:  make(chan struct{}),
 		bufPool: sync.Pool{New: func() any {
-			buf := make([]byte, cfg.MTU+IPPacketOffset)
+			buf := make([]byte, cfg.MTU+IPPacketOffset+40)
 			return &buf
 		}},
 	}
@@ -86,7 +86,7 @@ func (vpn *VPN) runTunReadEventLoop(device tun.Device) {
 	sizes := make([]int, 1000)
 
 	for i := range bufs {
-		bufs[i] = make([]byte, vpn.cfg.MTU)
+		bufs[i] = make([]byte, vpn.cfg.MTU+40)
 	}
 
 	for {
@@ -123,7 +123,7 @@ func (vpn *VPN) runTunWriteEventLoop(device tun.Device) {
 }
 
 func (vpn *VPN) runPacketConnReadEventLoop(packetConn net.PacketConn) {
-	buf := make([]byte, vpn.cfg.MTU)
+	buf := make([]byte, vpn.cfg.MTU+40)
 	for {
 		select {
 		case <-vpn.exitSig:

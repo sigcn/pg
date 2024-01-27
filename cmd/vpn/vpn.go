@@ -52,7 +52,7 @@ func init() {
 	Cmd.Flags().String("cidr", "", "is an IP address prefix (CIDR) representing an IP network.  i.e. 100.0.0.2/24")
 	Cmd.Flags().StringSlice("peermap", []string{}, "peermap cluster")
 	Cmd.Flags().String("tun", "pg0", "tun name")
-	Cmd.Flags().Int("mtu", 1200, "mtu")
+	Cmd.Flags().Int("mtu", 1500-40-8, "mtu")
 
 	Cmd.MarkFlagRequired("network")
 	Cmd.MarkFlagRequired("cidr")
