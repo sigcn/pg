@@ -81,6 +81,16 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 func (c *PeerPacketConn) Close() error {
 	close(c.closedSig)
 	close(c.readTimeout)
+	var errs []error
+	if err := c.wsConn.Close(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := c.udpConn.Close(); err != nil {
+		errs = append(errs, err)
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
 	return nil
 }
 

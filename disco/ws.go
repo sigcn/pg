@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,12 +81,18 @@ func (c *WSConn) runWebSocketEventLoop() {
 		}
 		mt, b, err := c.Conn.ReadMessage()
 		if err != nil {
-			if !websocket.IsCloseError(err,
-				websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				slog.Error(err.Error())
+			if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) &&
+				!websocket.IsUnexpectedCloseError(err, websocket.CloseAbnormalClosure) &&
+				!strings.Contains(err.Error(), ErrUseOfClosedConnection.Error()) {
+				slog.Error("Read websocket message error", "err", err.Error())
 			}
 			c.Conn.Close()
 			for {
+				select {
+				case <-c.closedSig:
+					return
+				default:
+				}
 				time.Sleep(5 * time.Second)
 				conn, nonce, err := dialPeermapServer(c.networkID, c.peerID, c.peermapServers)
 				if err != nil {
@@ -133,6 +140,11 @@ func (c *WSConn) runWebSocketEventLoop() {
 			}
 		}
 	}
+}
+
+func (c *WSConn) Close() error {
+	close(c.closedSig)
+	return c.Conn.Close()
 }
 
 func (c *WSConn) WriteTo(p []byte, peerID peer.PeerID, op byte) error {

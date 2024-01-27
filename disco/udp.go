@@ -29,9 +29,17 @@ type UDPConn struct {
 	peersMap              map[peer.PeerID]*PeerContext
 	stunSessions          cmap.ConcurrentMap[string, STUNSession]
 
-	localAddrs []string
+	localAddrs        []string
+	upnpDeleteMapping func()
 
 	peersMapMutex sync.RWMutex
+}
+
+func (c *UDPConn) Close() error {
+	if c.upnpDeleteMapping != nil {
+		c.upnpDeleteMapping()
+	}
+	return c.UDPConn.Close()
 }
 
 func (c *UDPConn) Datagrams() <-chan *Datagram {
@@ -62,6 +70,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.PeerID, stunServers []stri
 			if err != nil {
 				continue
 			}
+			c.upnpDeleteMapping = func() { nat.DeletePortMapping("udp", mappedPort, udpPort) }
 			c.udpAddrSends <- &PeerUDPAddrEvent{
 				PeerID: peerID,
 				Addr:   &net.UDPAddr{IP: externalIP, Port: mappedPort},
