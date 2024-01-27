@@ -199,7 +199,7 @@ func runControlEventLoop(wsConn *disco.WSConn, udpConn *disco.UDPConn) {
 				for i := 0; i < 3; i++ {
 					err := wsConn.WriteTo([]byte(e.Addr.String()), e.PeerID, peer.CONTROL_NEW_PEER_UDP_ADDR)
 					if err == nil {
-						slog.Info("ListenUDP", "addr", e.Addr)
+						slog.Debug("ListenUDP", "addr", e.Addr)
 						break
 					}
 					time.Sleep(200 * time.Millisecond)
