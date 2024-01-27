@@ -18,7 +18,7 @@ func init() {
 		Short: "Run a vpn peer daemon",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ip, err := cmd.Flags().GetString("ip")
+			cidr, err := cmd.Flags().GetString("cidr")
 			if err != nil {
 				return err
 			}
@@ -42,14 +42,14 @@ func init() {
 			defer cancel()
 			return vpn.NewVPN(vpn.Config{
 				MTU:     mtu,
-				IP:      ip,
+				CIDR:    cidr,
 				Peermap: peermapCluster,
 				Network: network,
 			}).RunTun(ctx, tunName)
 		},
 	}
 	Cmd.Flags().String("network", "", "p2p network")
-	Cmd.Flags().String("ip", "", "unique ipv4/ipv6 addr")
+	Cmd.Flags().String("cidr", "", "is an IP address prefix (CIDR) representing an IP network.  i.e. 100.0.0.2/24")
 	Cmd.Flags().StringSlice("peermap", []string{}, "peermap cluster")
 	Cmd.Flags().String("tun", "pg0", "tun name")
 	Cmd.Flags().Int("mtu", 1200, "mtu")

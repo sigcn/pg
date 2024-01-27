@@ -5,12 +5,14 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"strings"
 	"sync"
 
 	"github.com/rkonfj/peerguard/p2p"
 	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/vpn/link"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	"golang.zx2c4.com/wireguard/tun"
@@ -24,7 +26,7 @@ type Config struct {
 	MTU     int
 	Network string
 	Peermap []string
-	IP      string
+	CIDR    string
 }
 
 type VPN struct {
@@ -53,16 +55,20 @@ func (vpn *VPN) RunTun(ctx context.Context, tunName string) error {
 	if err != nil {
 		return err
 	}
-	vpn.run(ctx, device)
-	return nil
+	link.SetupLink(device, vpn.cfg.CIDR)
+	return vpn.run(ctx, device)
 }
 
-func (vpn *VPN) run(ctx context.Context, device tun.Device) {
+func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 	defer device.Close()
 	defer close(vpn.exitSig)
 	defer close(vpn.inbound)
 	defer close(vpn.outbound)
-	packetConn, err := p2p.ListenPacket(vpn.cfg.Network, vpn.cfg.Peermap, p2p.ListenPeerID(vpn.cfg.IP))
+	cidr, err := netip.ParsePrefix(vpn.cfg.CIDR)
+	if err != nil {
+		return err
+	}
+	packetConn, err := p2p.ListenPacket(vpn.cfg.Network, vpn.cfg.Peermap, p2p.ListenPeerID(cidr.Addr().String()))
 	if err != nil {
 		panic(err)
 	}
@@ -72,6 +78,7 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) {
 	go vpn.runPacketConnWriteEventLoop(packetConn)
 	<-ctx.Done()
 	device.Close()
+	return nil
 }
 
 func (vpn *VPN) runTunReadEventLoop(device tun.Device) {
@@ -103,7 +110,10 @@ func (vpn *VPN) runTunWriteEventLoop(device tun.Device) {
 		select {
 		case <-vpn.exitSig:
 			return
-		case pkt := <-vpn.inbound:
+		case pkt, ok := <-vpn.inbound:
+			if !ok {
+				return
+			}
 			_, err := device.Write([][]byte{pkt}, IPPacketOffset)
 			if err != nil {
 				slog.Error("write to tun", "err", err.Error())
@@ -135,7 +145,10 @@ func (vpn *VPN) runPacketConnWriteEventLoop(packetConn net.PacketConn) {
 		select {
 		case <-vpn.exitSig:
 			return
-		case pkt := <-vpn.outbound:
+		case pkt, ok := <-vpn.outbound:
+			if !ok {
+				return
+			}
 			if pkt[0]>>4 == 4 {
 				header, err := ipv4.ParseHeader(pkt)
 				if err != nil {

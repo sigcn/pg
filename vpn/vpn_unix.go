@@ -20,6 +20,5 @@ func (vpn *VPN) RunTunFD(ctx context.Context, tunFD int) error {
 	if err != nil {
 		return err
 	}
-	vpn.run(ctx, device)
-	return nil
+	return vpn.run(ctx, device)
 }
