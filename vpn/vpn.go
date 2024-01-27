@@ -88,8 +88,8 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 func (vpn *VPN) runTunReadEventLoop(wg *sync.WaitGroup, device tun.Device) {
 	defer wg.Done()
 
-	bufs := make([][]byte, 1000)
-	sizes := make([]int, 1000)
+	bufs := make([][]byte, device.BatchSize())
+	sizes := make([]int, device.BatchSize())
 
 	for i := range bufs {
 		bufs[i] = make([]byte, vpn.cfg.MTU+40)
