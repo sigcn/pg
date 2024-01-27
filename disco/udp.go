@@ -404,17 +404,3 @@ func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.PeerID) (*UDPCon
 	go udpConn.runPeersHealthcheckLoop()
 	return &udpConn, nil
 }
-
-func ListLocalIPs() ([]net.IP, error) {
-	var ips []net.IP
-	addresses, err := net.InterfaceAddrs()
-	if err != nil {
-		return nil, err
-	}
-	for _, addr := range addresses {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			ips = append(ips, ipnet.IP)
-		}
-	}
-	return ips, nil
-}
