@@ -154,6 +154,10 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			if err != nil {
 				panic(err)
 			}
+			if header.Dst.To4()[0] >= 224 && header.Dst.To4()[0] <= 239 {
+				slog.Debug("DropMulticastIPv4", "dst", header.Dst)
+				continue
+			}
 			_, err = packetConn.WriteTo(pkt, peer.PeerID(header.Dst.String()))
 			if err != nil {
 				panic(err)
@@ -164,6 +168,10 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			header, err := ipv6.ParseHeader(pkt)
 			if err != nil {
 				panic(err)
+			}
+			if header.Dst[0] == 0xff {
+				slog.Debug("DropMulticastIPv6", "dst", header.Dst)
+				continue
 			}
 			_, err = packetConn.WriteTo(pkt, peer.PeerID(header.Dst.String()))
 			if err != nil {
