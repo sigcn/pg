@@ -65,7 +65,8 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 		return err
 	}
 
-	packetConn, err := p2p.ListenPacket(vpn.cfg.Network, vpn.cfg.Peermap, p2p.ListenPeerID(cidr.Addr().String()))
+	packetConn, err := p2p.ListenPacket(
+		peer.NetworkID(vpn.cfg.Network), vpn.cfg.Peermap, p2p.ListenPeerID(cidr.Addr().String()))
 	if err != nil {
 		return err
 	}

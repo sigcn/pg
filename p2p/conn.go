@@ -162,7 +162,7 @@ func (c *PeerPacketConn) Broadcast(b []byte) (int, error) {
 }
 
 // ListenPacket listen the p2p network for read/write packets
-func ListenPacket(network string, cluster peer.PeermapCluster, opts ...Option) (*PeerPacketConn, error) {
+func ListenPacket(network peer.NetworkID, cluster peer.PeermapCluster, opts ...Option) (*PeerPacketConn, error) {
 	id := make([]byte, 32)
 	rand.Read(id)
 	cfg := Config{
