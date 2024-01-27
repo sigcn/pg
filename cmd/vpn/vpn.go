@@ -15,7 +15,7 @@ var Cmd *cobra.Command
 func init() {
 	Cmd = &cobra.Command{
 		Use:   "vpn",
-		Short: "Run vpn peer",
+		Short: "Run a vpn peer daemon",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ip, err := cmd.Flags().GetString("ip")
@@ -23,6 +23,10 @@ func init() {
 				return err
 			}
 			network, err := cmd.Flags().GetString("network")
+			if err != nil {
+				return err
+			}
+			tunName, err := cmd.Flags().GetString("tun")
 			if err != nil {
 				return err
 			}
@@ -36,20 +40,19 @@ func init() {
 			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
-			vpn.NewVPN(vpn.Config{
+			return vpn.NewVPN(vpn.Config{
 				MTU:     mtu,
-				TunName: "tun0",
-				IPv4:    ip,
+				IP:      ip,
 				Peermap: peermapCluster,
 				Network: network,
-			}).Run(ctx)
-			return nil
+			}).RunTun(ctx, tunName)
 		},
 	}
-	Cmd.Flags().String("network", "", "Network")
-	Cmd.Flags().String("ip", "", "ipv4/ipv6 addr")
+	Cmd.Flags().String("network", "", "p2p network")
+	Cmd.Flags().String("ip", "", "unique ipv4/ipv6 addr")
+	Cmd.Flags().StringSlice("peermap", []string{}, "peermap cluster")
+	Cmd.Flags().String("tun", "pg0", "tun name")
 	Cmd.Flags().Int("mtu", 1200, "mtu")
-	Cmd.Flags().StringSlice("peermap", []string{}, "Peermap cluster")
 
 	Cmd.MarkFlagRequired("network")
 	Cmd.MarkFlagRequired("ip")

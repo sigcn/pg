@@ -22,10 +22,9 @@ const (
 
 type Config struct {
 	MTU     int
-	TunName string
 	Network string
 	Peermap []string
-	IPv4    string
+	IP      string
 }
 
 type VPN struct {
@@ -49,13 +48,21 @@ func NewVPN(cfg Config) *VPN {
 	}
 }
 
-func (vpn *VPN) Run(ctx context.Context) {
-	device, err := tun.CreateTUN(vpn.cfg.TunName, vpn.cfg.MTU)
+func (vpn *VPN) RunTun(ctx context.Context, tunName string) error {
+	device, err := tun.CreateTUN(tunName, vpn.cfg.MTU)
 	if err != nil {
-		panic(err)
+		return err
 	}
+	vpn.run(ctx, device)
+	return nil
+}
+
+func (vpn *VPN) run(ctx context.Context, device tun.Device) {
 	defer device.Close()
-	packetConn, err := p2p.ListenPacket(vpn.cfg.Network, vpn.cfg.Peermap, p2p.ListenPeerID(vpn.cfg.IPv4))
+	defer close(vpn.exitSig)
+	defer close(vpn.inbound)
+	defer close(vpn.outbound)
+	packetConn, err := p2p.ListenPacket(vpn.cfg.Network, vpn.cfg.Peermap, p2p.ListenPeerID(vpn.cfg.IP))
 	if err != nil {
 		panic(err)
 	}
@@ -64,6 +71,7 @@ func (vpn *VPN) Run(ctx context.Context) {
 	go vpn.runPacketConnReadEventLoop(packetConn)
 	go vpn.runPacketConnWriteEventLoop(packetConn)
 	<-ctx.Done()
+	device.Close()
 }
 
 func (vpn *VPN) runTunReadEventLoop(device tun.Device) {

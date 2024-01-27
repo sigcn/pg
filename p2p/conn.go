@@ -15,8 +15,13 @@ import (
 )
 
 type PacketBroadcaster interface {
-	Broadcast([]byte) error
+	Broadcast([]byte) (int, error)
 }
+
+var (
+	_ net.PacketConn    = (*PeerPacketConn)(nil)
+	_ PacketBroadcaster = (*PeerPacketConn)(nil)
+)
 
 type PeerPacketConn struct {
 	closedSig   chan struct{}
