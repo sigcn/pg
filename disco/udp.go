@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
 
 	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/upnp"
 	"tailscale.com/net/stun"
 )
 
@@ -41,6 +43,33 @@ func (c *UDPConn) UDPAddrSends() <-chan *PeerUDPAddrEvent {
 }
 
 func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.PeerID, stunServers []string) {
+	// UPnP
+	go func() {
+		nat, err := upnp.Discover()
+		if err != nil {
+			slog.Debug("UPnP is disabled", "err", err)
+			return
+		}
+		externalIP, err := nat.GetExternalAddress()
+		if err != nil {
+			slog.Debug("UPnP is disabled", "err", err)
+			return
+		}
+		udpPort := int(netip.MustParseAddrPort(c.UDPConn.LocalAddr().String()).Port())
+
+		for i := 0; i < 5; i++ {
+			mappedPort, err := nat.AddPortMapping("udp", udpPort+i, udpPort, "peerguard", 24*3600)
+			if err != nil {
+				continue
+			}
+			c.udpAddrSends <- &PeerUDPAddrEvent{
+				PeerID: peerID,
+				Addr:   &net.UDPAddr{IP: externalIP, Port: mappedPort},
+			}
+			return
+		}
+	}()
+	// LAN
 	for _, addr := range c.localAddrs {
 		uaddr, err := net.ResolveUDPAddr("udp", addr)
 		if err != nil {
@@ -52,6 +81,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.PeerID, stunServers []stri
 			Addr:   uaddr,
 		}
 	}
+	// WAN
 	time.AfterFunc(time.Second, func() {
 		if ctx, ok := c.findPeer(peerID); !ok || !ctx.IPv4Ready() {
 			c.requestSTUN(peerID, stunServers)
