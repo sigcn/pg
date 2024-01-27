@@ -65,7 +65,7 @@ func dialPeermapServer(networkID peer.NetworkID, peerID peer.PeerID, peermapServ
 		if err != nil {
 			continue
 		}
-		slog.Info("Connect peermap succeed", "server", server)
+		slog.Info("PeermapConnected", "server", server)
 		return conn, peer.MustParseNonce(httpResp.Header.Get("X-Nonce")), nil
 	}
 	return nil, 0, errors.New("no peermap server available")
@@ -89,7 +89,7 @@ func (c *WSConn) runWebSocketEventLoop() {
 				time.Sleep(5 * time.Second)
 				conn, nonce, err := dialPeermapServer(c.networkID, c.peerID, c.peermapServers)
 				if err != nil {
-					slog.Error("Connect peermap error", "err", err)
+					slog.Error("PeermapConnectFailed", "err", err)
 					continue
 				}
 				c.Conn = conn
