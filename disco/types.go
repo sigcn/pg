@@ -2,6 +2,7 @@ package disco
 
 import (
 	"errors"
+	"math/rand"
 	"net"
 	"time"
 
@@ -48,7 +49,7 @@ func (peer *PeerContext) Select() *net.UDPAddr {
 			addrs = append(addrs, state.Addr)
 		}
 	}
-	return addrs[0]
+	return addrs[rand.Intn(len(addrs))]
 }
 
 type PeerState struct {
