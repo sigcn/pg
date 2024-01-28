@@ -6,6 +6,8 @@ const (
 	CONTROL_NEW_PEER_UDP_ADDR = 2
 )
 
+type NwtworkSecret string
+
 type NetworkID string
 
 func (id NetworkID) String() string {

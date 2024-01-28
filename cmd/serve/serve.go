@@ -21,11 +21,20 @@ func init() {
 		Short: "PeerGuard peermap daemon",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts, err := processOptions(cmd)
+			cfg1, err := commandlineConfig(cmd)
 			if err != nil {
 				return err
 			}
-			srv, err := peermap.New(opts)
+
+			configFile, err := cmd.Flags().GetString("config")
+			if err != nil {
+				return err
+			}
+
+			cfg, _ := peermap.ReadConfig(configFile)
+			cfg.Overwrite(cfg1)
+
+			srv, err := peermap.New(cfg)
 			if err != nil {
 				return err
 			}
@@ -37,7 +46,8 @@ func init() {
 			return nil
 		},
 	}
-	Cmd.Flags().StringP("listen", "l", "127.0.0.1:9987", "listen address for this peermap server")
+	Cmd.Flags().StringP("config", "c", "config.yaml", "config file")
+	Cmd.Flags().StringP("listen", "l", "", "listen address for this peermap server")
 	Cmd.Flags().String("advertise-url", "", "advertised url for this peermap server (default: auto-detect)")
 	Cmd.Flags().String("cluster-key", "", "Key to generate token and auth nodes (cluster nodes must use a shared key)")
 	Cmd.Flags().StringSlice("stun", []string{}, "stun server for peers NAT traversal (empty disable NAT traversal)")
@@ -45,7 +55,7 @@ func init() {
 	Cmd.MarkFlagRequired("cluster-key")
 }
 
-func processOptions(cmd *cobra.Command) (opts peermap.Options, err error) {
+func commandlineConfig(cmd *cobra.Command) (opts peermap.Config, err error) {
 	opts.Listen, err = cmd.Flags().GetString("listen")
 	if err != nil {
 		return

@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"path"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/auth"
+	"github.com/rkonfj/peerguard/peermap/oidc"
 )
 
 type Peer struct {
@@ -72,7 +74,7 @@ func (p *Peer) Start() {
 	go p.readMessageLoope()
 	go p.keepalive()
 
-	stuns, _ := json.Marshal(p.peerMap.opts.STUNs)
+	stuns, _ := json.Marshal(p.peerMap.cfg.STUNs)
 
 	peers, _ := p.peerMap.networkMap.Get(string(p.networkID))
 	for peer := range peers.IterBuffered() {
@@ -152,7 +154,7 @@ type PeerMap struct {
 	httpServer    *http.Server
 	wsUpgrader    *websocket.Upgrader
 	networkMap    cmap.ConcurrentMap[string, cmap.ConcurrentMap[string, *Peer]]
-	opts          Options
+	cfg           Config
 	authenticator auth.Authenticator
 }
 
@@ -171,7 +173,7 @@ func (pm *PeerMap) Serve(ctx context.Context) error {
 		fmt.Println("Graceful shutdown")
 		pm.close()
 	}()
-	slog.Info("Serving for http now", "listen", pm.opts.Listen)
+	slog.Info("Serving for http now", "listen", pm.cfg.Listen)
 	return pm.httpServer.ListenAndServe()
 }
 
@@ -179,42 +181,58 @@ func (pm *PeerMap) close() {
 	pm.httpServer.Shutdown(context.Background())
 }
 
-type Options struct {
-	Listen       string
-	AdvertiseURL string
-	ClusterKey   string
-	STUNs        []string
-}
-
-func (opts *Options) applyDefaults() error {
-	if opts.Listen == "" {
-		opts.Listen = ":9987"
-	}
-	if opts.ClusterKey == "" {
-		return errors.New("cluster key is required")
-	}
-	return nil
-}
-
-func New(opts Options) (*PeerMap, error) {
-	if err := opts.applyDefaults(); err != nil {
+func New(cfg Config) (*PeerMap, error) {
+	if err := cfg.applyDefaults(); err != nil {
 		return nil, err
 	}
 	mux := http.NewServeMux()
 	pm := PeerMap{
-		httpServer:    &http.Server{Handler: mux, Addr: opts.Listen},
+		httpServer:    &http.Server{Handler: mux, Addr: cfg.Listen},
 		wsUpgrader:    &websocket.Upgrader{},
 		networkMap:    cmap.New[cmap.ConcurrentMap[string, *Peer]](),
-		authenticator: auth.NewAuthenticator(opts.ClusterKey),
-		opts:          opts,
+		authenticator: auth.NewAuthenticator(cfg.ClusterKey),
+		cfg:           cfg,
 	}
 	mux.HandleFunc("/", pm.handleWebsocket)
 	mux.HandleFunc("/peermap", pm.handleQueryPeermap)
+	mux.HandleFunc("/network/token", oidc.HandleNotifyToken)
+	mux.HandleFunc("/oidc/", oidc.RedirectAuthURL)
+	mux.HandleFunc("/oidc/authorize/", pm.handleOIDCAuthorize)
 	return &pm, nil
 }
 
 func (pm *PeerMap) handleQueryPeermap(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(pm.networkMap)
+}
+
+func (pm *PeerMap) handleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
+	providerName := path.Base(r.URL.Path)
+	provider, ok := oidc.Provider(providerName)
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	email, _, err := provider.UserInfo(r.URL.Query().Get("code"))
+	if err != nil {
+		fmt.Println(err)
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	token, err := auth.NewAuthenticator(pm.cfg.ClusterKey).GenerateToken(email, 4*time.Hour)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	err = oidc.NotifyToken(r.URL.Query().Get("state"), oidc.NetworkSecret{
+		Network:  email,
+		SecretID: token,
+		Expire:   time.Now().Add(4*time.Hour - 10*time.Second),
+	})
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Write([]byte("ok"))
 }
 
 func (pm *PeerMap) handleWebsocket(w http.ResponseWriter, r *http.Request) {
