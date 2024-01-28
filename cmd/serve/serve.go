@@ -3,7 +3,6 @@ package serve
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -67,9 +66,6 @@ func commandlineConfig(cmd *cobra.Command) (opts peermap.Config, err error) {
 	opts.STUNs, err = cmd.Flags().GetStringSlice("stun")
 	if err != nil {
 		return
-	}
-	if len(opts.STUNs) == 0 {
-		slog.Warn("STUN not set and peers direct connect is disabled")
 	}
 	opts.AdvertiseURL, err = cmd.Flags().GetString("advertise-url")
 	return

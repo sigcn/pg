@@ -2,6 +2,7 @@ package peermap
 
 import (
 	"errors"
+	"log/slog"
 	"os"
 
 	"github.com/rkonfj/peerguard/peermap/oidc"
@@ -22,6 +23,9 @@ func (cfg *Config) applyDefaults() error {
 	}
 	if cfg.ClusterKey == "" {
 		return errors.New("cluster key is required")
+	}
+	if len(cfg.STUNs) == 0 {
+		slog.Warn("STUN not set and peers direct connect is disabled")
 	}
 	for _, provider := range cfg.OIDCProviders {
 		oidc.AddProvider(provider)
