@@ -3,6 +3,7 @@ package disco
 import (
 	"log/slog"
 	"net"
+	"strings"
 )
 
 type cidrs []*net.IPNet
@@ -16,7 +17,21 @@ func (cs *cidrs) Contains(ip net.IP) bool {
 	return false
 }
 
-var ignoredLocalCIDRs cidrs
+type interfaceNamePrefixs []string
+
+func (inp *interfaceNamePrefixs) HasPrefix(interfaceName string) bool {
+	for _, ifaceNamePrefix := range *inp {
+		if strings.HasPrefix(interfaceName, ifaceNamePrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+var (
+	ignoredLocalCIDRs                cidrs
+	ignoredLocalInterfaceNamePrefixs interfaceNamePrefixs
+)
 
 func SetIgnoredLocalCIDRs(cidrs ...string) {
 	for _, cidr := range cidrs {
@@ -29,18 +44,34 @@ func SetIgnoredLocalCIDRs(cidrs ...string) {
 	}
 }
 
+func SetIgnoredLocalInterfaceNamePrefixs(prefixs ...string) {
+	ignoredLocalInterfaceNamePrefixs = prefixs
+}
+
 func ListLocalIPs() ([]net.IP, error) {
-	var ips []net.IP
-	addresses, err := net.InterfaceAddrs()
+	ifaces, err := net.Interfaces()
 	if err != nil {
 		return nil, err
 	}
-	for _, addr := range addresses {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ignoredLocalCIDRs.Contains(ipnet.IP) {
-				continue
+	var ips []net.IP
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagRunning != net.FlagRunning {
+			continue
+		}
+		if ignoredLocalInterfaceNamePrefixs.HasPrefix(iface.Name) {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ignoredLocalCIDRs.Contains(ipnet.IP) {
+					continue
+				}
+				ips = append(ips, ipnet.IP)
 			}
-			ips = append(ips, ipnet.IP)
 		}
 	}
 	return ips, nil
