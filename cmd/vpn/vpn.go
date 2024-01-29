@@ -88,7 +88,7 @@ func login(peermapCluster []string) string {
 		}
 		json.NewEncoder(f).Encode(joined)
 		slog.Info("NetworkJoined", "network", joined.Network)
-		return joined.SecretID
+		return joined.Secret
 	}
 	f, err := os.Open(netSecretFile)
 	if os.IsNotExist(err) {
@@ -103,7 +103,7 @@ func login(peermapCluster []string) string {
 		return updateSecret()
 	}
 	if time.Until(joined.Expire) > 0 {
-		return joined.SecretID
+		return joined.Secret
 	}
 	return updateSecret()
 }

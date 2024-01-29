@@ -17,9 +17,9 @@ var (
 )
 
 type NetworkSecret struct {
-	SecretID string    `json:"secret_id"`
-	Network  string    `json:"network"`
-	Expire   time.Time `json:"expire"`
+	Secret  string    `json:"secret"`
+	Network string    `json:"network"`
+	Expire  time.Time `json:"expire"`
 }
 
 func NotifyToken(state string, secret NetworkSecret) error {
