@@ -51,6 +51,10 @@ func (c *UDPConn) UDPAddrSends() <-chan *PeerUDPAddrEvent {
 }
 
 func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.PeerID, stunServers []string) {
+	c.peersOPs <- &PeerOP{
+		Op:     OP_PEER_DELETE,
+		PeerID: peerID,
+	}
 	// UPnP
 	go func() {
 		nat, err := upnp.Discover()
@@ -105,7 +109,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 		Addr:   addr,
 	}
 	defer slog.Debug("[UDP] Ping exit", "peer", peerID, "addr", addr)
-	interval := 500 * time.Millisecond
+	interval := 1000 * time.Millisecond
 	for i := 0; ; i++ {
 		select {
 		case <-c.closedSig:
@@ -116,7 +120,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 		if interval == c.peerKeepaliveInterval && !peerDiscovered {
 			break
 		}
-		if peerDiscovered || i >= 32 {
+		if peerDiscovered || i >= 5 {
 			interval = c.peerKeepaliveInterval
 		}
 		slog.Debug("[UDP] Ping", "peer", peerID, "addr", addr)
@@ -176,6 +180,8 @@ func (c *UDPConn) runPeerOPLoop() {
 		c.peersMapMutex.Lock()
 		defer c.peersMapMutex.Unlock()
 		switch e.Op {
+		case OP_PEER_DELETE:
+			delete(c.peersMap, e.PeerID)
 		case OP_PEER_DISCO: // 收到 peer addr
 			if _, ok := c.peersMap[e.PeerID]; !ok {
 				peerCtx := PeerContext{
@@ -261,7 +267,6 @@ func (c *UDPConn) runSTUNEventLoop() {
 			PeerID: tx.PeerID,
 			Addr:   addr,
 		}
-		c.stunSessions.Remove(string(txid[:]))
 	}
 }
 
@@ -296,6 +301,7 @@ func (c *UDPConn) requestSTUN(peerID peer.PeerID, stunServers []string) {
 		}
 		time.Sleep(2 * time.Second)
 		if _, ok := c.findPeer(peerID); ok {
+			c.stunSessions.Remove(string(txID[:]))
 			break
 		}
 	}

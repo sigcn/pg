@@ -16,6 +16,7 @@ var (
 const (
 	OP_PEER_DISCO       = 1
 	OP_PEER_CONFIRM     = 2
+	OP_PEER_DELETE      = 3
 	OP_PEER_HEALTHCHECK = 10
 )
 
