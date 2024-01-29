@@ -44,8 +44,8 @@ func ListenIPv4Only() Option {
 	}
 }
 
-func Nwtwork(network string) peer.NwtworkSecret {
-	return peer.NwtworkSecret(network)
+func NetworkSecret(secret string) peer.NwtworkSecret {
+	return peer.NwtworkSecret(secret)
 }
 
 func Peermap(servers ...string) peer.PeermapCluster {

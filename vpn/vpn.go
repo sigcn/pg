@@ -68,7 +68,7 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 	disco.SetIgnoredLocalCIDRs(vpn.cfg.CIDR)
 	disco.SetIgnoredLocalInterfaceNamePrefixs("pg", "wg", "veth", "docker", "nerdctl")
 	packetConn, err := p2p.ListenPacket(
-		p2p.Nwtwork(vpn.cfg.Network), vpn.cfg.Peermap, p2p.ListenPeerID(cidr.Addr().String()))
+		p2p.NetworkSecret(vpn.cfg.Network), vpn.cfg.Peermap, p2p.ListenPeerID(cidr.Addr().String()))
 	if err != nil {
 		return err
 	}
