@@ -13,7 +13,7 @@ var Cmd *cobra.Command
 func init() {
 	Cmd = &cobra.Command{
 		Use:   "token",
-		Short: "Generate a pre-shared token",
+		Short: "Generate a pre-shared network secret",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clusterKey, err := cmd.Flags().GetString("cluster-key")
@@ -36,9 +36,9 @@ func init() {
 			return nil
 		},
 	}
-	Cmd.Flags().String("network", "", "Network")
-	Cmd.Flags().String("cluster-key", "", "Key to generate token")
-	Cmd.Flags().Duration("duration", 365*24*time.Hour, "Token valid duration")
+	Cmd.Flags().String("network", "", "network")
+	Cmd.Flags().String("cluster-key", "", "key to generate token")
+	Cmd.Flags().Duration("duration", 365*24*time.Hour, "secret duration to expire")
 
 	Cmd.MarkFlagRequired("network")
 	Cmd.MarkFlagRequired("cluster-key")

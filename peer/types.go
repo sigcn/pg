@@ -6,7 +6,7 @@ const (
 	CONTROL_NEW_PEER_UDP_ADDR = 2
 )
 
-type NwtworkSecret string
+type NetworkSecret string
 
 type NetworkID string
 

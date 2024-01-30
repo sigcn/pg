@@ -46,10 +46,10 @@ func init() {
 		},
 	}
 	Cmd.Flags().StringP("config", "c", "config.yaml", "config file")
-	Cmd.Flags().StringP("listen", "l", "", "listen address for this peermap server")
+	Cmd.Flags().StringP("listen", "l", "", "listen http address")
 	Cmd.Flags().String("advertise-url", "", "advertised url for this peermap server (default: auto-detect)")
-	Cmd.Flags().String("cluster-key", "", "Key to generate token and auth nodes (cluster nodes must use a shared key)")
-	Cmd.Flags().StringSlice("stun", []string{}, "stun server for peers NAT traversal (empty disable NAT traversal)")
+	Cmd.Flags().String("cluster-key", "", "key to generate network secret (cluster nodes must use the same shared key)")
+	Cmd.Flags().StringSlice("stun", []string{}, "stun server for peers NAT traversal (leave blank to disable NAT traversal)")
 
 	Cmd.MarkFlagRequired("cluster-key")
 }
