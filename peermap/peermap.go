@@ -225,7 +225,7 @@ func (pm *PeerMap) handleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	err = oidc.NotifyToken(r.URL.Query().Get("state"), oidc.NetworkSecret{
 		Network: email,
-		Secret:  token,
+		Secret:  peer.NetworkSecret(token),
 		Expire:  time.Now().Add(4*time.Hour - 10*time.Second),
 	})
 	if err != nil {

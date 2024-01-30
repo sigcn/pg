@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
+	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/network"
 	"github.com/rkonfj/peerguard/peermap/oidc"
 	"github.com/rkonfj/peerguard/vpn"
@@ -25,39 +26,7 @@ func init() {
 		Use:   "vpn",
 		Short: "Run a vpn peer daemon",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cidr, err := cmd.Flags().GetString("cidr")
-			if err != nil {
-				return err
-			}
-			tunName, err := cmd.Flags().GetString("tun")
-			if err != nil {
-				return err
-			}
-			mtu, err := cmd.Flags().GetInt("mtu")
-			if err != nil {
-				return err
-			}
-			peermapCluster, err := cmd.Flags().GetStringSlice("peermap")
-			if err != nil {
-				return err
-			}
-			secret, err := cmd.Flags().GetString("secret")
-			if err != nil {
-				return err
-			}
-			if len(secret) == 0 {
-				secret = login(peermapCluster)
-			}
-			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			defer cancel()
-			return vpn.NewVPN(vpn.Config{
-				MTU:     mtu,
-				CIDR:    cidr,
-				Peermap: peermapCluster,
-				Network: secret,
-			}).RunTun(ctx, tunName)
-		},
+		RunE:  run,
 	}
 	Cmd.Flags().String("secret", "", "p2p network secret")
 	Cmd.Flags().String("cidr", "", "is an IP address prefix (CIDR) representing an IP network.  i.e. 100.0.0.2/24")
@@ -69,13 +38,46 @@ func init() {
 	Cmd.MarkFlagRequired("peermap")
 }
 
-func login(peermapCluster []string) string {
+func run(cmd *cobra.Command, args []string) (err error) {
+	tunName, err := cmd.Flags().GetString("tun")
+	if err != nil {
+		return
+	}
+
+	cfg := vpn.Config{}
+	cfg.CIDR, err = cmd.Flags().GetString("cidr")
+	if err != nil {
+		return
+	}
+	cfg.MTU, err = cmd.Flags().GetInt("mtu")
+	if err != nil {
+		return
+	}
+	cfg.Peermap, err = cmd.Flags().GetStringSlice("peermap")
+	if err != nil {
+		return
+	}
+	secret, err := cmd.Flags().GetString("secret")
+	if err != nil {
+		return err
+	}
+	cfg.NetworkSecret = peer.NetworkSecret(secret)
+	if len(secret) == 0 {
+		cfg.NetworkSecret = login(cfg.Peermap)
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	return vpn.New(cfg).RunTun(ctx, tunName)
+}
+
+func login(peermapCluster []string) peer.NetworkSecret {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
 	netSecretFile := filepath.Join(homeDir, ".peerguard_network_secret")
-	updateSecret := func() string {
+	updateSecret := func() peer.NetworkSecret {
 		f, err := os.Create(netSecretFile)
 		if err != nil {
 			return ""
@@ -109,7 +111,7 @@ func login(peermapCluster []string) string {
 }
 
 func requestNetworkSecret(peermapCluster []string) (*oidc.NetworkSecret, error) {
-	join, err := network.JoinOIDC(peermapCluster[0], "google")
+	join, err := network.JoinOIDC(oidc.ProviderGoogle, peermapCluster)
 	if err != nil {
 		slog.Error("JoinNetwork failed", "err", err)
 		return nil, err

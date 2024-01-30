@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 
+	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/oidc"
 	"storj.io/common/base58"
 )
@@ -45,8 +47,11 @@ func (intent *JoinIntent) Wait(ctx context.Context) (*oidc.NetworkSecret, error)
 	return &joined, nil
 }
 
-func JoinOIDC(peermap, oidcProvider string) (*JoinIntent, error) {
-	peermapURL, err := url.Parse(peermap)
+func JoinOIDC(oidcProvider string, cluster peer.PeermapCluster) (*JoinIntent, error) {
+	if len(cluster) == 0 {
+		return nil, errors.New("no peermap server avaiable")
+	}
+	peermapURL, err := url.Parse(cluster[0])
 	if err != nil {
 		return nil, err
 	}

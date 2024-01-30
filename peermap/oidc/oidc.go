@@ -9,6 +9,10 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const (
+	ProviderGoogle = "google"
+)
+
 var providers = make(map[string]*OIDCProvider)
 
 type OIDCProviderConfig struct {

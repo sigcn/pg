@@ -1,8 +1,10 @@
-### Example
-```go
-peermap := "wss://synf.in/pg"
+## Example
 
-intent, err := network.JoinOIDC(peermap, "google")
+### Code
+```go
+peermap := p2p.Peermap("wss://synf.in/pg")
+
+intent, err := network.JoinOIDC(oidc.ProviderGoogle, peermap)
 if err != nil {
     panic(err)
 }
@@ -12,10 +14,7 @@ if err != nil {
     panic(err)
 }
 
-packetConn, err := p2p.ListenPacket(
-    p2p.NetworkSecret(secret.Secret),
-    p2p.Peermap(peermap),
-)
+packetConn, err := p2p.ListenPacket(secret.Secret, peermap)
 if err != nil {
     panic(err)
 }
@@ -33,4 +32,9 @@ for {
         panic(err)
     }
 }
+```
+
+### VPN
+```
+peerguard vpn --peermap wss://synf.in/pg --cidr 100.1.1.1/24
 ```

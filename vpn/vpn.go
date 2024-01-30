@@ -25,10 +25,10 @@ const (
 )
 
 type Config struct {
-	MTU     int
-	Network string
-	Peermap []string
-	CIDR    string
+	MTU           int
+	NetworkSecret peer.NetworkSecret
+	Peermap       peer.PeermapCluster
+	CIDR          string
 }
 
 type VPN struct {
@@ -38,7 +38,7 @@ type VPN struct {
 	bufPool  sync.Pool
 }
 
-func NewVPN(cfg Config) *VPN {
+func New(cfg Config) *VPN {
 	return &VPN{
 		cfg:      cfg,
 		outbound: make(chan []byte, 1000),
@@ -68,7 +68,10 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 	disco.SetIgnoredLocalCIDRs(vpn.cfg.CIDR)
 	disco.SetIgnoredLocalInterfaceNamePrefixs("pg", "wg", "veth", "docker", "nerdctl")
 	packetConn, err := p2p.ListenPacket(
-		p2p.NetworkSecret(vpn.cfg.Network), vpn.cfg.Peermap, p2p.ListenPeerID(cidr.Addr().String()))
+		vpn.cfg.NetworkSecret,
+		vpn.cfg.Peermap,
+		p2p.ListenPeerID(cidr.Addr().String()),
+	)
 	if err != nil {
 		return err
 	}

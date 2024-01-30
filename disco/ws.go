@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +18,7 @@ import (
 
 type WSConn struct {
 	*websocket.Conn
-	networkID      peer.NetworkID
+	networkSecret  peer.NetworkSecret
 	peerID         peer.PeerID
 	peermapServers []string
 	closedSig      chan int
@@ -28,15 +29,15 @@ type WSConn struct {
 	writeMutex     sync.Mutex
 }
 
-func DialPeermapServer(networkID peer.NetworkID, peerID peer.PeerID, peermapServers peer.PeermapCluster) (*WSConn, error) {
-	conn, nonce, err := dialPeermapServer(networkID, peerID, peermapServers)
+func DialPeermapServer(secret peer.NetworkSecret, peerID peer.PeerID, peermapServers peer.PeermapCluster) (*WSConn, error) {
+	conn, nonce, err := dialPeermapServer(secret, peerID, peermapServers)
 	if err != nil {
 		return nil, err
 	}
 
 	wsConn := WSConn{
 		Conn:           conn,
-		networkID:      networkID,
+		networkSecret:  secret,
 		peerID:         peerID,
 		peermapServers: peermapServers,
 		closedSig:      make(chan int),
@@ -49,19 +50,29 @@ func DialPeermapServer(networkID peer.NetworkID, peerID peer.PeerID, peermapServ
 	return &wsConn, nil
 }
 
-func dialPeermapServer(networkID peer.NetworkID, peerID peer.PeerID, peermapServers []string) (
+func dialPeermapServer(secret peer.NetworkSecret, peerID peer.PeerID, peermapServers []string) (
 	*websocket.Conn, byte, error) {
 	for _, server := range peermapServers {
 		handshake := http.Header{}
-		handshake.Set("X-Network", networkID.String())
+		handshake.Set("X-Network", string(secret))
 		handshake.Set("X-PeerID", peerID.String())
 		handshake.Set("X-Nonce", peer.NewNonce())
-		conn, httpResp, err := websocket.DefaultDialer.Dial(server, handshake)
+
+		peermap, err := url.Parse(server)
+		if err != nil {
+			continue
+		}
+		if peermap.Scheme == "http" {
+			peermap.Scheme = "ws"
+		} else if peermap.Scheme == "https" {
+			peermap.Scheme = "wss"
+		}
+		conn, httpResp, err := websocket.DefaultDialer.Dial(peermap.String(), handshake)
 		if httpResp != nil && httpResp.StatusCode == http.StatusBadRequest {
 			return nil, 0, fmt.Errorf("address: %s is already in used", peerID)
 		}
 		if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
-			return nil, 0, fmt.Errorf("join to network denied: %s", networkID)
+			return nil, 0, fmt.Errorf("join network denied: %s", secret)
 		}
 		if err != nil {
 			continue
@@ -94,7 +105,7 @@ func (c *WSConn) runWebSocketEventLoop() {
 				default:
 				}
 				time.Sleep(5 * time.Second)
-				conn, nonce, err := dialPeermapServer(c.networkID, c.peerID, c.peermapServers)
+				conn, nonce, err := dialPeermapServer(c.networkSecret, c.peerID, c.peermapServers)
 				if err != nil {
 					slog.Error("PeermapConnectFailed", "err", err)
 					continue

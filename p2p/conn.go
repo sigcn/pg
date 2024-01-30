@@ -180,7 +180,7 @@ func ListenPacket(network peer.NetworkSecret, cluster peer.PeermapCluster, opts 
 		return nil, err
 	}
 
-	wsConn, err := disco.DialPeermapServer(peer.NetworkID(network), cfg.PeerID, cluster)
+	wsConn, err := disco.DialPeermapServer(network, cfg.PeerID, cluster)
 	if err != nil {
 		return nil, err
 	}

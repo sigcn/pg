@@ -9,6 +9,8 @@ import (
 	"path"
 	"sync"
 	"time"
+
+	"github.com/rkonfj/peerguard/peer"
 )
 
 var (
@@ -17,9 +19,9 @@ var (
 )
 
 type NetworkSecret struct {
-	Secret  string    `json:"secret"`
-	Network string    `json:"network"`
-	Expire  time.Time `json:"expire"`
+	Secret  peer.NetworkSecret `json:"secret"`
+	Network string             `json:"network"`
+	Expire  time.Time          `json:"expire"`
 }
 
 func NotifyToken(state string, secret NetworkSecret) error {
