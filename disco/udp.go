@@ -69,7 +69,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.PeerID, stunServers []stri
 		}
 		udpPort := int(netip.MustParseAddrPort(c.UDPConn.LocalAddr().String()).Port())
 
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 20; i++ {
 			mappedPort, err := nat.AddPortMapping("udp", udpPort+i, udpPort, "peerguard", 24*3600)
 			if err != nil {
 				continue
@@ -109,7 +109,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 		Addr:   addr,
 	}
 	defer slog.Debug("[UDP] Ping exit", "peer", peerID, "addr", addr)
-	interval := 1000 * time.Millisecond
+	interval := 500 * time.Millisecond
 	for i := 0; ; i++ {
 		select {
 		case <-c.closedSig:
@@ -120,7 +120,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 		if interval == c.peerKeepaliveInterval && !peerDiscovered {
 			break
 		}
-		if peerDiscovered || i >= 5 {
+		if peerDiscovered || i >= 10 {
 			interval = c.peerKeepaliveInterval
 		}
 		slog.Debug("[UDP] Ping", "peer", peerID, "addr", addr)
