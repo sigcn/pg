@@ -155,6 +155,8 @@ func (c *WSConn) runWebSocketEventLoop() {
 
 func (c *WSConn) Close() error {
 	close(c.closedSig)
+	_ = c.Conn.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(2*time.Second))
 	return c.Conn.Close()
 }
 
