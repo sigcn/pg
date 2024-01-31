@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"path"
@@ -17,49 +16,31 @@ import (
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/auth"
 	"github.com/rkonfj/peerguard/peermap/oidc"
+	"golang.org/x/time/rate"
 )
 
 type Peer struct {
-	peerMap   *PeerMap
-	conn      *websocket.Conn
-	networkID peer.NetworkID
-	id        peer.PeerID
-	nonce     byte
-	wMut      sync.Mutex
-}
-
-func (p *Peer) Read() ([]byte, error) {
-	mt, b, err := p.conn.ReadMessage()
-	if err != nil {
-		if websocket.IsCloseError(err,
-			websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-			return nil, io.EOF
-		}
-		return nil, err
-	}
-	switch mt {
-	case websocket.PingMessage:
-		p.conn.WriteMessage(websocket.PongMessage, nil)
-		return nil, nil
-	case websocket.BinaryMessage:
-	default:
-		return nil, nil
-	}
-	for i, v := range b {
-		b[i] = v ^ p.nonce
-	}
-	return b, nil
+	peerMap        *PeerMap
+	networkContext *networkContext
+	conn           *websocket.Conn
+	networkID      peer.NetworkID
+	id             peer.PeerID
+	nonce          byte
+	wMut           sync.Mutex
 }
 
 func (p *Peer) write(b []byte) error {
+	if p.networkContext.ratelimiter != nil {
+		p.networkContext.ratelimiter.WaitN(context.Background(), len(b))
+	}
 	p.wMut.Lock()
 	defer p.wMut.Unlock()
 	return p.conn.WriteMessage(websocket.BinaryMessage, b)
 }
 
 func (p *Peer) close() error {
-	if peers, ok := p.peerMap.networkMap.Get(string(p.networkID)); ok {
-		peers.Remove(string(p.id))
+	if ctx, ok := p.peerMap.networkMap.Get(string(p.networkID)); ok {
+		ctx.Remove(string(p.id))
 	}
 	_ = p.conn.WriteControl(websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(2*time.Second))
@@ -76,8 +57,8 @@ func (p *Peer) Start() {
 
 	stuns, _ := json.Marshal(p.peerMap.cfg.STUNs)
 
-	peers, _ := p.peerMap.networkMap.Get(string(p.networkID))
-	for peer := range peers.IterBuffered() {
+	ctx, _ := p.peerMap.networkMap.Get(string(p.networkID))
+	for peer := range ctx.IterBuffered() {
 		if peer.Key == string(p.id) {
 			continue
 		}
@@ -113,6 +94,9 @@ func (p *Peer) readMessageLoope() {
 			}
 			p.close()
 			return
+		}
+		if p.networkContext.ratelimiter != nil {
+			p.networkContext.ratelimiter.WaitN(context.Background(), len(b))
 		}
 		switch mt {
 		case websocket.PingMessage:
@@ -150,17 +134,22 @@ func (p *Peer) keepalive() {
 	}
 }
 
+type networkContext struct {
+	cmap.ConcurrentMap[string, *Peer]
+	ratelimiter *rate.Limiter
+}
+
 type PeerMap struct {
 	httpServer    *http.Server
 	wsUpgrader    *websocket.Upgrader
-	networkMap    cmap.ConcurrentMap[string, cmap.ConcurrentMap[string, *Peer]]
+	networkMap    cmap.ConcurrentMap[string, *networkContext]
 	cfg           Config
 	authenticator auth.Authenticator
 }
 
 func (pm *PeerMap) FindPeer(networkID peer.NetworkID, peerID peer.PeerID) (*Peer, error) {
-	if peers, ok := pm.networkMap.Get(string(networkID)); ok {
-		if peer, ok := peers.Get(string(peerID)); ok {
+	if ctx, ok := pm.networkMap.Get(string(networkID)); ok {
+		if peer, ok := ctx.Get(string(peerID)); ok {
 			return peer, nil
 		}
 	}
@@ -189,7 +178,7 @@ func New(cfg Config) (*PeerMap, error) {
 	pm := PeerMap{
 		httpServer:    &http.Server{Handler: mux, Addr: cfg.Listen},
 		wsUpgrader:    &websocket.Upgrader{},
-		networkMap:    cmap.New[cmap.ConcurrentMap[string, *Peer]](),
+		networkMap:    cmap.New[*networkContext](),
 		authenticator: auth.NewAuthenticator(cfg.ClusterKey),
 		cfg:           cfg,
 	}
@@ -262,15 +251,25 @@ func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	peerID := r.Header.Get("X-PeerID")
 
 	nonce := peer.MustParseNonce(r.Header.Get("X-Nonce"))
-	pm.networkMap.SetIfAbsent(networkID, cmap.New[*Peer]())
-	peersMap, _ := pm.networkMap.Get(networkID)
-	peer := Peer{
-		peerMap:   pm,
-		networkID: peer.NetworkID(networkID),
-		id:        peer.PeerID(peerID),
-		nonce:     nonce,
+	var rateLimiter *rate.Limiter
+	if pm.cfg.RateLimiter != nil {
+		if pm.cfg.RateLimiter.Limit > 0 {
+			rateLimiter = rate.NewLimiter(rate.Limit(pm.cfg.RateLimiter.Limit), pm.cfg.RateLimiter.Burst)
+		}
 	}
-	if ok := peersMap.SetIfAbsent(peerID, &peer); !ok {
+	pm.networkMap.SetIfAbsent(networkID, &networkContext{
+		ConcurrentMap: cmap.New[*Peer](),
+		ratelimiter:   rateLimiter,
+	})
+	networkCtx, _ := pm.networkMap.Get(networkID)
+	peer := Peer{
+		peerMap:        pm,
+		networkContext: networkCtx,
+		networkID:      peer.NetworkID(networkID),
+		id:             peer.PeerID(peerID),
+		nonce:          nonce,
+	}
+	if ok := networkCtx.SetIfAbsent(peerID, &peer); !ok {
 		slog.Debug("address is already in used", "addr", peerID)
 		w.WriteHeader(http.StatusBadRequest)
 		return

@@ -12,6 +12,7 @@ require (
 	golang.org/x/net v0.20.0
 	golang.org/x/oauth2 v0.16.0
 	golang.org/x/sys v0.16.0
+	golang.org/x/time v0.5.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 	gopkg.in/yaml.v2 v2.4.0
 	storj.io/common v0.0.0-20240116121339-670742423093

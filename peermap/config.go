@@ -9,12 +9,18 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+type RateLimiter struct {
+	Limit int
+	Burst int
+}
+
 type Config struct {
 	Listen        string                    `yaml:"listen"`
 	AdvertiseURL  string                    `yaml:"advertise_url"`
 	ClusterKey    string                    `yaml:"cluster_key"`
 	STUNs         []string                  `yaml:"stuns"`
 	OIDCProviders []oidc.OIDCProviderConfig `yaml:"oidc_providers"`
+	RateLimiter   *RateLimiter              `yaml:"rate_limiter,omitempty"`
 }
 
 func (cfg *Config) applyDefaults() error {
@@ -26,6 +32,14 @@ func (cfg *Config) applyDefaults() error {
 	}
 	if len(cfg.STUNs) == 0 {
 		slog.Warn("STUN not set and peers direct connect is disabled")
+	}
+	if cfg.RateLimiter != nil {
+		if cfg.RateLimiter.Burst < cfg.RateLimiter.Limit {
+			return errors.New("burst must greater than limit")
+		}
+		if cfg.RateLimiter.Limit < 0 {
+			return errors.New("limit must greater than 0")
+		}
 	}
 	for _, provider := range cfg.OIDCProviders {
 		oidc.AddProvider(provider)
