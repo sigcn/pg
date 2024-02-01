@@ -2,11 +2,13 @@ package disco
 
 import (
 	"errors"
+	"log/slog"
 	"math/rand"
 	"net"
 	"time"
 
 	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/secure"
 )
 
 var (
@@ -72,6 +74,24 @@ type STUNSession struct {
 type Datagram struct {
 	PeerID peer.PeerID
 	Data   []byte
+}
+
+func (d *Datagram) TryDecrypt(aesCBC *secure.AESCBC) []byte {
+	b, err := aesCBC.Decrypt(d.Data, d.PeerID)
+	if err != nil {
+		slog.Debug("Datagram decrypt error", "err", err)
+		return d.Data
+	}
+	return b
+}
+
+func (d *Datagram) TryEncrypt(aesCBC *secure.AESCBC) []byte {
+	b, err := aesCBC.Encrypt(d.Data, d.PeerID)
+	if err != nil {
+		slog.Debug("Datagram encrypt error", "err", err)
+		return d.Data
+	}
+	return b
 }
 
 type PeerFindEvent struct {

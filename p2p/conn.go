@@ -11,6 +11,7 @@ import (
 
 	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/secure"
 	"storj.io/common/base58"
 )
 
@@ -24,11 +25,12 @@ var (
 )
 
 type PeerPacketConn struct {
+	cfg         Config
 	closedSig   chan struct{}
 	readTimeout chan struct{}
-	peerID      peer.PeerID
 	udpConn     *disco.UDPConn
 	wsConn      *disco.WSConn
+	aesCBC      *secure.AESCBC
 }
 
 // ReadFrom reads a packet from the connection,
@@ -50,11 +52,11 @@ func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 		return
 	case datagram := <-c.wsConn.Datagrams():
 		addr = datagram.PeerID
-		n = copy(p, datagram.Data)
+		n = copy(p, datagram.TryDecrypt(c.aesCBC))
 		return
 	case datagram := <-c.udpConn.Datagrams():
 		addr = datagram.PeerID
-		n = copy(p, datagram.Data)
+		n = copy(p, datagram.TryDecrypt(c.aesCBC))
 		return
 	}
 }
@@ -67,11 +69,14 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	if _, ok := addr.(peer.PeerID); !ok {
 		return 0, errors.New("not a p2p address")
 	}
-	tgtPeer := addr.(peer.PeerID)
-	n, err = c.udpConn.WriteToUDP(p, tgtPeer)
+
+	datagram := disco.Datagram{PeerID: addr.(peer.PeerID), Data: p}
+	p = datagram.TryEncrypt(c.aesCBC)
+
+	n, err = c.udpConn.WriteToUDP(p, datagram.PeerID)
 	if err != nil {
-		slog.Debug("[Relay] WriteTo", "addr", tgtPeer)
-		return len(p), c.wsConn.WriteTo(p, tgtPeer, 0)
+		slog.Debug("[Relay] WriteTo", "addr", datagram.PeerID)
+		return len(p), c.wsConn.WriteTo(p, datagram.PeerID, 0)
 	}
 	return
 }
@@ -96,7 +101,7 @@ func (c *PeerPacketConn) Close() error {
 
 // LocalAddr returns the local network address, if known.
 func (c *PeerPacketConn) LocalAddr() net.Addr {
-	return c.peerID
+	return c.cfg.PeerID
 }
 
 // SetDeadline sets the read and write deadlines associated
@@ -187,13 +192,19 @@ func ListenPacket(network peer.NetworkSecret, cluster peer.PeermapCluster, opts 
 
 	go runControlEventLoop(wsConn, udpConn)
 
+	var aesCBC *secure.AESCBC
+	if cfg.PrivateKey != nil {
+		aesCBC = secure.NewAESCBC(cfg.PrivateKey)
+	}
+
 	slog.Info("ListenPeer", "addr", cfg.PeerID)
 	return &PeerPacketConn{
-		peerID:      cfg.PeerID,
+		cfg:         cfg,
 		closedSig:   make(chan struct{}),
 		readTimeout: make(chan struct{}),
 		udpConn:     udpConn,
 		wsConn:      wsConn,
+		aesCBC:      aesCBC,
 	}, nil
 }
 

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rkonfj/peerguard/secret"
+	"github.com/rkonfj/peerguard/secure"
 	"storj.io/common/base58"
 )
 
@@ -44,13 +44,13 @@ func (auth *authenticator) GenerateToken(networkID string, validDuration time.Du
 	if err != nil {
 		return "", err
 	}
-	chiperData, err := secret.AESCBCEncrypt(auth.key, b)
+	chiperData, err := secure.AESCBCEncrypt(auth.key, b)
 	return base58.Encode(chiperData), err
 }
 
 func (auth *authenticator) VerifyToken(networkIDChiper string) (string, error) {
 	chiperData := base58.Decode(networkIDChiper)
-	plainData, err := secret.AESCBCDecrypt(auth.key, chiperData)
+	plainData, err := secure.AESCBCDecrypt(auth.key, chiperData)
 	if err != nil {
 		return "", ErrInvalidToken
 	}
