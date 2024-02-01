@@ -251,16 +251,20 @@ func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	peerID := r.Header.Get("X-PeerID")
 
 	nonce := peer.MustParseNonce(r.Header.Get("X-Nonce"))
-	var rateLimiter *rate.Limiter
-	if pm.cfg.RateLimiter != nil {
-		if pm.cfg.RateLimiter.Limit > 0 {
-			rateLimiter = rate.NewLimiter(rate.Limit(pm.cfg.RateLimiter.Limit), pm.cfg.RateLimiter.Burst)
+
+	if !pm.networkMap.Has(networkID) {
+		var rateLimiter *rate.Limiter
+		if pm.cfg.RateLimiter != nil {
+			if pm.cfg.RateLimiter.Limit > 0 {
+				rateLimiter = rate.NewLimiter(rate.Limit(pm.cfg.RateLimiter.Limit), pm.cfg.RateLimiter.Burst)
+			}
 		}
+		pm.networkMap.SetIfAbsent(networkID, &networkContext{
+			ConcurrentMap: cmap.New[*Peer](),
+			ratelimiter:   rateLimiter,
+		})
 	}
-	pm.networkMap.SetIfAbsent(networkID, &networkContext{
-		ConcurrentMap: cmap.New[*Peer](),
-		ratelimiter:   rateLimiter,
-	})
+
 	networkCtx, _ := pm.networkMap.Get(networkID)
 	peer := Peer{
 		peerMap:        pm,
