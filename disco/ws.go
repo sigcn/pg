@@ -40,6 +40,7 @@ func DialPeermapServer(peermapServers peer.PeermapCluster, secret peer.NetworkSe
 
 			peermap, err := url.Parse(server)
 			if err != nil {
+				slog.Error("invalid server format", "server", server, "err", err)
 				continue
 			}
 			if peermap.Scheme == "http" {
@@ -55,6 +56,7 @@ func DialPeermapServer(peermapServers peer.PeermapCluster, secret peer.NetworkSe
 				return nil, 0, nil, fmt.Errorf("join network denied: %s", secret)
 			}
 			if err != nil {
+				slog.Error("dial server error", "server", server, "err", err)
 				continue
 			}
 			slog.Info("PeermapConnected", "server", server)
@@ -119,7 +121,7 @@ func (c *WSConn) runWebSocketEventLoop() {
 				c.stuns = stuns
 				break
 			}
-			return
+			continue
 		}
 		switch mt {
 		case websocket.PingMessage:
