@@ -1,5 +1,7 @@
 package peer
 
+import "encoding/json"
+
 const (
 	CONTROL_RELAY             = 0
 	CONTROL_NEW_PEER          = 1
@@ -33,3 +35,15 @@ func (id PeerID) Bytes() []byte {
 }
 
 type PeermapCluster []string
+
+type Metadata struct {
+	SilenceMode bool           `json:"silenceMode"`
+	Alias1      string         `json:"alias1"`
+	Alias2      string         `json:"alias2"`
+	Extra       map[string]any `json:"extra"`
+}
+
+func (meta Metadata) MustMarshalJSON() []byte {
+	b, _ := json.Marshal(meta)
+	return b
+}

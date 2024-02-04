@@ -95,8 +95,8 @@ func (d *Datagram) TryEncrypt(aesCBC *secure.AESCBC) []byte {
 }
 
 type PeerFindEvent struct {
-	PeerID peer.PeerID
-	STUNs  []string
+	PeerID   peer.PeerID
+	Metadata peer.Metadata
 }
 
 type PeerUDPAddrEvent struct {

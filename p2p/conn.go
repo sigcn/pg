@@ -76,7 +76,7 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	n, err = c.udpConn.WriteToUDP(p, datagram.PeerID)
 	if err != nil {
 		slog.Debug("[Relay] WriteTo", "addr", datagram.PeerID)
-		return len(p), c.wsConn.WriteTo(p, datagram.PeerID, 0)
+		return len(p), c.wsConn.WriteTo(p, datagram.PeerID, peer.CONTROL_RELAY)
 	}
 	return
 }
@@ -185,7 +185,7 @@ func ListenPacket(network peer.NetworkSecret, cluster peer.PeermapCluster, opts 
 		return nil, err
 	}
 
-	wsConn, err := disco.DialPeermapServer(network, cfg.PeerID, cluster)
+	wsConn, err := disco.DialPeermapServer(cluster, network, cfg.PeerID, cfg.Metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +212,7 @@ func runControlEventLoop(wsConn *disco.WSConn, udpConn *disco.UDPConn) {
 	for {
 		select {
 		case peer := <-wsConn.Peers():
-			go udpConn.GenerateLocalAddrsSends(peer.PeerID, peer.STUNs)
+			go udpConn.GenerateLocalAddrsSends(peer.PeerID, wsConn.STUNs())
 		case revcUDPAddr := <-wsConn.PeersUDPAddrs():
 			go udpConn.RunDiscoMessageSendLoop(revcUDPAddr.PeerID, revcUDPAddr.Addr)
 		case sendUDPAddr := <-udpConn.UDPAddrSends():

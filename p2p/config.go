@@ -13,6 +13,7 @@ type Config struct {
 	DisableIPv6 bool
 	DisableIPv4 bool
 	PrivateKey  *secure.PrivateKey
+	Metadata    peer.Metadata
 }
 
 type Option func(cfg *Config) error
@@ -89,4 +90,35 @@ func NetworkSecret(secret string) peer.NetworkSecret {
 
 func Peermap(servers ...string) peer.PeermapCluster {
 	return peer.PeermapCluster(servers)
+}
+
+func PeerSilenceMode() Option {
+	return func(cfg *Config) error {
+		cfg.Metadata.SilenceMode = true
+		return nil
+	}
+}
+
+func PeerAlias1(alias string) Option {
+	return func(cfg *Config) error {
+		cfg.Metadata.Alias1 = alias
+		return nil
+	}
+}
+
+func PeerAlias2(alias string) Option {
+	return func(cfg *Config) error {
+		cfg.Metadata.Alias2 = alias
+		return nil
+	}
+}
+
+func PeerMeta(key string, value any) Option {
+	return func(cfg *Config) error {
+		if cfg.Metadata.Extra == nil {
+			cfg.Metadata.Extra = make(map[string]any)
+		}
+		cfg.Metadata.Extra[key] = value
+		return nil
+	}
 }

@@ -2,6 +2,7 @@ package peermap
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 type Peer struct {
 	peerMap        *PeerMap
 	networkContext *networkContext
+	metadata       peer.Metadata
 	conn           *websocket.Conn
 	networkID      peer.NetworkID
 	id             peer.PeerID
@@ -54,29 +56,37 @@ func (p *Peer) String() string {
 func (p *Peer) Start() {
 	go p.readMessageLoope()
 	go p.keepalive()
-
-	stuns, _ := json.Marshal(p.peerMap.cfg.STUNs)
+	if p.metadata.SilenceMode {
+		return
+	}
 
 	ctx, _ := p.peerMap.networkMap.Get(string(p.networkID))
-	for peer := range ctx.IterBuffered() {
-		if peer.Key == string(p.id) {
+	for target := range ctx.IterBuffered() {
+		if target.Key == string(p.id) {
 			continue
 		}
-		b := make([]byte, 2+len(p.id)+len(stuns))
-		b[0] = 1
+
+		if target.Val.metadata.SilenceMode {
+			continue
+		}
+
+		myMeta := p.metadata.MustMarshalJSON()
+		b := make([]byte, 2+len(p.id)+len(myMeta))
+		b[0] = peer.CONTROL_NEW_PEER
 		b[1] = p.id.Len()
 		copy(b[2:], p.id.Bytes())
-		copy(b[len(p.id)+2:], stuns)
+		copy(b[len(p.id)+2:], myMeta)
 		for i, v := range b {
-			b[i] = v ^ peer.Val.nonce
+			b[i] = v ^ target.Val.nonce
 		}
-		peer.Val.write(b)
+		target.Val.write(b)
 
-		b1 := make([]byte, 2+len(peer.Val.id)+len(stuns))
-		b1[0] = 1
-		b1[1] = peer.Val.id.Len()
-		copy(b1[2:], peer.Val.id.Bytes())
-		copy(b1[len(peer.Val.id)+2:], stuns)
+		peerMeta := target.Val.metadata.MustMarshalJSON()
+		b1 := make([]byte, 2+len(target.Val.id)+len(peerMeta))
+		b1[0] = peer.CONTROL_NEW_PEER
+		b1[1] = target.Val.id.Len()
+		copy(b1[2:], target.Val.id.Bytes())
+		copy(b1[len(target.Val.id)+2:], peerMeta)
 		for i, v := range b1 {
 			b1[i] = v ^ p.nonce
 		}
@@ -203,7 +213,7 @@ func (pm *PeerMap) handleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	email, _, err := provider.UserInfo(r.URL.Query().Get("code"))
 	if err != nil {
-		fmt.Println(err)
+		slog.Error("OIDC get userInfo error", "err", err)
 		w.WriteHeader(http.StatusBadGateway)
 		return
 	}
@@ -272,7 +282,19 @@ func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		networkID:      peer.NetworkID(networkID),
 		id:             peer.PeerID(peerID),
 		nonce:          nonce,
+		metadata:       peer.Metadata{},
 	}
+
+	metadata := r.Header.Get("X-Metadata")
+	if len(metadata) > 0 {
+		b, err := base64.StdEncoding.DecodeString(metadata)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		json.Unmarshal(b, &peer.metadata)
+	}
+
 	if ok := networkCtx.SetIfAbsent(peerID, &peer); !ok {
 		slog.Debug("address is already in used", "addr", peerID)
 		w.WriteHeader(http.StatusBadRequest)
@@ -280,6 +302,8 @@ func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	}
 	upgradeHeader := http.Header{}
 	upgradeHeader.Set("X-Nonce", r.Header.Get("X-Nonce"))
+	stuns, _ := json.Marshal(pm.cfg.STUNs)
+	upgradeHeader.Set("X-STUNs", base64.StdEncoding.EncodeToString(stuns))
 	wsConn, err := pm.wsUpgrader.Upgrade(w, r, upgradeHeader)
 	if err != nil {
 		slog.Error(err.Error())

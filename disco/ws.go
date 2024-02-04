@@ -1,6 +1,7 @@
 package disco
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,69 +19,72 @@ import (
 
 type WSConn struct {
 	*websocket.Conn
-	networkSecret  peer.NetworkSecret
-	peerID         peer.PeerID
-	peermapServers []string
-	closedSig      chan int
-	datagrams      chan *Datagram
-	peers          chan *PeerFindEvent
-	peersUDPAddrs  chan *PeerUDPAddrEvent
-	nonce          byte
-	writeMutex     sync.Mutex
+	dialPeermap   func() (*websocket.Conn, byte, []string, error)
+	closedSig     chan int
+	datagrams     chan *Datagram
+	peers         chan *PeerFindEvent
+	peersUDPAddrs chan *PeerUDPAddrEvent
+	nonce         byte
+	stuns         []string
+	writeMutex    sync.Mutex
 }
 
-func DialPeermapServer(secret peer.NetworkSecret, peerID peer.PeerID, peermapServers peer.PeermapCluster) (*WSConn, error) {
-	conn, nonce, err := dialPeermapServer(secret, peerID, peermapServers)
+func DialPeermapServer(peermapServers peer.PeermapCluster, secret peer.NetworkSecret, peerID peer.PeerID, metadata peer.Metadata) (*WSConn, error) {
+	dialPeermap := func() (*websocket.Conn, byte, []string, error) {
+		for _, server := range peermapServers {
+			handshake := http.Header{}
+			handshake.Set("X-Network", string(secret))
+			handshake.Set("X-PeerID", peerID.String())
+			handshake.Set("X-Nonce", peer.NewNonce())
+			handshake.Set("X-Metadata", base64.StdEncoding.EncodeToString(metadata.MustMarshalJSON()))
+
+			peermap, err := url.Parse(server)
+			if err != nil {
+				continue
+			}
+			if peermap.Scheme == "http" {
+				peermap.Scheme = "ws"
+			} else if peermap.Scheme == "https" {
+				peermap.Scheme = "wss"
+			}
+			conn, httpResp, err := websocket.DefaultDialer.Dial(peermap.String(), handshake)
+			if httpResp != nil && httpResp.StatusCode == http.StatusBadRequest {
+				return nil, 0, nil, fmt.Errorf("address: %s is already in used", peerID)
+			}
+			if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
+				return nil, 0, nil, fmt.Errorf("join network denied: %s", secret)
+			}
+			if err != nil {
+				continue
+			}
+			slog.Info("PeermapConnected", "server", server)
+			xSTUNs, err := base64.StdEncoding.DecodeString(httpResp.Header.Get("X-STUNs"))
+			if err != nil {
+				return nil, 0, nil, fmt.Errorf("decode stun error: %w", err)
+			}
+			var stuns []string
+			json.Unmarshal(xSTUNs, &stuns)
+			return conn, peer.MustParseNonce(httpResp.Header.Get("X-Nonce")), stuns, nil
+		}
+		return nil, 0, nil, errors.New("no peermap server available")
+	}
+	conn, nonce, stuns, err := dialPeermap()
 	if err != nil {
 		return nil, err
 	}
 
 	wsConn := WSConn{
-		Conn:           conn,
-		networkSecret:  secret,
-		peerID:         peerID,
-		peermapServers: peermapServers,
-		closedSig:      make(chan int),
-		datagrams:      make(chan *Datagram, 50),
-		peers:          make(chan *PeerFindEvent, 20),
-		peersUDPAddrs:  make(chan *PeerUDPAddrEvent, 20),
-		nonce:          nonce,
+		Conn:          conn,
+		dialPeermap:   dialPeermap,
+		closedSig:     make(chan int),
+		datagrams:     make(chan *Datagram, 50),
+		peers:         make(chan *PeerFindEvent, 20),
+		peersUDPAddrs: make(chan *PeerUDPAddrEvent, 20),
+		nonce:         nonce,
+		stuns:         stuns,
 	}
 	go wsConn.runWebSocketEventLoop()
 	return &wsConn, nil
-}
-
-func dialPeermapServer(secret peer.NetworkSecret, peerID peer.PeerID, peermapServers []string) (
-	*websocket.Conn, byte, error) {
-	for _, server := range peermapServers {
-		handshake := http.Header{}
-		handshake.Set("X-Network", string(secret))
-		handshake.Set("X-PeerID", peerID.String())
-		handshake.Set("X-Nonce", peer.NewNonce())
-
-		peermap, err := url.Parse(server)
-		if err != nil {
-			continue
-		}
-		if peermap.Scheme == "http" {
-			peermap.Scheme = "ws"
-		} else if peermap.Scheme == "https" {
-			peermap.Scheme = "wss"
-		}
-		conn, httpResp, err := websocket.DefaultDialer.Dial(peermap.String(), handshake)
-		if httpResp != nil && httpResp.StatusCode == http.StatusBadRequest {
-			return nil, 0, fmt.Errorf("address: %s is already in used", peerID)
-		}
-		if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
-			return nil, 0, fmt.Errorf("join network denied: %s", secret)
-		}
-		if err != nil {
-			continue
-		}
-		slog.Info("PeermapConnected", "server", server)
-		return conn, peer.MustParseNonce(httpResp.Header.Get("X-Nonce")), nil
-	}
-	return nil, 0, errors.New("no peermap server available")
 }
 
 func (c *WSConn) runWebSocketEventLoop() {
@@ -105,13 +109,14 @@ func (c *WSConn) runWebSocketEventLoop() {
 				default:
 				}
 				time.Sleep(5 * time.Second)
-				conn, nonce, err := dialPeermapServer(c.networkSecret, c.peerID, c.peermapServers)
+				conn, nonce, stuns, err := c.dialPeermap()
 				if err != nil {
 					slog.Error("PeermapConnectFailed", "err", err)
 					continue
 				}
 				c.Conn = conn
 				c.nonce = nonce
+				c.stuns = stuns
 				break
 			}
 			return
@@ -137,7 +142,7 @@ func (c *WSConn) runWebSocketEventLoop() {
 			event := PeerFindEvent{
 				PeerID: peer.PeerID(b[2 : b[1]+2]),
 			}
-			json.Unmarshal(b[b[1]+2:], &event.STUNs)
+			json.Unmarshal(b[b[1]+2:], &event.Metadata)
 			c.peers <- &event
 		case peer.CONTROL_NEW_PEER_UDP_ADDR:
 			addr, err := net.ResolveUDPAddr("udp", string(b[b[1]+2:]))
@@ -187,4 +192,8 @@ func (c *WSConn) Peers() <-chan *PeerFindEvent {
 
 func (c *WSConn) PeersUDPAddrs() <-chan *PeerUDPAddrEvent {
 	return c.peersUDPAddrs
+}
+
+func (c *WSConn) STUNs() []string {
+	return c.stuns
 }
