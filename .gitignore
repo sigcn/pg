@@ -1,2 +1,5 @@
 *.exe
-peerguard
+peerguard*
+wintun/
+*.zip
+*.dll
