@@ -108,22 +108,33 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 		PeerID: peerID,
 		Addr:   addr,
 	}
-	defer slog.Debug("[UDP] Ping exit", "peer", peerID, "addr", addr)
-	interval := 500 * time.Millisecond
+	defer slog.Debug("[UDP] DiscoPing exit", "peer", peerID, "addr", addr)
+	interval := 1000 * time.Millisecond
 	for i := 0; ; i++ {
 		select {
 		case <-c.closedSig:
 			return
 		default:
 		}
-		peerDiscovered := c.findPeerID(addr) != ""
-		if interval == c.peerKeepaliveInterval && !peerDiscovered {
-			break
+		if i >= 5 {
+			if c.findPeerID(addr) == "" && addr.IP.To4() != nil && !addr.IP.IsPrivate() {
+				for port := addr.Port + 1; port < 65536+addr.Port; port++ {
+					p := port % 65536
+					if p <= 1024 {
+						continue
+					}
+					if ctx, ok := c.findPeer(peerID); ok && ctx.Ready() {
+						return
+					}
+					dst := &net.UDPAddr{IP: addr.IP, Port: p}
+					c.UDPConn.WriteToUDP([]byte("_ping"+c.id), dst)
+					time.Sleep(50 * time.Microsecond)
+				}
+				slog.Debug("[UDP] PortScan exit", "peer", peerID, "addr", addr)
+			}
+			return
 		}
-		if peerDiscovered || i >= 10 {
-			interval = c.peerKeepaliveInterval
-		}
-		slog.Debug("[UDP] Ping", "peer", peerID, "addr", addr)
+		slog.Debug("[UDP] DiscoPing", "peer", peerID, "addr", addr)
 		c.UDPConn.WriteToUDP([]byte("_ping"+c.id), addr)
 		time.Sleep(interval)
 	}
@@ -176,49 +187,39 @@ func (c *UDPConn) runPacketEventLoop() {
 }
 
 func (c *UDPConn) runPeerOPLoop() {
-	handlePeerEvent := func(e *PeerOP) {
+	handlePeerOp := func(e *PeerOP) {
 		c.peersMapMutex.Lock()
 		defer c.peersMapMutex.Unlock()
 		switch e.Op {
 		case OP_PEER_DELETE:
 			delete(c.peersMap, e.PeerID)
-		case OP_PEER_DISCO: // 收到 peer addr
+		case OP_PEER_DISCO:
 			if _, ok := c.peersMap[e.PeerID]; !ok {
 				peerCtx := PeerContext{
-					States:     make(map[string]*PeerState),
-					CreateTime: time.Now()}
+					exitSig: make(chan struct{}),
+					ping: func(addr *net.UDPAddr) {
+						slog.Debug("[UDP] Ping", "peer", e.PeerID, "addr", addr)
+						c.UDPConn.WriteToUDP([]byte("_ping"+c.id), addr)
+					},
+					keepaliveInterval: c.peerKeepaliveInterval,
+					PeerID:            e.PeerID,
+					States:            make(map[string]*PeerState),
+					CreateTime:        time.Now(),
+				}
 				c.peersMap[e.PeerID] = &peerCtx
+				go peerCtx.Keepalive()
 			}
-			peerCtx := c.peersMap[e.PeerID]
-			peerCtx.States[e.Addr.String()] = &PeerState{Addr: e.Addr}
-		case OP_PEER_CONFIRM: // 确认事务
+			c.peersMap[e.PeerID].AddAddr(e.Addr)
+		case OP_PEER_CONFIRM:
 			slog.Debug("[UDP] Heartbeat", "peer", e.PeerID, "addr", e.Addr)
 			if peer, ok := c.peersMap[e.PeerID]; ok {
-				for _, state := range peer.States {
-					if state.Addr.IP.Equal(e.Addr.IP) && state.Addr.Port == e.Addr.Port {
-						updated := time.Since(state.LastActiveTime) > 2*c.peerKeepaliveInterval
-						if updated {
-							slog.Info("[UDP] AddPeer", "peer", e.PeerID, "addr", e.Addr)
-						}
-						state.LastActiveTime = time.Now()
-					}
-				}
+				peer.Heartbeat(e.Addr)
 			}
 		case OP_PEER_HEALTHCHECK:
 			for k, v := range c.peersMap {
-				if time.Since(v.CreateTime) > 3*c.peerKeepaliveInterval {
-					for addr, state := range v.States {
-						if time.Since(state.LastActiveTime) > 2*c.peerKeepaliveInterval {
-							if state.LastActiveTime.IsZero() {
-								slog.Debug("[UDP] RemovePeer", "peer", k, "addr", state.Addr)
-							} else {
-								slog.Info("[UDP] RemovePeer", "peer", k, "addr", state.Addr)
-							}
-							delete(v.States, addr)
-						}
-					}
-				}
+				v.Healthcheck()
 				if len(v.States) == 0 {
+					v.Close()
 					delete(c.peersMap, k)
 				}
 			}
@@ -229,7 +230,7 @@ func (c *UDPConn) runPeerOPLoop() {
 		case <-c.closedSig:
 			return
 		case e := <-c.peersOPs:
-			handlePeerEvent(e)
+			handlePeerOp(e)
 		}
 	}
 }
@@ -291,15 +292,15 @@ func (c *UDPConn) requestSTUN(peerID peer.PeerID, stunServers []string) {
 	for _, stunServer := range stunServers {
 		uaddr, err := net.ResolveUDPAddr("udp", stunServer)
 		if err != nil {
-			slog.Error(err.Error())
+			slog.Error("Invalid STUN addr", "addr", stunServer, "err", err.Error())
 			continue
 		}
 		_, err = c.UDPConn.WriteToUDP(stun.Request(txID), uaddr)
 		if err != nil {
-			slog.Error(err.Error())
+			slog.Error("Request STUN server failed", "err", err.Error())
 			continue
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 		if _, ok := c.findPeer(peerID); ok {
 			c.stunSessions.Remove(string(txID[:]))
 			break
