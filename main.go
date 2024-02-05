@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/rkonfj/peerguard/cmd/curve25519"
 	"github.com/rkonfj/peerguard/cmd/serve"
 	"github.com/rkonfj/peerguard/cmd/token"
 	"github.com/rkonfj/peerguard/cmd/vpn"
@@ -38,6 +39,7 @@ func main() {
 	cmd.AddCommand(serve.Cmd)
 	cmd.AddCommand(token.Cmd)
 	cmd.AddCommand(vpn.Cmd)
+	cmd.AddCommand(curve25519.Cmd)
 
 	cmd.PersistentFlags().IntP("verbose", "v", 0, "logger verbosity level")
 
