@@ -32,12 +32,16 @@ type Peer struct {
 }
 
 func (p *Peer) write(b []byte) error {
+	return p.writeWS(websocket.BinaryMessage, b)
+}
+
+func (p *Peer) writeWS(messageType int, b []byte) error {
 	if p.networkContext.ratelimiter != nil {
 		p.networkContext.ratelimiter.WaitN(context.Background(), len(b))
 	}
 	p.wMut.Lock()
 	defer p.wMut.Unlock()
-	return p.conn.WriteMessage(websocket.BinaryMessage, b)
+	return p.conn.WriteMessage(messageType, b)
 }
 
 func (p *Peer) close() error {
@@ -138,7 +142,7 @@ func (p *Peer) readMessageLoope() {
 func (p *Peer) keepalive() {
 	for {
 		time.Sleep(10 * time.Second)
-		if err := p.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+		if err := p.writeWS(websocket.PingMessage, nil); err != nil {
 			break
 		}
 	}
