@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -53,7 +54,7 @@ func New(cfg Config) *VPN {
 func (vpn *VPN) RunTun(ctx context.Context, tunName string) error {
 	device, err := tun.CreateTUN(tunName, vpn.cfg.MTU)
 	if err != nil {
-		return err
+		return fmt.Errorf("create tun device (%s) failed: %w", tunName, err)
 	}
 	link.SetupLink(device, vpn.cfg.CIDR)
 	return vpn.run(ctx, device)
