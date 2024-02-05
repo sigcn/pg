@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/rkonfj/peerguard/disco"
+	"github.com/rkonfj/peerguard/lru"
 	"github.com/rkonfj/peerguard/p2p"
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/vpn/link"
@@ -27,16 +28,19 @@ const (
 
 type Config struct {
 	MTU           int
+	CIDR          string
 	NetworkSecret peer.NetworkSecret
 	Peermap       peer.PeermapCluster
-	CIDR          string
+	PrivateKey    string
 }
 
 type VPN struct {
-	cfg      Config
-	outbound chan []byte
-	inbound  chan []byte
-	bufPool  sync.Pool
+	cfg        Config
+	outbound   chan []byte
+	inbound    chan []byte
+	bufPool    sync.Pool
+	peers      *lru.Cache[string, peer.PeerID]
+	peersMutex sync.RWMutex
 }
 
 func New(cfg Config) *VPN {
@@ -48,6 +52,7 @@ func New(cfg Config) *VPN {
 			buf := make([]byte, cfg.MTU+IPPacketOffset+40)
 			return &buf
 		}},
+		peers: lru.New[string, peer.PeerID](1024),
 	}
 }
 
@@ -68,15 +73,20 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 
 	disco.SetIgnoredLocalCIDRs(vpn.cfg.CIDR)
 	disco.SetIgnoredLocalInterfaceNamePrefixs("pg", "wg", "veth", "docker", "nerdctl")
+	secureOption := p2p.ListenPeerSecure()
+	if vpn.cfg.PrivateKey != "" {
+		secureOption = p2p.ListenPeerCurve25519(vpn.cfg.PrivateKey)
+	}
 	packetConn, err := p2p.ListenPacket(
 		vpn.cfg.NetworkSecret,
 		vpn.cfg.Peermap,
-		p2p.ListenPeerID(cidr.Addr().String()),
+		secureOption,
+		p2p.PeerAlias1(cidr.Addr().String()),
 	)
 	if err != nil {
 		return err
 	}
-
+	packetConn.SetOnPeer(vpn.setPeer)
 	var wg sync.WaitGroup
 	wg.Add(4)
 	go vpn.runTunReadEventLoop(&wg, device)
@@ -90,6 +100,18 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 	packetConn.Close()
 	wg.Wait()
 	return nil
+}
+
+func (vpn *VPN) setPeer(peer peer.PeerID, metadata peer.Metadata) {
+	vpn.peersMutex.Lock()
+	defer vpn.peersMutex.Unlock()
+	vpn.peers.Put(metadata.Alias1, peer)
+}
+
+func (vpn *VPN) getPeer(ip string) (peer.PeerID, bool) {
+	vpn.peersMutex.RLock()
+	defer vpn.peersMutex.RUnlock()
+	return vpn.peers.Get(ip)
 }
 
 func (vpn *VPN) runTunReadEventLoop(wg *sync.WaitGroup, device tun.Device) {
@@ -127,7 +149,7 @@ func (vpn *VPN) runTunWriteEventLoop(wg *sync.WaitGroup, device tun.Device) {
 		}
 		_, err := device.Write([][]byte{pkt}, IPPacketOffset)
 		if err != nil {
-			slog.Error("write to tun", "err", err.Error())
+			slog.Debug("WriteToTunError", "detail", err.Error())
 		}
 	}
 }
@@ -165,10 +187,14 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 				slog.Debug("DropMulticastIPv4", "dst", header.Dst)
 				continue
 			}
-			_, err = packetConn.WriteTo(pkt, peer.PeerID(header.Dst.String()))
-			if err != nil {
-				panic(err)
+			if peer, ok := vpn.getPeer(header.Dst.String()); ok {
+				_, err = packetConn.WriteTo(pkt, peer)
+				if err != nil {
+					panic(err)
+				}
+				continue
 			}
+			slog.Debug("DropPacketPeerNotFound", "ip", header.Dst)
 			continue
 		}
 		if pkt[0]>>4 == 6 {
@@ -180,10 +206,14 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 				slog.Debug("DropMulticastIPv6", "dst", header.Dst)
 				continue
 			}
-			_, err = packetConn.WriteTo(pkt, peer.PeerID(header.Dst.String()))
-			if err != nil {
-				panic(err)
+			if peer, ok := vpn.getPeer(header.Dst.String()); ok {
+				_, err = packetConn.WriteTo(pkt, peer)
+				if err != nil {
+					panic(err)
+				}
+				continue
 			}
+			slog.Debug("DropPacketPeerNotFound", "ip", header.Dst)
 			continue
 		}
 		slog.Warn("Received invalid packet", "packet", hex.EncodeToString(pkt))
