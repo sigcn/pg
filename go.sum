@@ -103,7 +103,5 @@ gvisor.dev/gvisor v0.0.0-20230928000133-4fe30062272c h1:bYb98Ra11fJ8F2xFbZx0zg2V
 gvisor.dev/gvisor v0.0.0-20230928000133-4fe30062272c/go.mod h1:AVgIgHMwK63XvmAzWG9vLQ41YnVHN0du0tEC46fI7yY=
 rsc.io/qr v0.2.0 h1:6vBLea5/NRMVTz8V66gipeLycZMl/+UlFmk8DvqQ6WY=
 rsc.io/qr v0.2.0/go.mod h1:IF+uZjkb9fqyeF/4tlBoynqmQxUoPfWEKh921coOuXs=
-storj.io/common v0.0.0-20240116121339-670742423093 h1:tdIfoS97TtVaPTRgdSjwLn4IIWMOzZCaW40EaVe4/f4=
-storj.io/common v0.0.0-20240116121339-670742423093/go.mod h1:s3e2Lyg2jCwqL9TLFmesDgoZBPQIByBiKZ+AJOI9qvc=
 tailscale.com v1.56.1 h1:V3HBDJai3u7xo22Xlv7ioqKNZQdxOJebLYCNqCXVwZg=
 tailscale.com v1.56.1/go.mod h1:XQk6fCN8oMJ+qbCmW+2WS/VM3jTA9nIHT6O19t0hZeQ=

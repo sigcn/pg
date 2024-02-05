@@ -20,9 +20,19 @@ func PKCS7Padding(data []byte, blockSize int) []byte {
 	return append(data, padText...)
 }
 
-func PKCS7UnPadding(data []byte) []byte {
-	padding := data[len(data)-1]
-	return data[:len(data)-int(padding)]
+func PKCS7UnPadding(data []byte) ([]byte, error) {
+	length := len(data)
+	padding := int(data[length-1])
+	if padding < 1 || padding > aes.BlockSize {
+		return nil, fmt.Errorf("invalid padding size")
+	}
+
+	for i := length - padding; i < length; i++ {
+		if data[i] != byte(padding) {
+			return nil, fmt.Errorf("invalid padding")
+		}
+	}
+	return data[:len(data)-int(padding)], nil
 }
 
 func AESCBCEncrypt(key, data []byte) ([]byte, error) {
@@ -61,8 +71,7 @@ func AESCBCDecrypt(key, data []byte) ([]byte, error) {
 	mode := cipher.NewCBCDecrypter(block, iv)
 	mode.CryptBlocks(data, data)
 
-	decryptedData := PKCS7UnPadding(data)
-	return decryptedData, nil
+	return PKCS7UnPadding(data)
 }
 
 type AESCBC struct {
@@ -114,10 +123,10 @@ func (s *AESCBC) Decrypt(b []byte, peerID peer.PeerID) ([]byte, error) {
 	iv := b[:aes.BlockSize]
 	b = b[aes.BlockSize:]
 
+	plainBytes := make([]byte, len(b))
 	mode := cipher.NewCBCDecrypter(block, iv)
-	mode.CryptBlocks(b, b)
-
-	return PKCS7UnPadding(b), nil
+	mode.CryptBlocks(plainBytes, b)
+	return PKCS7UnPadding(plainBytes)
 }
 
 func (s *AESCBC) ensureChiperBlock(peerID peer.PeerID) (cipher.Block, error) {

@@ -18,6 +18,10 @@ type Config struct {
 
 type Option func(cfg *Config) error
 
+var (
+	OptionNoOp Option = func(cfg *Config) error { return nil }
+)
+
 func ListenUDPPort(port int) Option {
 	return func(cfg *Config) error {
 		cfg.UDPPort = port

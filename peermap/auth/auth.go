@@ -2,13 +2,13 @@ package auth
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/rkonfj/peerguard/secure"
-	"storj.io/common/base58"
 )
 
 var (
@@ -45,11 +45,14 @@ func (auth *authenticator) GenerateToken(networkID string, validDuration time.Du
 		return "", err
 	}
 	chiperData, err := secure.AESCBCEncrypt(auth.key, b)
-	return base58.Encode(chiperData), err
+	return base64.URLEncoding.EncodeToString(chiperData), err
 }
 
 func (auth *authenticator) VerifyToken(networkIDChiper string) (string, error) {
-	chiperData := base58.Decode(networkIDChiper)
+	chiperData, err := base64.URLEncoding.DecodeString(networkIDChiper)
+	if err != nil {
+		return "", ErrInvalidToken
+	}
 	plainData, err := secure.AESCBCDecrypt(auth.key, chiperData)
 	if err != nil {
 		return "", ErrInvalidToken

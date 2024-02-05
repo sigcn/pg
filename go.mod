@@ -16,7 +16,6 @@ require (
 	golang.org/x/time v0.5.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 	gopkg.in/yaml.v2 v2.4.0
-	storj.io/common v0.0.0-20240116121339-670742423093
 	tailscale.com v1.56.1
 
 )

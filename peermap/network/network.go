@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/oidc"
-	"storj.io/common/base58"
 )
 
 var (
@@ -58,7 +58,7 @@ func JoinOIDC(oidcProvider string, cluster peer.PeermapCluster) (*JoinIntent, er
 	state := make([]byte, 12)
 	rand.Read(state)
 	return &JoinIntent{
-		state:   base58.Encode(state),
+		state:   base64.URLEncoding.EncodeToString(state),
 		authURL: fmt.Sprintf("https://%s/oidc/%s", peermapURL.Host, oidcProvider),
 		peermap: peermapURL,
 	}, nil

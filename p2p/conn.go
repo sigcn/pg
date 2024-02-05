@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,7 +13,6 @@ import (
 	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/secure"
-	"storj.io/common/base58"
 )
 
 type PacketBroadcaster interface {
@@ -31,6 +31,7 @@ type PeerPacketConn struct {
 	udpConn     *disco.UDPConn
 	wsConn      *disco.WSConn
 	aesCBC      *secure.AESCBC
+	onPeer      func(peerId peer.PeerID, metadata peer.Metadata)
 }
 
 // ReadFrom reads a packet from the connection,
@@ -166,13 +167,44 @@ func (c *PeerPacketConn) Broadcast(b []byte) (int, error) {
 	return c.udpConn.Broadcast(b)
 }
 
+// SetOnPeer set a on peer connected callback func
+func (c *PeerPacketConn) SetOnPeer(onPeer func(peer.PeerID, peer.Metadata)) {
+	c.onPeer = onPeer
+}
+
+// runControlEventLoop events control loop
+func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disco.UDPConn) {
+	for {
+		select {
+		case peer := <-wsConn.Peers():
+			go udpConn.GenerateLocalAddrsSends(peer.PeerID, wsConn.STUNs())
+			if onPeer := c.onPeer; onPeer != nil {
+				go onPeer(peer.PeerID, peer.Metadata)
+			}
+		case revcUDPAddr := <-wsConn.PeersUDPAddrs():
+			go udpConn.RunDiscoMessageSendLoop(revcUDPAddr.PeerID, revcUDPAddr.Addr)
+		case sendUDPAddr := <-udpConn.UDPAddrSends():
+			go func(e *disco.PeerUDPAddrEvent) {
+				for i := 0; i < 3; i++ {
+					err := wsConn.WriteTo([]byte(e.Addr.String()), e.PeerID, peer.CONTROL_NEW_PEER_UDP_ADDR)
+					if err == nil {
+						slog.Debug("ListenUDP", "addr", e.Addr)
+						break
+					}
+					time.Sleep(200 * time.Millisecond)
+				}
+			}(sendUDPAddr)
+		}
+	}
+}
+
 // ListenPacket listen the p2p network for read/write packets
 func ListenPacket(network peer.NetworkSecret, cluster peer.PeermapCluster, opts ...Option) (*PeerPacketConn, error) {
 	id := make([]byte, 32)
 	rand.Read(id)
 	cfg := Config{
 		UDPPort: 29877,
-		PeerID:  peer.PeerID(base58.Encode(id)),
+		PeerID:  peer.PeerID(base64.URLEncoding.EncodeToString(id)),
 	}
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
@@ -190,42 +222,20 @@ func ListenPacket(network peer.NetworkSecret, cluster peer.PeermapCluster, opts 
 		return nil, err
 	}
 
-	go runControlEventLoop(wsConn, udpConn)
-
 	var aesCBC *secure.AESCBC
 	if cfg.PrivateKey != nil {
 		aesCBC = secure.NewAESCBC(cfg.PrivateKey)
 	}
 
 	slog.Info("ListenPeer", "addr", cfg.PeerID)
-	return &PeerPacketConn{
+	packetConn := PeerPacketConn{
 		cfg:         cfg,
 		closedSig:   make(chan struct{}),
 		readTimeout: make(chan struct{}),
 		udpConn:     udpConn,
 		wsConn:      wsConn,
 		aesCBC:      aesCBC,
-	}, nil
-}
-
-func runControlEventLoop(wsConn *disco.WSConn, udpConn *disco.UDPConn) {
-	for {
-		select {
-		case peer := <-wsConn.Peers():
-			go udpConn.GenerateLocalAddrsSends(peer.PeerID, wsConn.STUNs())
-		case revcUDPAddr := <-wsConn.PeersUDPAddrs():
-			go udpConn.RunDiscoMessageSendLoop(revcUDPAddr.PeerID, revcUDPAddr.Addr)
-		case sendUDPAddr := <-udpConn.UDPAddrSends():
-			go func(e *disco.PeerUDPAddrEvent) {
-				for i := 0; i < 3; i++ {
-					err := wsConn.WriteTo([]byte(e.Addr.String()), e.PeerID, peer.CONTROL_NEW_PEER_UDP_ADDR)
-					if err == nil {
-						slog.Debug("ListenUDP", "addr", e.Addr)
-						break
-					}
-					time.Sleep(200 * time.Millisecond)
-				}
-			}(sendUDPAddr)
-		}
 	}
+	go packetConn.runControlEventLoop(wsConn, udpConn)
+	return &packetConn, nil
 }
