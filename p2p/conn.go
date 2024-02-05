@@ -31,7 +31,6 @@ type PeerPacketConn struct {
 	udpConn     *disco.UDPConn
 	wsConn      *disco.WSConn
 	aesCBC      *secure.AESCBC
-	onPeer      func(peerId peer.PeerID, metadata peer.Metadata)
 }
 
 // ReadFrom reads a packet from the connection,
@@ -167,18 +166,13 @@ func (c *PeerPacketConn) Broadcast(b []byte) (int, error) {
 	return c.udpConn.Broadcast(b)
 }
 
-// SetOnPeer set a on peer connected callback func
-func (c *PeerPacketConn) SetOnPeer(onPeer func(peer.PeerID, peer.Metadata)) {
-	c.onPeer = onPeer
-}
-
 // runControlEventLoop events control loop
 func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disco.UDPConn) {
 	for {
 		select {
 		case peer := <-wsConn.Peers():
 			go udpConn.GenerateLocalAddrsSends(peer.PeerID, wsConn.STUNs())
-			if onPeer := c.onPeer; onPeer != nil {
+			if onPeer := c.cfg.OnPeer; onPeer != nil {
 				go onPeer(peer.PeerID, peer.Metadata)
 			}
 		case revcUDPAddr := <-wsConn.PeersUDPAddrs():

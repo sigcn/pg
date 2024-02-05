@@ -73,26 +73,30 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 
 	disco.SetIgnoredLocalCIDRs(vpn.cfg.CIDR)
 	disco.SetIgnoredLocalInterfaceNamePrefixs("pg", "wg", "veth", "docker", "nerdctl")
+
 	secureOption := p2p.ListenPeerSecure()
 	if vpn.cfg.PrivateKey != "" {
 		secureOption = p2p.ListenPeerCurve25519(vpn.cfg.PrivateKey)
 	}
+
 	packetConn, err := p2p.ListenPacket(
 		vpn.cfg.NetworkSecret,
 		vpn.cfg.Peermap,
 		secureOption,
 		p2p.PeerAlias1(cidr.Addr().String()),
+		p2p.ListenPeerUp(vpn.setPeer),
 	)
 	if err != nil {
 		return err
 	}
-	packetConn.SetOnPeer(vpn.setPeer)
+
 	var wg sync.WaitGroup
 	wg.Add(4)
 	go vpn.runTunReadEventLoop(&wg, device)
 	go vpn.runTunWriteEventLoop(&wg, device)
 	go vpn.runPacketConnReadEventLoop(&wg, packetConn)
 	go vpn.runPacketConnWriteEventLoop(&wg, packetConn)
+
 	<-ctx.Done()
 	close(vpn.inbound)
 	close(vpn.outbound)

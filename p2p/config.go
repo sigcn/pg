@@ -14,9 +14,11 @@ type Config struct {
 	DisableIPv4 bool
 	PrivateKey  *secure.PrivateKey
 	Metadata    peer.Metadata
+	OnPeer      OnPeer
 }
 
 type Option func(cfg *Config) error
+type OnPeer func(peer.PeerID, peer.Metadata)
 
 var (
 	OptionNoOp Option = func(cfg *Config) error { return nil }
@@ -84,6 +86,13 @@ func ListenIPv4Only() Option {
 	return func(cfg *Config) error {
 		cfg.DisableIPv4 = false
 		cfg.DisableIPv6 = true
+		return nil
+	}
+}
+
+func ListenPeerUp(onPeer OnPeer) Option {
+	return func(cfg *Config) error {
+		cfg.OnPeer = onPeer
 		return nil
 	}
 }
