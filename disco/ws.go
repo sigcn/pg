@@ -48,6 +48,7 @@ func DialPeermapServer(peermapServers peer.PeermapCluster, secret peer.NetworkSe
 			} else if peermap.Scheme == "https" {
 				peermap.Scheme = "wss"
 			}
+			t1 := time.Now()
 			conn, httpResp, err := websocket.DefaultDialer.Dial(peermap.String(), handshake)
 			if httpResp != nil && httpResp.StatusCode == http.StatusBadRequest {
 				return nil, 0, nil, fmt.Errorf("address: %s is already in used", peerID)
@@ -59,7 +60,7 @@ func DialPeermapServer(peermapServers peer.PeermapCluster, secret peer.NetworkSe
 				slog.Error("dial server error", "server", server, "err", err)
 				continue
 			}
-			slog.Info("PeermapConnected", "server", server)
+			slog.Info("PeermapConnected", "server", server, "latency", time.Since(t1))
 			xSTUNs, err := base64.StdEncoding.DecodeString(httpResp.Header.Get("X-STUNs"))
 			if err != nil {
 				return nil, 0, nil, fmt.Errorf("decode stun error: %w", err)
