@@ -12,7 +12,6 @@ import (
 
 	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/peer"
-	"github.com/rkonfj/peerguard/secure"
 )
 
 type PacketBroadcaster interface {
@@ -30,7 +29,6 @@ type PeerPacketConn struct {
 	readTimeout chan struct{}
 	udpConn     *disco.UDPConn
 	wsConn      *disco.WSConn
-	aesCBC      *secure.AESCBC
 }
 
 // ReadFrom reads a packet from the connection,
@@ -52,11 +50,11 @@ func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 		return
 	case datagram := <-c.wsConn.Datagrams():
 		addr = datagram.PeerID
-		n = copy(p, datagram.TryDecrypt(c.aesCBC))
+		n = copy(p, datagram.TryDecrypt(c.cfg.AES))
 		return
 	case datagram := <-c.udpConn.Datagrams():
 		addr = datagram.PeerID
-		n = copy(p, datagram.TryDecrypt(c.aesCBC))
+		n = copy(p, datagram.TryDecrypt(c.cfg.AES))
 		return
 	}
 }
@@ -71,7 +69,7 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	}
 
 	datagram := disco.Datagram{PeerID: addr.(peer.PeerID), Data: p}
-	p = datagram.TryEncrypt(c.aesCBC)
+	p = datagram.TryEncrypt(c.cfg.AES)
 
 	n, err = c.udpConn.WriteToUDP(p, datagram.PeerID)
 	if err != nil {
@@ -216,11 +214,6 @@ func ListenPacket(network peer.NetworkSecret, cluster peer.PeermapCluster, opts 
 		return nil, err
 	}
 
-	var aesCBC *secure.AESCBC
-	if cfg.PrivateKey != nil {
-		aesCBC = secure.NewAESCBC(cfg.PrivateKey)
-	}
-
 	slog.Info("ListenPeer", "addr", cfg.PeerID)
 	packetConn := PeerPacketConn{
 		cfg:         cfg,
@@ -228,7 +221,6 @@ func ListenPacket(network peer.NetworkSecret, cluster peer.PeermapCluster, opts 
 		readTimeout: make(chan struct{}),
 		udpConn:     udpConn,
 		wsConn:      wsConn,
-		aesCBC:      aesCBC,
 	}
 	go packetConn.runControlEventLoop(wsConn, udpConn)
 	return &packetConn, nil
