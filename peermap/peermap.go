@@ -221,7 +221,7 @@ func (pm *PeerMap) handleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		return
 	}
-	token, err := auth.NewAuthenticator(pm.cfg.ClusterKey).GenerateToken(email, 4*time.Hour)
+	token, err := auth.NewAuthenticator(pm.cfg.ClusterKey).GenerateToken(email, 24*time.Hour)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return

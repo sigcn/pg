@@ -11,6 +11,7 @@ import (
 
 const (
 	ProviderGoogle = "google"
+	ProviderGithub = "github"
 )
 
 var providers = make(map[string]*OIDCProvider)
@@ -28,8 +29,9 @@ type OIDCProviderConfig struct {
 }
 
 type OIDCProvider struct {
-	privoder    *oidc.Provider
-	oAuthConfig *oauth2.Config
+	standardOIDC bool
+	privoder     *oidc.Provider
+	oAuthConfig  *oauth2.Config
 }
 
 func (p *OIDCProvider) UserInfo(code string) (email string, extra map[string]any, err error) {
@@ -45,7 +47,7 @@ func (p *OIDCProvider) UserInfo(code string) (email string, extra map[string]any
 	if err != nil {
 		return
 	}
-	if !userInfo.EmailVerified {
+	if p.standardOIDC && !userInfo.EmailVerified {
 		err = errors.New("email is not verified")
 		return
 	}
@@ -57,12 +59,16 @@ func (p *OIDCProvider) UserInfo(code string) (email string, extra map[string]any
 func AddProvider(oidcProviderConfig OIDCProviderConfig) (err error) {
 	providerCtx, providerCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer providerCancel()
-	var provider *oidc.Provider
+	var (
+		provider     *oidc.Provider
+		standardOIDC bool
+	)
 	if len(oidcProviderConfig.Issuer) > 0 {
 		provider, err = oidc.NewProvider(providerCtx, oidcProviderConfig.Issuer)
 		if err != nil {
 			return
 		}
+		standardOIDC = true
 	} else {
 		providerConfig := oidc.ProviderConfig{
 			AuthURL:     oidcProviderConfig.AuthURL,
@@ -73,7 +79,8 @@ func AddProvider(oidcProviderConfig OIDCProviderConfig) (err error) {
 	}
 
 	providers[oidcProviderConfig.Name] = &OIDCProvider{
-		privoder: provider,
+		standardOIDC: standardOIDC,
+		privoder:     provider,
 		oAuthConfig: &oauth2.Config{
 			ClientID:     oidcProviderConfig.ClientID,
 			ClientSecret: oidcProviderConfig.ClientSecret,

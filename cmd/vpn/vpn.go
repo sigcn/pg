@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/manifoldco/promptui"
 	"github.com/mdp/qrterminal/v3"
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/network"
@@ -85,7 +86,7 @@ func login(peermapCluster []string) peer.NetworkSecret {
 	if err != nil {
 		return ""
 	}
-	netSecretFile := filepath.Join(homeDir, ".peerguard_network_secret")
+	netSecretFile := filepath.Join(homeDir, ".peerguard_network_secret.json")
 	updateSecret := func() peer.NetworkSecret {
 		f, err := os.Create(netSecretFile)
 		if err != nil {
@@ -120,7 +121,20 @@ func login(peermapCluster []string) peer.NetworkSecret {
 }
 
 func requestNetworkSecret(peermapCluster []string) (*oidc.NetworkSecret, error) {
-	join, err := network.JoinOIDC(oidc.ProviderGoogle, peermapCluster)
+	prompt := promptui.Select{
+		Label:    "Select OpenID Connect Provider",
+		Items:    []string{oidc.ProviderGoogle, oidc.ProviderGithub},
+		HideHelp: true,
+		Templates: &promptui.SelectTemplates{
+			Label:  "🔑 {{.}}",
+			Active: "> {{.}}",
+		},
+	}
+	_, provider, err := prompt.Run()
+	if err != nil {
+		return nil, err
+	}
+	join, err := network.JoinOIDC(provider, peermapCluster)
 	if err != nil {
 		slog.Error("JoinNetwork failed", "err", err)
 		return nil, err
