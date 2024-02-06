@@ -31,7 +31,7 @@ func init() {
 	}
 	Cmd.Flags().String("cidr", "", "is an IP address prefix (CIDR) representing an IP network.  i.e. 100.0.0.2/24")
 	Cmd.Flags().String("tun", "pg0", "tun name")
-	Cmd.Flags().Int("mtu", 1500-40-8-16, "mtu")
+	Cmd.Flags().Int("mtu", 1391, "mtu")
 	Cmd.Flags().String("secret", "", "p2p network secret (default obtained using OIDC)")
 	Cmd.Flags().StringSlice("peermap", []string{}, "peermap cluster")
 	Cmd.Flags().String("key", "", "curve25519 private key in base64-url format (default generate a new one)")
