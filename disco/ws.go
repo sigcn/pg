@@ -185,6 +185,10 @@ func (c *WSConn) WriteTo(p []byte, peerID peer.PeerID, op byte) error {
 	return ErrUseOfClosedConnection
 }
 
+func (c *WSConn) LeadDisco(peerID peer.PeerID) error {
+	return c.WriteTo(nil, peerID, peer.CONTROL_LEAD_DISCO)
+}
+
 func (c *WSConn) Datagrams() <-chan *Datagram {
 	return c.datagrams
 }

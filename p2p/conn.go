@@ -8,9 +8,11 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/rkonfj/peerguard/disco"
+	"github.com/rkonfj/peerguard/lru"
 	"github.com/rkonfj/peerguard/peer"
 )
 
@@ -24,11 +26,13 @@ var (
 )
 
 type PeerPacketConn struct {
-	cfg         Config
-	closedSig   chan struct{}
-	readTimeout chan struct{}
-	udpConn     *disco.UDPConn
-	wsConn      *disco.WSConn
+	cfg               Config
+	closedSig         chan struct{}
+	readTimeout       chan struct{}
+	udpConn           *disco.UDPConn
+	wsConn            *disco.WSConn
+	discoCooling      *lru.Cache[peer.PeerID, time.Time]
+	discoCoolingMutex sync.RWMutex
 }
 
 // ReadFrom reads a packet from the connection,
@@ -73,6 +77,7 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 
 	n, err = c.udpConn.WriteToUDP(p, datagram.PeerID)
 	if err != nil {
+		go c.TryLeadDisco(datagram.PeerID)
 		slog.Debug("[Relay] WriteTo", "addr", datagram.PeerID)
 		return len(p), c.wsConn.WriteTo(p, datagram.PeerID, peer.CONTROL_RELAY)
 	}
@@ -164,6 +169,25 @@ func (c *PeerPacketConn) Broadcast(b []byte) (int, error) {
 	return c.udpConn.Broadcast(b)
 }
 
+// TryLeadDisco try lead a peer discovery
+// disco as soon as every 5 minutes
+func (c *PeerPacketConn) TryLeadDisco(peerID peer.PeerID) {
+	c.discoCoolingMutex.RLock()
+	lastTime, ok := c.discoCooling.Get(peerID)
+	c.discoCoolingMutex.RUnlock()
+	if !ok || time.Since(lastTime) > 5*time.Minute {
+		func() {
+			c.discoCoolingMutex.Lock()
+			defer c.discoCoolingMutex.Unlock()
+			if _, ok := c.discoCooling.Get(peerID); ok {
+				return
+			}
+			c.wsConn.LeadDisco(peerID)
+			c.discoCooling.Put(peerID, time.Now())
+		}()
+	}
+}
+
 // runControlEventLoop events control loop
 func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disco.UDPConn) {
 	for {
@@ -195,8 +219,9 @@ func ListenPacket(network peer.NetworkSecret, cluster peer.PeermapCluster, opts 
 	id := make([]byte, 32)
 	rand.Read(id)
 	cfg := Config{
-		UDPPort: 29877,
-		PeerID:  peer.PeerID(base64.URLEncoding.EncodeToString(id)),
+		UDPPort:         29877,
+		KeepAlivePeriod: 10 * time.Second,
+		PeerID:          peer.PeerID(base64.URLEncoding.EncodeToString(id)),
 	}
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
@@ -208,6 +233,7 @@ func ListenPacket(network peer.NetworkSecret, cluster peer.PeermapCluster, opts 
 	if err != nil {
 		return nil, err
 	}
+	udpConn.SetKeepAlivePeriod(cfg.KeepAlivePeriod)
 
 	wsConn, err := disco.DialPeermapServer(cluster, network, cfg.PeerID, cfg.Metadata)
 	if err != nil {
@@ -216,11 +242,12 @@ func ListenPacket(network peer.NetworkSecret, cluster peer.PeermapCluster, opts 
 
 	slog.Info("ListenPeer", "addr", cfg.PeerID)
 	packetConn := PeerPacketConn{
-		cfg:         cfg,
-		closedSig:   make(chan struct{}),
-		readTimeout: make(chan struct{}),
-		udpConn:     udpConn,
-		wsConn:      wsConn,
+		cfg:          cfg,
+		closedSig:    make(chan struct{}),
+		readTimeout:  make(chan struct{}),
+		udpConn:      udpConn,
+		wsConn:       wsConn,
+		discoCooling: lru.New[peer.PeerID, time.Time](1024),
 	}
 	go packetConn.runControlEventLoop(wsConn, udpConn)
 	return &packetConn, nil

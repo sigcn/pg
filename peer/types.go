@@ -6,6 +6,7 @@ const (
 	CONTROL_RELAY             = 0
 	CONTROL_NEW_PEER          = 1
 	CONTROL_NEW_PEER_UDP_ADDR = 2
+	CONTROL_LEAD_DISCO        = 3
 )
 
 type NetworkSecret string

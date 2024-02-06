@@ -73,29 +73,32 @@ func (p *Peer) Start() {
 		if target.Val.metadata.SilenceMode {
 			continue
 		}
-
-		myMeta := p.metadata.MustMarshalJSON()
-		b := make([]byte, 2+len(p.id)+len(myMeta))
-		b[0] = peer.CONTROL_NEW_PEER
-		b[1] = p.id.Len()
-		copy(b[2:], p.id.Bytes())
-		copy(b[len(p.id)+2:], myMeta)
-		for i, v := range b {
-			b[i] = v ^ target.Val.nonce
-		}
-		target.Val.write(b)
-
-		peerMeta := target.Val.metadata.MustMarshalJSON()
-		b1 := make([]byte, 2+len(target.Val.id)+len(peerMeta))
-		b1[0] = peer.CONTROL_NEW_PEER
-		b1[1] = target.Val.id.Len()
-		copy(b1[2:], target.Val.id.Bytes())
-		copy(b1[len(target.Val.id)+2:], peerMeta)
-		for i, v := range b1 {
-			b1[i] = v ^ p.nonce
-		}
-		p.write(b1)
+		p.leadDisco(target.Val)
 	}
+}
+
+func (p *Peer) leadDisco(target *Peer) {
+	myMeta := p.metadata.MustMarshalJSON()
+	b := make([]byte, 2+len(p.id)+len(myMeta))
+	b[0] = peer.CONTROL_NEW_PEER
+	b[1] = p.id.Len()
+	copy(b[2:], p.id.Bytes())
+	copy(b[len(p.id)+2:], myMeta)
+	for i, v := range b {
+		b[i] = v ^ target.nonce
+	}
+	target.write(b)
+
+	peerMeta := target.metadata.MustMarshalJSON()
+	b1 := make([]byte, 2+len(target.id)+len(peerMeta))
+	b1[0] = peer.CONTROL_NEW_PEER
+	b1[1] = target.id.Len()
+	copy(b1[2:], target.id.Bytes())
+	copy(b1[len(target.id)+2:], peerMeta)
+	for i, v := range b1 {
+		b1[i] = v ^ p.nonce
+	}
+	p.write(b1)
 }
 
 func (p *Peer) readMessageLoope() {
@@ -123,8 +126,12 @@ func (p *Peer) readMessageLoope() {
 		for i, v := range b {
 			b[i] = v ^ p.nonce
 		}
-		tgtPeerID := peer.PeerID(b[2 : b[1]+2])
-		if tgtPeer, err := p.peerMap.FindPeer(p.networkID, tgtPeerID); err == nil {
+		tgtPeer, err := p.peerMap.FindPeer(p.networkID, peer.PeerID(b[2:b[1]+2]))
+		if err != nil {
+			continue
+		}
+		switch b[0] {
+		case peer.CONTROL_RELAY:
 			data := b[b[1]+2:]
 			bb := make([]byte, 2+len(p.id)+len(data))
 			bb[0] = b[0]
@@ -135,6 +142,8 @@ func (p *Peer) readMessageLoope() {
 				bb[i] = v ^ tgtPeer.nonce
 			}
 			_ = tgtPeer.write(bb)
+		case peer.CONTROL_LEAD_DISCO:
+			p.leadDisco(tgtPeer)
 		}
 	}
 }

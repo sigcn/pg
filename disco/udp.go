@@ -375,6 +375,11 @@ func (c *UDPConn) Broadcast(b []byte) (peerCount int, err error) {
 	return
 }
 
+// SetKeepAlivePeriod set udp keepalive period
+func (c *UDPConn) SetKeepAlivePeriod(period time.Duration) {
+	c.peerKeepaliveInterval = max(period, time.Second)
+}
+
 func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.PeerID) (*UDPConn, error) {
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: port})
 	if err != nil {

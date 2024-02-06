@@ -2,19 +2,21 @@ package p2p
 
 import (
 	"errors"
+	"time"
 
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/secure"
 )
 
 type Config struct {
-	UDPPort     int
-	PeerID      peer.PeerID
-	DisableIPv6 bool
-	DisableIPv4 bool
-	AES         *secure.AESCBC
-	Metadata    peer.Metadata
-	OnPeer      OnPeer
+	UDPPort         int
+	PeerID          peer.PeerID
+	DisableIPv6     bool
+	DisableIPv4     bool
+	AES             *secure.AESCBC
+	Metadata        peer.Metadata
+	OnPeer          OnPeer
+	KeepAlivePeriod time.Duration
 }
 
 type Option func(cfg *Config) error
@@ -132,6 +134,13 @@ func PeerMeta(key string, value any) Option {
 			cfg.Metadata.Extra = make(map[string]any)
 		}
 		cfg.Metadata.Extra[key] = value
+		return nil
+	}
+}
+
+func KeepAlivePeriod(period time.Duration) Option {
+	return func(cfg *Config) error {
+		cfg.KeepAlivePeriod = period
 		return nil
 	}
 }
