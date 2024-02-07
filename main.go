@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"os"
 
 	"github.com/rkonfj/peerguard/cmd/curve25519"
 	"github.com/rkonfj/peerguard/cmd/serve"
@@ -24,14 +23,11 @@ func main() {
 		Short:        "A peer to peer network toolset",
 		SilenceUsage: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			verbose, err := cmd.Flags().GetInt("verbose")
+			verbose, err := cmd.Flags().GetInt("v")
 			if err != nil {
 				return err
 			}
-			logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-				Level: slog.Level(verbose),
-			}))
-			slog.SetDefault(logger)
+			slog.SetLogLoggerLevel(slog.Level(verbose))
 			return nil
 		},
 	}
@@ -41,7 +37,7 @@ func main() {
 	cmd.AddCommand(vpn.Cmd)
 	cmd.AddCommand(curve25519.Cmd)
 
-	cmd.PersistentFlags().IntP("verbose", "v", 0, "logger verbosity level")
+	cmd.PersistentFlags().Int("v", 0, "logger verbosity level")
 
 	cmd.Execute()
 }
