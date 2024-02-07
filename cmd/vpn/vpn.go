@@ -3,6 +3,7 @@ package vpn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -29,7 +30,8 @@ func init() {
 		Args:  cobra.NoArgs,
 		RunE:  run,
 	}
-	Cmd.Flags().String("cidr", "", "is an IP address prefix (CIDR) representing an IP network.  i.e. 100.0.0.2/24")
+	Cmd.Flags().String("ipv4", "", "ipv4 address prefix.  i.e. 100.99.0.1/24")
+	Cmd.Flags().String("ipv6", "", "ipv6 address prefix.  i.e. fd00::1/64")
 	Cmd.Flags().String("tun", "pg0", "tun name")
 	Cmd.Flags().Int("mtu", 1391, "mtu")
 	Cmd.Flags().String("secret", "", "p2p network secret (default obtained using OIDC)")
@@ -37,7 +39,6 @@ func init() {
 	Cmd.Flags().StringSlice("allowed-ips", []string{}, "declare IPs that can be routed by this machine")
 	Cmd.Flags().String("key", "", "curve25519 private key in base64-url format (default generate a new one)")
 
-	Cmd.MarkFlagRequired("cidr")
 	Cmd.MarkFlagRequired("peermap")
 }
 
@@ -48,9 +49,17 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	cfg := vpn.Config{}
-	cfg.CIDR, err = cmd.Flags().GetString("cidr")
+	cfg.IPv4, err = cmd.Flags().GetString("ipv4")
 	if err != nil {
 		return
+	}
+	cfg.IPv6, err = cmd.Flags().GetString("ipv6")
+	if err != nil {
+		return
+	}
+
+	if cfg.IPv4 == "" && cfg.IPv6 == "" {
+		return errors.New("must specify at least one of ipv4 or ipv6")
 	}
 
 	cfg.AllowedIPs, err = cmd.Flags().GetStringSlice("allowed-ips")

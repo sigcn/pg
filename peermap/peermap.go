@@ -126,12 +126,17 @@ func (p *Peer) readMessageLoope() {
 		for i, v := range b {
 			b[i] = v ^ p.nonce
 		}
-		tgtPeer, err := p.peerMap.FindPeer(p.networkID, peer.PeerID(b[2:b[1]+2]))
+		tgtPeerID := peer.PeerID(b[2 : b[1]+2])
+		slog.Debug("PeerEvent", "op", b[0], "from", p.id, "to", tgtPeerID)
+		tgtPeer, err := p.peerMap.FindPeer(p.networkID, tgtPeerID)
 		if err != nil {
+			slog.Debug("FindPeer failed", "detail", err)
 			continue
 		}
 		switch b[0] {
-		case peer.CONTROL_RELAY:
+		case peer.CONTROL_LEAD_DISCO:
+			p.leadDisco(tgtPeer)
+		default:
 			data := b[b[1]+2:]
 			bb := make([]byte, 2+len(p.id)+len(data))
 			bb[0] = b[0]
@@ -142,8 +147,6 @@ func (p *Peer) readMessageLoope() {
 				bb[i] = v ^ tgtPeer.nonce
 			}
 			_ = tgtPeer.write(bb)
-		case peer.CONTROL_LEAD_DISCO:
-			p.leadDisco(tgtPeer)
 		}
 	}
 }

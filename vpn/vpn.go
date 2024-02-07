@@ -28,7 +28,8 @@ const (
 
 type Config struct {
 	MTU           int
-	CIDR          string
+	IPv4          string
+	IPv6          string
 	AllowedIPs    []string
 	NetworkSecret peer.NetworkSecret
 	Peermap       peer.PeermapCluster
@@ -64,32 +65,48 @@ func (vpn *VPN) RunTun(ctx context.Context, tunName string) error {
 	if err != nil {
 		return fmt.Errorf("create tun device (%s) failed: %w", tunName, err)
 	}
-	link.SetupLink(device, vpn.cfg.CIDR)
+	if vpn.cfg.IPv4 != "" {
+		link.SetupLink(device, vpn.cfg.IPv4)
+	}
+	if vpn.cfg.IPv6 != "" {
+		link.SetupLink(device, vpn.cfg.IPv6)
+	}
 	return vpn.run(ctx, device)
 }
 
 func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
-	cidr, err := netip.ParsePrefix(vpn.cfg.CIDR)
-	if err != nil {
-		return err
-	}
-
-	disco.SetIgnoredLocalCIDRs(vpn.cfg.CIDR)
 	disco.SetIgnoredLocalInterfaceNamePrefixs("pg", "wg", "veth", "docker", "nerdctl")
 
-	secureOption := p2p.ListenPeerSecure()
-	if vpn.cfg.PrivateKey != "" {
-		secureOption = p2p.ListenPeerCurve25519(vpn.cfg.PrivateKey)
-	}
-
-	packetConn, err := p2p.ListenPacket(
-		vpn.cfg.NetworkSecret,
-		vpn.cfg.Peermap,
-		secureOption,
-		p2p.PeerAlias1(cidr.Addr().String()),
+	p2pOptions := []p2p.Option{
 		p2p.PeerMeta("allowedIPs", vpn.cfg.AllowedIPs),
 		p2p.ListenPeerUp(vpn.setPeer),
-	)
+	}
+
+	if vpn.cfg.IPv4 != "" {
+		ipv4, err := netip.ParsePrefix(vpn.cfg.IPv4)
+		if err != nil {
+			return err
+		}
+		disco.SetIgnoredLocalCIDRs(vpn.cfg.IPv4)
+		p2pOptions = append(p2pOptions, p2p.PeerAlias1(ipv4.Addr().String()))
+	}
+
+	if vpn.cfg.IPv6 != "" {
+		ipv6, err := netip.ParsePrefix(vpn.cfg.IPv6)
+		if err != nil {
+			return err
+		}
+		disco.SetIgnoredLocalCIDRs(vpn.cfg.IPv6)
+		p2pOptions = append(p2pOptions, p2p.PeerAlias2(ipv6.Addr().String()))
+	}
+
+	if vpn.cfg.PrivateKey != "" {
+		p2pOptions = append(p2pOptions, p2p.ListenPeerCurve25519(vpn.cfg.PrivateKey))
+	} else {
+		p2pOptions = append(p2pOptions, p2p.ListenPeerSecure())
+	}
+
+	packetConn, err := p2p.ListenPacket(vpn.cfg.NetworkSecret, vpn.cfg.Peermap, p2pOptions...)
 	if err != nil {
 		return err
 	}
@@ -114,6 +131,7 @@ func (vpn *VPN) setPeer(peer peer.PeerID, metadata peer.Metadata) {
 	vpn.peersMutex.Lock()
 	defer vpn.peersMutex.Unlock()
 	vpn.peers.Put(metadata.Alias1, peer)
+	vpn.peers.Put(metadata.Alias2, peer)
 	var allowIPs []*net.IPNet
 	for _, allowIP := range metadata.Extra["allowedIPs"].([]any) {
 		_, cidr, err := net.ParseCIDR(allowIP.(string))
@@ -214,7 +232,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 				panic(err)
 			}
 			if header.Dst.To4()[0] >= 224 && header.Dst.To4()[0] <= 239 {
-				slog.Debug("DropMulticastIPv4", "dst", header.Dst)
+				slog.Log(context.Background(), -10, "DropMulticastIPv4", "dst", header.Dst)
 				continue
 			}
 			if peer, ok := vpn.getPeer(header.Dst.String()); ok {
@@ -224,7 +242,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 				}
 				continue
 			}
-			slog.Debug("DropPacketPeerNotFound", "ip", header.Dst)
+			slog.Log(context.Background(), -10, "DropPacketPeerNotFound", "ip", header.Dst)
 			continue
 		}
 		if pkt[0]>>4 == 6 {
@@ -233,7 +251,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 				panic(err)
 			}
 			if header.Dst[0] == 0xff {
-				slog.Debug("DropMulticastIPv6", "dst", header.Dst)
+				slog.Log(context.Background(), -10, "DropMulticastIPv6", "dst", header.Dst)
 				continue
 			}
 			if peer, ok := vpn.getPeer(header.Dst.String()); ok {
@@ -243,7 +261,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 				}
 				continue
 			}
-			slog.Debug("DropPacketPeerNotFound", "ip", header.Dst)
+			slog.Log(context.Background(), -10, "DropPacketPeerNotFound", "ip", header.Dst)
 			continue
 		}
 		slog.Warn("Received invalid packet", "packet", hex.EncodeToString(pkt))

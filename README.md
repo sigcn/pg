@@ -68,5 +68,5 @@ fmt.Println(peerID, ":", string(buf[:n])) // uniqueString : hello
 
 ### 2. VPN
 ```
-peerguard vpn --peermap wss://synf.in/pg --cidr 100.1.1.1/24
+peerguard vpn --peermap wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
 ```
