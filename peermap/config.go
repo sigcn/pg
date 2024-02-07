@@ -31,7 +31,7 @@ func (cfg *Config) applyDefaults() error {
 		return errors.New("cluster key is required")
 	}
 	if len(cfg.STUNs) == 0 {
-		slog.Warn("STUN not set and peers direct connect is disabled")
+		slog.Warn("STUN servers are not set, peer discovery is disabled")
 	}
 	if cfg.RateLimiter != nil {
 		if cfg.RateLimiter.Burst < cfg.RateLimiter.Limit {

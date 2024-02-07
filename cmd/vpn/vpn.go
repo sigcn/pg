@@ -34,6 +34,7 @@ func init() {
 	Cmd.Flags().Int("mtu", 1391, "mtu")
 	Cmd.Flags().String("secret", "", "p2p network secret (default obtained using OIDC)")
 	Cmd.Flags().StringSlice("peermap", []string{}, "peermap cluster")
+	Cmd.Flags().StringSlice("allowed-ips", []string{}, "declare IPs that can be routed by this machine")
 	Cmd.Flags().String("key", "", "curve25519 private key in base64-url format (default generate a new one)")
 
 	Cmd.MarkFlagRequired("cidr")
@@ -48,6 +49,11 @@ func run(cmd *cobra.Command, args []string) (err error) {
 
 	cfg := vpn.Config{}
 	cfg.CIDR, err = cmd.Flags().GetString("cidr")
+	if err != nil {
+		return
+	}
+
+	cfg.AllowedIPs, err = cmd.Flags().GetStringSlice("allowed-ips")
 	if err != nil {
 		return
 	}

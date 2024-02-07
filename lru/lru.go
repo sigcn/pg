@@ -34,6 +34,16 @@ func (c *Cache[K, V]) Get(key K) (value V, ok bool) {
 	return
 }
 
+func (c *Cache[K, V]) Find(filter func(K, V) bool) (key K, value V, ok bool) {
+	for k, v := range c.cache {
+		if filter(k, v.Value.(*entry[K, V]).value) {
+			c.list.MoveToFront(v)
+			return k, v.Value.(*entry[K, V]).value, true
+		}
+	}
+	return
+}
+
 func (c *Cache[K, V]) Put(key K, value V) {
 	if elem, ok := c.cache[key]; ok {
 		c.list.MoveToFront(elem)

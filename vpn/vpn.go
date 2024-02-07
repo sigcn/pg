@@ -29,6 +29,7 @@ const (
 type Config struct {
 	MTU           int
 	CIDR          string
+	AllowedIPs    []string
 	NetworkSecret peer.NetworkSecret
 	Peermap       peer.PeermapCluster
 	PrivateKey    string
@@ -39,6 +40,7 @@ type VPN struct {
 	outbound   chan []byte
 	inbound    chan []byte
 	bufPool    sync.Pool
+	routes     *lru.Cache[peer.PeerID, []*net.IPNet]
 	peers      *lru.Cache[string, peer.PeerID]
 	peersMutex sync.RWMutex
 }
@@ -46,13 +48,14 @@ type VPN struct {
 func New(cfg Config) *VPN {
 	return &VPN{
 		cfg:      cfg,
-		outbound: make(chan []byte, 1000),
-		inbound:  make(chan []byte, 1000),
+		outbound: make(chan []byte, 512),
+		inbound:  make(chan []byte, 512),
 		bufPool: sync.Pool{New: func() any {
 			buf := make([]byte, cfg.MTU+IPPacketOffset+40)
 			return &buf
 		}},
-		peers: lru.New[string, peer.PeerID](1024),
+		routes: lru.New[peer.PeerID, []*net.IPNet](1024),
+		peers:  lru.New[string, peer.PeerID](1024),
 	}
 }
 
@@ -84,6 +87,7 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 		vpn.cfg.Peermap,
 		secureOption,
 		p2p.PeerAlias1(cidr.Addr().String()),
+		p2p.PeerMeta("allowedIPs", vpn.cfg.AllowedIPs),
 		p2p.ListenPeerUp(vpn.setPeer),
 	)
 	if err != nil {
@@ -110,12 +114,34 @@ func (vpn *VPN) setPeer(peer peer.PeerID, metadata peer.Metadata) {
 	vpn.peersMutex.Lock()
 	defer vpn.peersMutex.Unlock()
 	vpn.peers.Put(metadata.Alias1, peer)
+	var allowIPs []*net.IPNet
+	for _, allowIP := range metadata.Extra["allowedIPs"].([]any) {
+		_, cidr, err := net.ParseCIDR(allowIP.(string))
+		if err != nil {
+			continue
+		}
+		slog.Info("Route", "to", cidr, "via", metadata.Alias1)
+		allowIPs = append(allowIPs, cidr)
+	}
+	vpn.routes.Put(peer, allowIPs)
 }
 
 func (vpn *VPN) getPeer(ip string) (peer.PeerID, bool) {
 	vpn.peersMutex.RLock()
 	defer vpn.peersMutex.RUnlock()
-	return vpn.peers.Get(ip)
+	peerID, ok := vpn.peers.Get(ip)
+	if ok {
+		return peerID, true
+	}
+	k, _, ok := vpn.routes.Find(func(k peer.PeerID, v []*net.IPNet) bool {
+		for _, cidr := range v {
+			if cidr.Contains(net.ParseIP(ip)) {
+				return true
+			}
+		}
+		return false
+	})
+	return k, ok
 }
 
 func (vpn *VPN) runTunReadEventLoop(wg *sync.WaitGroup, device tun.Device) {
