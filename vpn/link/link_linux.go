@@ -3,6 +3,8 @@
 package link
 
 import (
+	"net"
+
 	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/tun"
 )
@@ -12,7 +14,6 @@ func SetupLink(device tun.Device, cidr string) error {
 	if err != nil {
 		return err
 	}
-
 	link, err := netlink.LinkByName(ifName)
 	if err != nil {
 		return err
@@ -31,4 +32,18 @@ func SetupLink(device tun.Device, cidr string) error {
 		return err
 	}
 	return nil
+}
+
+func AddRoute(device tun.Device, to *net.IPNet, via net.IP) error {
+	return netlink.RouteAdd(&netlink.Route{
+		Dst: to,
+		Gw:  via,
+	})
+}
+
+func DelRoute(device tun.Device, to *net.IPNet, via net.IP) error {
+	return netlink.RouteDel(&netlink.Route{
+		Dst: to,
+		Gw:  via,
+	})
 }

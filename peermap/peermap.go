@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -179,7 +178,7 @@ func (pm *PeerMap) FindPeer(networkID peer.NetworkID, peerID peer.PeerID) (*Peer
 			return peer, nil
 		}
 	}
-	return nil, errors.New("peer not found")
+	return nil, fmt.Errorf("peer(%s/%s) not found", networkID, peerID)
 }
 
 func (pm *PeerMap) Serve(ctx context.Context) error {

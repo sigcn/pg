@@ -26,6 +26,13 @@ const (
 	IPPacketOffset = 16
 )
 
+type Route struct {
+	Device tun.Device
+	OldDst []*net.IPNet
+	NewDst []*net.IPNet
+	Via    net.IP
+}
+
 type Config struct {
 	MTU           int
 	IPv4          string
@@ -34,14 +41,17 @@ type Config struct {
 	NetworkSecret peer.NetworkSecret
 	Peermap       peer.PeermapCluster
 	PrivateKey    string
+	OnRoute       func(route Route)
 }
 
 type VPN struct {
-	cfg        Config
-	outbound   chan []byte
-	inbound    chan []byte
-	bufPool    sync.Pool
-	routes     *lru.Cache[peer.PeerID, []*net.IPNet]
+	cfg      Config
+	outbound chan []byte
+	inbound  chan []byte
+	bufPool  sync.Pool
+
+	ipv6Routes *lru.Cache[string, []*net.IPNet]
+	ipv4Routes *lru.Cache[string, []*net.IPNet]
 	peers      *lru.Cache[string, peer.PeerID]
 	peersMutex sync.RWMutex
 }
@@ -55,8 +65,9 @@ func New(cfg Config) *VPN {
 			buf := make([]byte, cfg.MTU+IPPacketOffset+40)
 			return &buf
 		}},
-		routes: lru.New[peer.PeerID, []*net.IPNet](1024),
-		peers:  lru.New[string, peer.PeerID](1024),
+		ipv6Routes: lru.New[string, []*net.IPNet](256),
+		ipv4Routes: lru.New[string, []*net.IPNet](256),
+		peers:      lru.New[string, peer.PeerID](1024),
 	}
 }
 
@@ -79,7 +90,7 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 
 	p2pOptions := []p2p.Option{
 		p2p.PeerMeta("allowedIPs", vpn.cfg.AllowedIPs),
-		p2p.ListenPeerUp(vpn.setPeer),
+		p2p.ListenPeerUp(func(pi peer.PeerID, m peer.Metadata) { vpn.setPeer(device, pi, m) }),
 	}
 
 	if vpn.cfg.IPv4 != "" {
@@ -127,21 +138,47 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 	return nil
 }
 
-func (vpn *VPN) setPeer(peer peer.PeerID, metadata peer.Metadata) {
+func (vpn *VPN) setPeer(device tun.Device, peer peer.PeerID, metadata peer.Metadata) {
 	vpn.peersMutex.Lock()
 	defer vpn.peersMutex.Unlock()
 	vpn.peers.Put(metadata.Alias1, peer)
 	vpn.peers.Put(metadata.Alias2, peer)
-	var allowIPs []*net.IPNet
+	var allowedIPv4s, allowedIPv6s []*net.IPNet
 	for _, allowIP := range metadata.Extra["allowedIPs"].([]any) {
 		_, cidr, err := net.ParseCIDR(allowIP.(string))
 		if err != nil {
 			continue
 		}
-		slog.Info("Route", "to", cidr, "via", metadata.Alias1)
-		allowIPs = append(allowIPs, cidr)
+		if cidr.IP.To4() != nil {
+			allowedIPv4s = append(allowedIPv4s, cidr)
+		} else {
+			allowedIPv6s = append(allowedIPv6s, cidr)
+		}
 	}
-	vpn.routes.Put(peer, allowIPs)
+	if len(allowedIPv4s) > 0 {
+		oldTo, _ := vpn.ipv4Routes.Get(metadata.Alias1)
+		vpn.ipv4Routes.Put(metadata.Alias1, allowedIPv4s)
+		if onRoute := vpn.cfg.OnRoute; onRoute != nil {
+			onRoute(Route{
+				Device: device,
+				OldDst: oldTo,
+				NewDst: allowedIPv4s,
+				Via:    net.ParseIP(metadata.Alias1),
+			})
+		}
+	}
+	if len(allowedIPv6s) > 0 {
+		oldTo, _ := vpn.ipv6Routes.Get(metadata.Alias2)
+		vpn.ipv6Routes.Put(metadata.Alias2, allowedIPv6s)
+		if onRoute := vpn.cfg.OnRoute; onRoute != nil {
+			onRoute(Route{
+				Device: device,
+				OldDst: oldTo,
+				NewDst: allowedIPv6s,
+				Via:    net.ParseIP(metadata.Alias2),
+			})
+		}
+	}
 }
 
 func (vpn *VPN) getPeer(ip string) (peer.PeerID, bool) {
@@ -151,15 +188,27 @@ func (vpn *VPN) getPeer(ip string) (peer.PeerID, bool) {
 	if ok {
 		return peerID, true
 	}
-	k, _, ok := vpn.routes.Find(func(k peer.PeerID, v []*net.IPNet) bool {
+	dstIP := net.ParseIP(ip)
+	if dstIP.To4() != nil {
+		k, _, _ := vpn.ipv4Routes.Find(func(k string, v []*net.IPNet) bool {
+			for _, cidr := range v {
+				if cidr.Contains(dstIP) {
+					return true
+				}
+			}
+			return false
+		})
+		return vpn.peers.Get(k)
+	}
+	k, _, _ := vpn.ipv6Routes.Find(func(k string, v []*net.IPNet) bool {
 		for _, cidr := range v {
-			if cidr.Contains(net.ParseIP(ip)) {
+			if cidr.Contains(dstIP) {
 				return true
 			}
 		}
 		return false
 	})
-	return k, ok
+	return vpn.peers.Get(k)
 }
 
 func (vpn *VPN) runTunReadEventLoop(wg *sync.WaitGroup, device tun.Device) {

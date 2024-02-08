@@ -66,7 +66,30 @@ if err !=nil {
 fmt.Println(peerID, ":", string(buf[:n])) // uniqueString : hello
 ```
 
-### 2. VPN
+### 2. VPN(p2p)
+
+#### Machine 1
 ```
-peerguard vpn --peermap wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
+# peerguard vpn --peermap wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
+```
+
+#### Machine 2
+```
+# peerguard vpn --peermap wss://synf.in/pg --ipv4 100.64.0.2/24 --ipv6 fd00::2/64
+```
+**Another terminal on machine 2**
+```
+# ping 100.64.0.1
+PING 100.64.0.1 (100.64.0.1) 56(84) bytes of data.
+64 bytes from 100.64.0.1: icmp_seq=1 ttl=64 time=7.88 ms
+64 bytes from 100.64.0.1: icmp_seq=2 ttl=64 time=4.19 ms
+64 bytes from 100.64.0.1: icmp_seq=3 ttl=64 time=4.47 ms
+64 bytes from 100.64.0.1: icmp_seq=4 ttl=64 time=4.54 ms
+...
+# ping fd00::1
+PING fd00::1 (fd00::1) 56 data bytes
+64 bytes from fd00::1: icmp_seq=1 ttl=64 time=4.29 ms
+64 bytes from fd00::1: icmp_seq=2 ttl=64 time=5.84 ms
+64 bytes from fd00::1: icmp_seq=3 ttl=64 time=3.48 ms
+64 bytes from fd00::1: icmp_seq=4 ttl=64 time=4.69 ms
 ```

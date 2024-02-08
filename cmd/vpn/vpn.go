@@ -18,6 +18,7 @@ import (
 	"github.com/rkonfj/peerguard/peermap/network"
 	"github.com/rkonfj/peerguard/peermap/oidc"
 	"github.com/rkonfj/peerguard/vpn"
+	"github.com/rkonfj/peerguard/vpn/link"
 	"github.com/spf13/cobra"
 )
 
@@ -48,7 +49,9 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		return
 	}
 
-	cfg := vpn.Config{}
+	cfg := vpn.Config{
+		OnRoute: onRoute,
+	}
 	cfg.IPv4, err = cmd.Flags().GetString("ipv4")
 	if err != nil {
 		return
@@ -94,6 +97,29 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	return vpn.New(cfg).RunTun(ctx, tunName)
+}
+
+func onRoute(route vpn.Route) {
+	if len(route.OldDst) > 0 {
+		for _, cidr := range route.OldDst {
+			err := link.DelRoute(route.Device, cidr, route.Via)
+			if err != nil {
+				slog.Error("DelRoute error", "detail", err, "to", cidr, "via", route.Via)
+			} else {
+				slog.Info("DelRoute", "to", cidr, "via", route.Via)
+			}
+		}
+	}
+	if len(route.NewDst) > 0 {
+		for _, cidr := range route.NewDst {
+			err := link.AddRoute(route.Device, cidr, route.Via)
+			if err != nil {
+				slog.Error("AddRoute error", "detail", err, "to", cidr, "via", route.Via)
+			} else {
+				slog.Info("AddRoute", "to", cidr, "via", route.Via)
+			}
+		}
+	}
 }
 
 func login(peermapCluster []string) peer.NetworkSecret {
