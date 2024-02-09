@@ -3,7 +3,6 @@ package vpn
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -41,6 +40,7 @@ func init() {
 	Cmd.Flags().String("key", "", "curve25519 private key in base64-url format (default generate a new one)")
 
 	Cmd.MarkFlagRequired("peermap")
+	Cmd.MarkFlagsOneRequired("ipv4", "ipv6")
 }
 
 func run(cmd *cobra.Command, args []string) (err error) {
@@ -59,10 +59,6 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	cfg.IPv6, err = cmd.Flags().GetString("ipv6")
 	if err != nil {
 		return
-	}
-
-	if cfg.IPv4 == "" && cfg.IPv6 == "" {
-		return errors.New("must specify at least one of ipv4 or ipv6")
 	}
 
 	cfg.AllowedIPs, err = cmd.Flags().GetStringSlice("allowed-ips")

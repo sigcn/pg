@@ -3,7 +3,7 @@ git_hash := $(shell git rev-parse --short HEAD)
 
 GOBUILD := CGO_ENABLED=0 go build -ldflags "-s -w -X 'main.Version=${version}' -X 'main.Commit=${git_hash}'"
 
-all: linux windows
+all: linux windows darwin
 
 linuxamd64:
 	GOOS=linux GOARCH=amd64 ${GOBUILD} -o peerguard-${version}-linux-amd64
@@ -27,8 +27,15 @@ winarm64: wintun
 	rm wintun.dll
 windows: winamd64 winarm64
 
+darwinamd64:
+	GOOS=darwin GOARCH=amd64 ${GOBUILD} -o peerguard-${version}-darwin-amd64
+darwinarm64:
+	GOOS=darwin GOARCH=arm64 ${GOBUILD} -o peerguard-${version}-darwin-arm64
+darwin: darwinamd64 darwinarm64
+
 github: clean all
 	gzip peerguard-${version}-linux*
+	gzip peerguard-${version}-darwin*
 	git tag -d ${version} 2>/dev/null || true
 	gh release delete ${version} -y --cleanup-tag 2>/dev/null || true
 	gh release create ${version} --generate-notes --title "peerguard ${version}" peerguard-${version}*.gz peerguard-${version}*.zip
@@ -38,3 +45,4 @@ dist: github
 clean:
 	rm peerguard* 2>/dev/null || true
 	rm *.zip 2>/dev/null || true
+	rm *.dll 2>/dev/null || true

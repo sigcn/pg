@@ -48,7 +48,7 @@ type VPN struct {
 	cfg      Config
 	outbound chan []byte
 	inbound  chan []byte
-	bufPool  sync.Pool
+	newBuf   func() []byte
 
 	ipv6Routes *lru.Cache[string, []*net.IPNet]
 	ipv4Routes *lru.Cache[string, []*net.IPNet]
@@ -58,13 +58,10 @@ type VPN struct {
 
 func New(cfg Config) *VPN {
 	return &VPN{
-		cfg:      cfg,
-		outbound: make(chan []byte, 512),
-		inbound:  make(chan []byte, 512),
-		bufPool: sync.Pool{New: func() any {
-			buf := make([]byte, cfg.MTU+IPPacketOffset+40)
-			return &buf
-		}},
+		cfg:        cfg,
+		outbound:   make(chan []byte, 512),
+		inbound:    make(chan []byte, 512),
+		newBuf:     func() []byte { return make([]byte, cfg.MTU+IPPacketOffset+40) },
 		ipv6Routes: lru.New[string, []*net.IPNet](256),
 		ipv4Routes: lru.New[string, []*net.IPNet](256),
 		peers:      lru.New[string, peer.PeerID](1024),
@@ -218,11 +215,11 @@ func (vpn *VPN) runTunReadEventLoop(wg *sync.WaitGroup, device tun.Device) {
 	sizes := make([]int, device.BatchSize())
 
 	for i := range bufs {
-		bufs[i] = make([]byte, vpn.cfg.MTU+40)
+		bufs[i] = make([]byte, vpn.cfg.MTU+IPPacketOffset+40)
 	}
 
 	for {
-		n, err := device.Read(bufs, sizes, 0)
+		n, err := device.Read(bufs, sizes, IPPacketOffset)
 		if err != nil && strings.Contains(err.Error(), os.ErrClosed.Error()) {
 			return
 		}
@@ -230,9 +227,9 @@ func (vpn *VPN) runTunReadEventLoop(wg *sync.WaitGroup, device tun.Device) {
 			panic(err)
 		}
 		for i := 0; i < n; i++ {
-			packet := vpn.bufPool.Get().(*[]byte)
-			copy(*packet, bufs[i][:sizes[i]])
-			vpn.outbound <- (*packet)[:sizes[i]]
+			packet := vpn.newBuf()
+			copy(packet, bufs[i][:sizes[i]+IPPacketOffset])
+			vpn.outbound <- packet[:sizes[i]+IPPacketOffset]
 		}
 	}
 }
@@ -262,7 +259,7 @@ func (vpn *VPN) runPacketConnReadEventLoop(wg *sync.WaitGroup, packetConn net.Pa
 			}
 			panic(err)
 		}
-		pkt := *vpn.bufPool.Get().(*[]byte)
+		pkt := vpn.newBuf()
 		copy(pkt[IPPacketOffset:], buf[:n])
 		vpn.inbound <- pkt[:n+IPPacketOffset]
 	}
@@ -271,10 +268,11 @@ func (vpn *VPN) runPacketConnReadEventLoop(wg *sync.WaitGroup, packetConn net.Pa
 func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.PacketConn) {
 	defer wg.Done()
 	for {
-		pkt, ok := <-vpn.outbound
+		packet, ok := <-vpn.outbound
 		if !ok {
 			return
 		}
+		pkt := packet[IPPacketOffset:]
 		if pkt[0]>>4 == 4 {
 			header, err := ipv4.ParseHeader(pkt)
 			if err != nil {
@@ -282,6 +280,10 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			}
 			if header.Dst.To4()[0] >= 224 && header.Dst.To4()[0] <= 239 {
 				slog.Log(context.Background(), -10, "DropMulticastIPv4", "dst", header.Dst)
+				continue
+			}
+			if header.Dst.String() == link.Show().IPv4 {
+				vpn.inbound <- packet
 				continue
 			}
 			if peer, ok := vpn.getPeer(header.Dst.String()); ok {
@@ -301,6 +303,10 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			}
 			if header.Dst[0] == 0xff {
 				slog.Log(context.Background(), -10, "DropMulticastIPv6", "dst", header.Dst)
+				continue
+			}
+			if header.Dst.String() == link.Show().IPv6 {
+				vpn.inbound <- packet
 				continue
 			}
 			if peer, ok := vpn.getPeer(header.Dst.String()); ok {

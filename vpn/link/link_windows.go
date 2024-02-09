@@ -20,9 +20,11 @@ func SetupLink(device tun.Device, cidr string) error {
 		return err
 	}
 	if ip.To4() == nil { // ipv6
+		info.IPv6 = ip.String()
 		return exec.Command("netsh", "interface", "ipv6", "add", "address", ifName, cidr).Run()
 	}
 	// ipv4
+	info.IPv4 = ip.String()
 	addrMask := fmt.Sprintf("%d.%d.%d.%d", ipnet.Mask[0], ipnet.Mask[1], ipnet.Mask[2], ipnet.Mask[3])
 	return exec.Command("netsh", "interface", "ipv4", "set", "address", ifName, "static", ip.String(), addrMask).Run()
 }

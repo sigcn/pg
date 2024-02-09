@@ -24,6 +24,11 @@ func SetupLink(device tun.Device, cidr string) error {
 		return err
 	}
 
+	info.IPv4 = addr.IP.String()
+	if addr.IP.To4() == nil {
+		info.IPv6 = addr.IP.String()
+	}
+
 	if err := netlink.AddrAdd(link, addr); err != nil {
 		return err
 	}

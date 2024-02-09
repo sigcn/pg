@@ -1,24 +1,12 @@
-//go:build !linux && !windows
-
 package link
 
-import (
-	"net"
+var info = Info{}
 
-	"golang.zx2c4.com/wireguard/tun"
-)
-
-func SetupLink(device tun.Device, cidr string) error {
-	// noop
-	return nil
+type Info struct {
+	IPv4 string
+	IPv6 string
 }
 
-func AddRoute(device tun.Device, to *net.IPNet, via net.IP) error {
-	// noop
-	return nil
-}
-
-func DelRoute(device tun.Device, to *net.IPNet, via net.IP) error {
-	// noop
-	return nil
+func Show() Info {
+	return info
 }

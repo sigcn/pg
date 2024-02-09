@@ -50,7 +50,7 @@ if err != nil {
 
 defer packetConn.Close()
 
-// "uniqueString" is above peer's address
+// "uniqueString" is above echo server's address
 _, err := packetConn.WriteTo(peer.PeerID("uniqueString"), []byte("hello"))
 if err != nil {
     panic(err)
