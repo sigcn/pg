@@ -66,7 +66,13 @@ func ListLocalIPs() ([]net.IP, error) {
 			continue
 		}
 		for _, addr := range addrs {
-			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet, ok := addr.(*net.IPNet); ok {
+				if ipnet.IP.IsLoopback() {
+					continue
+				}
+				if ipnet.IP.IsLinkLocalUnicast() {
+					continue
+				}
 				if ignoredLocalCIDRs.Contains(ipnet.IP) {
 					continue
 				}
