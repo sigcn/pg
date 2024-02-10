@@ -109,8 +109,8 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 		Addr:   addr,
 	}
 	defer slog.Debug("[UDP] DiscoPingExit", "peer", peerID, "addr", addr)
-	interval := 200 * time.Millisecond
-	for i := 0; ; i++ {
+	interval := 300 * time.Millisecond
+	for i := 0; i <= 7; i++ {
 		select {
 		case <-c.closedSig:
 			return
@@ -118,31 +118,31 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 		}
 		slog.Debug("[UDP] DiscoPing", "peer", peerID, "addr", addr)
 		c.UDPConn.WriteToUDP([]byte("_ping"+c.id), addr)
-		if i >= 8 {
-			if ctx, ok := c.findPeer(peerID); (!ok || !ctx.Ready()) && addr.IP.To4() != nil && !addr.IP.IsPrivate() {
-				slog.Info("[UDP] PortScanning", "peer", peerID, "addr", addr)
-				for port := addr.Port + 1; port < min(65536, addr.Port+1000); port++ {
-					p := port % 65536
-					if p <= 1024 {
-						continue
-					}
-					if ctx, ok := c.findPeer(peerID); ok && ctx.Ready() {
-						slog.Info("[UDP] PortScanHit", "peer", peerID, "cursor", port)
-						return
-					}
-					dst := &net.UDPAddr{IP: addr.IP, Port: p}
-					c.UDPConn.WriteToUDP([]byte("_ping"+c.id), dst)
-					time.Sleep(50 * time.Microsecond)
-				}
-				slog.Info("[UDP] PortScanExit", "peer", peerID, "addr", addr)
-			}
-			return
-		}
 		time.Sleep(interval)
-		interval = time.Duration(float64(interval) * 1.3)
+		interval = time.Duration(float64(interval) * 1.35)
 		if c.findPeerID(addr) != "" {
 			return
 		}
+	}
+
+	if ctx, ok := c.findPeer(peerID); (!ok || !ctx.Ready()) && addr.IP.To4() != nil && !addr.IP.IsPrivate() {
+		slog.Info("[UDP] PortScanning", "peer", peerID, "addr", addr)
+		for port := addr.Port + 1; port < min(65536, addr.Port+1000); port++ {
+			select {
+			case <-c.closedSig:
+				return
+			default:
+			}
+			p := port % 65536
+			if ctx, ok := c.findPeer(peerID); ok && ctx.Ready() {
+				slog.Info("[UDP] PortScanHit", "peer", peerID, "cursor", port)
+				return
+			}
+			dst := &net.UDPAddr{IP: addr.IP, Port: p}
+			c.UDPConn.WriteToUDP([]byte("_ping"+c.id), dst)
+			time.Sleep(50 * time.Microsecond)
+		}
+		slog.Info("[UDP] PortScanExit", "peer", peerID, "addr", addr)
 	}
 }
 

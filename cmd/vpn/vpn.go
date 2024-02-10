@@ -3,6 +3,7 @@ package vpn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -88,6 +89,9 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	cfg.NetworkSecret = peer.NetworkSecret(secret)
 	if len(secret) == 0 {
 		cfg.NetworkSecret = login(cfg.Peermap)
+		if len(cfg.NetworkSecret) == 0 {
+			return errors.New("get network secret failed")
+		}
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -136,7 +140,7 @@ func login(peermapCluster []string) peer.NetworkSecret {
 			return ""
 		}
 		json.NewEncoder(f).Encode(joined)
-		slog.Info("NetworkJoined", "network", joined.Network)
+		slog.Info("NetworkJoined", "network", joined.Network, "expire", joined.Expire)
 		return joined.Secret
 	}
 	f, err := os.Open(netSecretFile)
@@ -163,8 +167,9 @@ func requestNetworkSecret(peermapCluster []string) (*oidc.NetworkSecret, error) 
 		Items:    []string{oidc.ProviderGoogle, oidc.ProviderGithub},
 		HideHelp: true,
 		Templates: &promptui.SelectTemplates{
-			Label:  "🔑 {{.}}",
-			Active: "> {{.}}",
+			Label:    "🔑 {{.}}",
+			Active:   "> {{.}}",
+			Selected: "{{green `✔`}} {{green .}} {{cyan `use the browser to open the following URL for authentication`}}",
 		},
 	}
 	_, provider, err := prompt.Run()
@@ -176,8 +181,7 @@ func requestNetworkSecret(peermapCluster []string) (*oidc.NetworkSecret, error) 
 		slog.Error("JoinNetwork failed", "err", err)
 		return nil, err
 	}
-
-	fmt.Println("Use the browser to open the following URL for authentication")
+	fmt.Println("AuthURL:", join.AuthURL())
 	qrterminal.GenerateWithConfig(join.AuthURL(), qrterminal.Config{
 		Level:     qrterminal.L,
 		Writer:    os.Stdout,
@@ -185,7 +189,6 @@ func requestNetworkSecret(peermapCluster []string) (*oidc.NetworkSecret, error) 
 		WhiteChar: qrterminal.BLACK,
 		QuietZone: 1,
 	})
-	fmt.Println("AuthURL:", join.AuthURL())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	return join.Wait(ctx)
