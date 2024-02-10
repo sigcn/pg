@@ -103,6 +103,10 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.PeerID, stunServers []stri
 }
 
 func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr) {
+	if ignoredLocalCIDRs.Contains(addr.IP) {
+		return
+	}
+
 	c.peersOPs <- &PeerOP{
 		Op:     OP_PEER_DISCO,
 		PeerID: peerID,

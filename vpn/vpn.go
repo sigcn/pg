@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -38,6 +39,7 @@ type Config struct {
 	IPv4          string
 	IPv6          string
 	AllowedIPs    []string
+	Peers         []string
 	NetworkSecret peer.NetworkSecret
 	Peermap       peer.PeermapCluster
 	PrivateKey    string
@@ -90,12 +92,43 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 		p2p.ListenPeerUp(func(pi peer.PeerID, m peer.Metadata) { vpn.setPeer(device, pi, m) }),
 	}
 
+	if len(vpn.cfg.Peers) > 0 {
+		p2pOptions = append(p2pOptions, p2p.PeerSilenceMode())
+	}
+
+	for _, peerURL := range vpn.cfg.Peers {
+		pgPeer, err := url.Parse(peerURL)
+		if err != nil {
+			continue
+		}
+		if pgPeer.Scheme != "pg" {
+			return fmt.Errorf("unsupport scheme %s", pgPeer.Scheme)
+		}
+		extra := make(map[string]any)
+		for k, v := range pgPeer.Query() {
+			if len(v) == 1 {
+				extra[k] = v[0]
+				continue
+			}
+			arr := make([]any, 0, len(v))
+			for _, v1 := range v {
+				arr = append(arr, v1)
+			}
+			extra[k] = arr
+		}
+		vpn.setPeer(device, peer.PeerID(pgPeer.Host), peer.Metadata{
+			Alias1: pgPeer.Query().Get("alias1"),
+			Alias2: pgPeer.Query().Get("alias2"),
+			Extra:  extra,
+		})
+	}
+
 	if vpn.cfg.IPv4 != "" {
 		ipv4, err := netip.ParsePrefix(vpn.cfg.IPv4)
 		if err != nil {
 			return err
 		}
-		disco.SetIgnoredLocalCIDRs(vpn.cfg.IPv4)
+		disco.AddIgnoredLocalCIDRs(vpn.cfg.IPv4)
 		p2pOptions = append(p2pOptions, p2p.PeerAlias1(ipv4.Addr().String()))
 	}
 
@@ -104,7 +137,7 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 		if err != nil {
 			return err
 		}
-		disco.SetIgnoredLocalCIDRs(vpn.cfg.IPv6)
+		disco.AddIgnoredLocalCIDRs(vpn.cfg.IPv6)
 		p2pOptions = append(p2pOptions, p2p.PeerAlias2(ipv6.Addr().String()))
 	}
 
@@ -141,15 +174,17 @@ func (vpn *VPN) setPeer(device tun.Device, peer peer.PeerID, metadata peer.Metad
 	vpn.peers.Put(metadata.Alias1, peer)
 	vpn.peers.Put(metadata.Alias2, peer)
 	var allowedIPv4s, allowedIPv6s []*net.IPNet
-	for _, allowIP := range metadata.Extra["allowedIPs"].([]any) {
-		_, cidr, err := net.ParseCIDR(allowIP.(string))
-		if err != nil {
-			continue
-		}
-		if cidr.IP.To4() != nil {
-			allowedIPv4s = append(allowedIPv4s, cidr)
-		} else {
-			allowedIPv6s = append(allowedIPv6s, cidr)
+	if allowedIPs := metadata.Extra["allowedIPs"]; allowedIPs != nil {
+		for _, allowIP := range allowedIPs.([]any) {
+			_, cidr, err := net.ParseCIDR(allowIP.(string))
+			if err != nil {
+				continue
+			}
+			if cidr.IP.To4() != nil {
+				allowedIPv4s = append(allowedIPv4s, cidr)
+			} else {
+				allowedIPv6s = append(allowedIPv6s, cidr)
+			}
 		}
 	}
 	if len(allowedIPv4s) > 0 {

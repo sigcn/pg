@@ -34,12 +34,18 @@ var (
 )
 
 func SetIgnoredLocalCIDRs(cidrs ...string) {
+	ignoredLocalCIDRs = ignoredLocalCIDRs[:0]
+	AddIgnoredLocalCIDRs(cidrs...)
+}
+
+func AddIgnoredLocalCIDRs(cidrs ...string) {
 	for _, cidr := range cidrs {
 		_, _cidr, err := net.ParseCIDR(cidr)
 		if err != nil {
 			slog.Debug("SetIgnoredLocalCIDRs parse cidr failed", "err", err)
 			continue
 		}
+		slog.Debug("IgnoreLocalCIDR " + cidr)
 		ignoredLocalCIDRs = append(ignoredLocalCIDRs, _cidr)
 	}
 }
@@ -76,6 +82,7 @@ func ListLocalIPs() ([]net.IP, error) {
 				if ignoredLocalCIDRs.Contains(ipnet.IP) {
 					continue
 				}
+				slog.Debug("AddLocalIP " + ipnet.IP.String())
 				ips = append(ips, ipnet.IP)
 			}
 		}
