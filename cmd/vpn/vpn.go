@@ -3,7 +3,6 @@ package vpn
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -22,25 +21,25 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var Cmd *cobra.Command
+var Cmd = &cobra.Command{
+	Use:   "vpn",
+	Short: "Run a vpn daemon powered by PeerGuard",
+	Args:  cobra.NoArgs,
+	RunE:  run,
+}
 
 func init() {
-	Cmd = &cobra.Command{
-		Use:   "vpn",
-		Short: "Run a vpn daemon powered by PeerGuard",
-		Args:  cobra.NoArgs,
-		RunE:  run,
-	}
-	Cmd.Flags().String("ipv4", "", "ipv4 address prefix.  i.e. 100.99.0.1/24")
-	Cmd.Flags().String("ipv6", "", "ipv6 address prefix.  i.e. fd00::1/64")
+	Cmd.Flags().String("ipv4", "", "ipv4 address prefix (i.e. 100.99.0.1/24)")
+	Cmd.Flags().String("ipv6", "", "ipv6 address prefix (i.e. fd00::1/64)")
 	Cmd.Flags().String("tun", "pg0", "tun name")
 	Cmd.Flags().Int("mtu", 1391, "mtu")
-	Cmd.Flags().String("secret", "", "p2p network secret (default obtained using OIDC)")
-	Cmd.Flags().StringSlice("peermap", []string{}, "peermap cluster")
-	Cmd.Flags().StringSlice("allowed-ip", []string{}, "declare IPs that can be routed by this machine")
-	Cmd.Flags().StringSlice("peer", []string{}, "specify peers instead of auto-discovery")
 
 	Cmd.Flags().String("key", "", "curve25519 private key in base64-url format (default generate a new one)")
+	Cmd.Flags().String("secret", "", "p2p network secret (default use OIDC to log into the network)")
+
+	Cmd.Flags().StringSlice("peermap", []string{}, "peermap cluster")
+	Cmd.Flags().StringSlice("allowed-ip", []string{}, "declare IPs that can be routed/NATed by this machine (i.e. 192.168.0.0/24)")
+	Cmd.Flags().StringSlice("peer", []string{}, "specify peers instead of auto-discovery (pg://<peerID>?alias1=<ipv4>&alias2=<ipv6>)")
 
 	Cmd.MarkFlagRequired("peermap")
 	Cmd.MarkFlagsOneRequired("ipv4", "ipv6")
@@ -95,9 +94,9 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	}
 	cfg.NetworkSecret = peer.NetworkSecret(secret)
 	if len(secret) == 0 {
-		cfg.NetworkSecret = login(cfg.Peermap)
-		if len(cfg.NetworkSecret) == 0 {
-			return errors.New("get network secret failed")
+		cfg.NetworkSecret, err = login(cfg.Peermap)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -129,33 +128,32 @@ func onRoute(route vpn.Route) {
 	}
 }
 
-func login(peermapCluster []string) peer.NetworkSecret {
+func login(peermapCluster []string) (peer.NetworkSecret, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return ""
+		return "", err
 	}
 	netSecretFile := filepath.Join(homeDir, ".peerguard_network_secret.json")
-	updateSecret := func() peer.NetworkSecret {
+	updateSecret := func() (peer.NetworkSecret, error) {
 		f, err := os.Create(netSecretFile)
 		if err != nil {
-			return ""
+			return "", err
 		}
 		defer f.Close()
 		joined, err := requestNetworkSecret(peermapCluster)
 		if err != nil {
-			slog.Error("RequestNetworkkSecret failed", "err", err)
-			return ""
+			return "", fmt.Errorf("request network secret failed: %w", err)
 		}
 		json.NewEncoder(f).Encode(joined)
 		slog.Info("NetworkJoined", "network", joined.Network, "expire", joined.Expire)
-		return joined.Secret
+		return joined.Secret, nil
 	}
 	f, err := os.Open(netSecretFile)
 	if os.IsNotExist(err) {
 		return updateSecret()
 	}
 	if err != nil {
-		return ""
+		return "", err
 	}
 	defer f.Close()
 	var joined oidc.NetworkSecret
@@ -163,7 +161,7 @@ func login(peermapCluster []string) peer.NetworkSecret {
 		return updateSecret()
 	}
 	if time.Until(joined.Expire) > 0 {
-		return joined.Secret
+		return joined.Secret, nil
 	}
 	return updateSecret()
 }
