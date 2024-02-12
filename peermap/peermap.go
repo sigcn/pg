@@ -204,7 +204,7 @@ func New(cfg Config) (*PeerMap, error) {
 		httpServer:    &http.Server{Handler: mux, Addr: cfg.Listen},
 		wsUpgrader:    &websocket.Upgrader{},
 		networkMap:    cmap.New[*networkContext](),
-		authenticator: auth.NewAuthenticator(cfg.ClusterKey),
+		authenticator: auth.NewAuthenticator(cfg.SecretKey),
 		cfg:           cfg,
 	}
 	mux.HandleFunc("/", pm.handleWebsocket)
@@ -232,7 +232,7 @@ func (pm *PeerMap) handleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		return
 	}
-	token, err := auth.NewAuthenticator(pm.cfg.ClusterKey).GenerateToken(email, 24*time.Hour)
+	token, err := auth.NewAuthenticator(pm.cfg.SecretKey).GenerateToken(email, 2*24*time.Hour)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -240,7 +240,7 @@ func (pm *PeerMap) handleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 	err = oidc.NotifyToken(r.URL.Query().Get("state"), oidc.NetworkSecret{
 		Network: email,
 		Secret:  peer.NetworkSecret(token),
-		Expire:  time.Now().Add(4*time.Hour - 10*time.Second),
+		Expire:  time.Now().Add(2*24*time.Hour - 10*time.Second),
 	})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -251,15 +251,8 @@ func (pm *PeerMap) handleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 
 func (pm *PeerMap) handleWebsocket(w http.ResponseWriter, r *http.Request) {
 	networkID := r.Header.Get("X-Network")
-	clusterKey := r.Header.Get("X-ClusterKey")
-
 	if len(networkID) > 0 {
 		pm.handlePeerPacketConnect(w, r)
-		return
-	}
-
-	if len(clusterKey) > 0 {
-		pm.handleClusterConnect(w, r)
 		return
 	}
 	w.WriteHeader(http.StatusForbidden)
@@ -268,7 +261,7 @@ func (pm *PeerMap) handleWebsocket(w http.ResponseWriter, r *http.Request) {
 func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Request) {
 	networkID, err := pm.authenticator.VerifyToken(r.Header.Get("X-Network"))
 	if err != nil {
-		slog.Debug("authenticate failed", "err", err, "network", r.Header.Get("X-Network"))
+		slog.Debug("Authenticate failed", "err", err, "network", r.Header.Get("X-Network"))
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -311,7 +304,7 @@ func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	}
 
 	if ok := networkCtx.SetIfAbsent(peerID, &peer); !ok {
-		slog.Debug("address is already in used", "addr", peerID)
+		slog.Debug("Address is already in used", "addr", peerID)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -327,10 +320,4 @@ func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	}
 	peer.conn = wsConn
 	peer.Start()
-}
-
-func (pm *PeerMap) handleClusterConnect(w http.ResponseWriter, r *http.Request) {
-	clusterKey := r.Header.Get("X-ClusterKey")
-	// TODO
-	fmt.Println(clusterKey)
 }

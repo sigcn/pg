@@ -1,6 +1,8 @@
 package peermap
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"os"
@@ -16,8 +18,7 @@ type RateLimiter struct {
 
 type Config struct {
 	Listen        string                    `yaml:"listen"`
-	AdvertiseURL  string                    `yaml:"advertise_url"`
-	ClusterKey    string                    `yaml:"cluster_key"`
+	SecretKey     string                    `yaml:"secret_key"`
 	STUNs         []string                  `yaml:"stuns"`
 	OIDCProviders []oidc.OIDCProviderConfig `yaml:"oidc_providers"`
 	RateLimiter   *RateLimiter              `yaml:"rate_limiter,omitempty"`
@@ -27,11 +28,14 @@ func (cfg *Config) applyDefaults() error {
 	if cfg.Listen == "" {
 		cfg.Listen = "127.0.0.1:9987"
 	}
-	if cfg.ClusterKey == "" {
-		return errors.New("cluster key is required")
+	if cfg.SecretKey == "" {
+		secretKey := make([]byte, 16)
+		rand.Read(secretKey)
+		cfg.SecretKey = hex.EncodeToString(secretKey)
+		slog.Info("SecretKey " + cfg.SecretKey)
 	}
 	if len(cfg.STUNs) == 0 {
-		slog.Warn("STUN servers are not set, peer discovery is disabled")
+		slog.Warn("No STUN servers are set up, NAT traversal is disabled")
 	}
 	if cfg.RateLimiter != nil {
 		if cfg.RateLimiter.Burst < cfg.RateLimiter.Limit {
@@ -48,11 +52,8 @@ func (cfg *Config) applyDefaults() error {
 }
 
 func (cfg *Config) Overwrite(cfg1 Config) {
-	if len(cfg1.AdvertiseURL) > 0 {
-		cfg.AdvertiseURL = cfg1.AdvertiseURL
-	}
-	if len(cfg1.ClusterKey) > 0 {
-		cfg.ClusterKey = cfg1.ClusterKey
+	if len(cfg1.SecretKey) > 0 {
+		cfg.SecretKey = cfg1.SecretKey
 	}
 	if len(cfg1.Listen) > 0 {
 		cfg.Listen = cfg1.Listen
