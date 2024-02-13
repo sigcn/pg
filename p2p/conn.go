@@ -188,6 +188,11 @@ func (c *PeerPacketConn) TryLeadDisco(peerID peer.PeerID) {
 	}
 }
 
+// UDPConn return the os udp socket
+func (c *PeerPacketConn) UDPConn() net.PacketConn {
+	return c.udpConn
+}
+
 // runControlEventLoop events control loop
 func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disco.UDPConn) {
 	for {

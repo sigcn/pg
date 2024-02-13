@@ -17,6 +17,11 @@ import (
 	"tailscale.com/net/stun"
 )
 
+var (
+	_ net.PacketConn = (*UDPConn)(nil)
+	_ PeerStore      = (*UDPConn)(nil)
+)
+
 type UDPConn struct {
 	*net.UDPConn
 	closedSig             chan int
@@ -96,7 +101,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.PeerID, stunServers []stri
 	}
 	// WAN
 	time.AfterFunc(time.Second, func() {
-		if ctx, ok := c.findPeer(peerID); !ok || !ctx.IPv4Ready() {
+		if ctx, ok := c.FindPeer(peerID); !ok || !ctx.IPv4Ready() {
 			c.requestSTUN(peerID, stunServers)
 		}
 	})
@@ -129,7 +134,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 		}
 	}
 
-	if ctx, ok := c.findPeer(peerID); (!ok || !ctx.Ready()) && addr.IP.To4() != nil && !addr.IP.IsPrivate() {
+	if ctx, ok := c.FindPeer(peerID); (!ok || !ctx.Ready()) && addr.IP.To4() != nil && !addr.IP.IsPrivate() {
 		slog.Info("[UDP] PortScanning", "peer", peerID, "addr", addr)
 		for port := addr.Port + 1; port < min(65536, addr.Port+1000); port++ {
 			select {
@@ -138,7 +143,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 			default:
 			}
 			p := port % 65536
-			if ctx, ok := c.findPeer(peerID); ok && ctx.Ready() {
+			if ctx, ok := c.FindPeer(peerID); ok && ctx.Ready() {
 				slog.Info("[UDP] PortScanHit", "peer", peerID, "cursor", port)
 				return
 			}
@@ -311,7 +316,7 @@ func (c *UDPConn) requestSTUN(peerID peer.PeerID, stunServers []string) {
 			continue
 		}
 		time.Sleep(5 * time.Second)
-		if _, ok := c.findPeer(peerID); ok {
+		if _, ok := c.FindPeer(peerID); ok {
 			c.stunSessions.Remove(string(txID[:]))
 			break
 		}
@@ -338,7 +343,7 @@ func (c *UDPConn) findPeerID(udpAddr *net.UDPAddr) peer.PeerID {
 	return ""
 }
 
-func (c *UDPConn) findPeer(peerID peer.PeerID) (*PeerContext, bool) {
+func (c *UDPConn) FindPeer(peerID peer.PeerID) (*PeerContext, bool) {
 	c.peersMapMutex.RLock()
 	defer c.peersMapMutex.RUnlock()
 	if peer, ok := c.peersMap[peerID]; ok && peer.Ready() {
@@ -348,7 +353,7 @@ func (c *UDPConn) findPeer(peerID peer.PeerID) (*PeerContext, bool) {
 }
 
 func (n *UDPConn) WriteToUDP(p []byte, peerID peer.PeerID) (int, error) {
-	if peer, ok := n.findPeer(peerID); ok {
+	if peer, ok := n.FindPeer(peerID); ok {
 		addr := peer.Select()
 		slog.Debug("[UDP] WriteTo", "peer", peerID, "addr", addr)
 		return n.UDPConn.WriteToUDP(p, addr)
@@ -398,7 +403,7 @@ func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.PeerID) (*UDPCon
 		UDPConn:               conn,
 		closedSig:             make(chan int),
 		peersOPs:              make(chan *PeerOP),
-		datagrams:             make(chan *Datagram, 50),
+		datagrams:             make(chan *Datagram),
 		udpAddrSends:          make(chan *PeerUDPAddrEvent, 10),
 		stunResponse:          make(chan []byte, 10),
 		peerKeepaliveInterval: 10 * time.Second,

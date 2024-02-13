@@ -23,6 +23,10 @@ const (
 	OP_PEER_HEALTHCHECK = 10
 )
 
+type PeerStore interface {
+	FindPeer(peer.PeerID) (*PeerContext, bool)
+}
+
 type PeerContext struct {
 	PeerID     peer.PeerID
 	States     map[string]*PeerState
