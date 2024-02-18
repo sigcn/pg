@@ -86,7 +86,7 @@ func (vpn *VPN) RunTun(ctx context.Context, tunName string) error {
 
 func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 	disco.SetIgnoredLocalInterfaceNamePrefixs("pg", "wg", "veth", "docker", "nerdctl")
-
+	disco.AddIgnoredLocalCIDRs(vpn.cfg.AllowedIPs...)
 	p2pOptions := []p2p.Option{
 		p2p.PeerMeta("allowedIPs", vpn.cfg.AllowedIPs),
 		p2p.ListenPeerUp(func(pi peer.PeerID, m peer.Metadata) { vpn.setPeer(device, pi, m) }),
