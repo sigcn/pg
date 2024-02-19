@@ -114,8 +114,8 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 		Addr:   addr,
 	}
 	defer slog.Debug("[UDP] DiscoPingExit", "peer", peerID, "addr", addr)
-	interval := 300 * time.Millisecond
-	for i := 0; i <= 7; i++ {
+	interval := defaultDiscoConfig.ChallengesInitialInterval
+	for i := 0; i <= defaultDiscoConfig.ChallengesRetry; i++ {
 		select {
 		case <-c.closedSig:
 			return
@@ -124,7 +124,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 		slog.Debug("[UDP] DiscoPing", "peer", peerID, "addr", addr)
 		c.UDPConn.WriteToUDP([]byte("_ping"+c.id), addr)
 		time.Sleep(interval)
-		interval = time.Duration(float64(interval) * 1.35)
+		interval = time.Duration(float64(interval) * defaultDiscoConfig.ChallengesBackoffRate)
 		if c.findPeerID(addr) != "" {
 			return
 		}
@@ -132,15 +132,18 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 
 	if ctx, ok := c.FindPeer(peerID); (!ok || !ctx.Ready()) && addr.IP.To4() != nil && !addr.IP.IsPrivate() {
 		slog.Info("[UDP] PortScanning", "peer", peerID, "addr", addr)
-		for port := addr.Port + 1; port < min(65536, addr.Port+1000); port++ {
+		for port := addr.Port + 1; port <= addr.Port+defaultDiscoConfig.PortScanCount; port++ {
 			select {
 			case <-c.closedSig:
 				return
 			default:
 			}
 			p := port % 65536
+			if p <= 1024 {
+				continue
+			}
 			if ctx, ok := c.FindPeer(peerID); ok && ctx.Ready() {
-				slog.Info("[UDP] PortScanHit", "peer", peerID, "cursor", port)
+				slog.Info("[UDP] PortScanHit", "peer", peerID, "cursor", p)
 				return
 			}
 			dst := &net.UDPAddr{IP: addr.IP, Port: p}

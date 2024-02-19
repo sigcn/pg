@@ -35,15 +35,16 @@ type Route struct {
 }
 
 type Config struct {
-	MTU           int
-	IPv4          string
-	IPv6          string
-	AllowedIPs    []string
-	Peers         []string
-	NetworkSecret peer.NetworkSecret
-	Peermap       peer.PeermapCluster
-	PrivateKey    string
-	OnRoute       func(route Route)
+	MTU               int
+	IPv4              string
+	IPv6              string
+	AllowedIPs        []string
+	Peers             []string
+	NetworkSecret     peer.NetworkSecret
+	Peermap           peer.PeermapCluster
+	PrivateKey        string
+	OnRoute           func(route Route)
+	ModifyDiscoConfig func(cfg *disco.DiscoConfig)
 }
 
 type VPN struct {
@@ -59,6 +60,7 @@ type VPN struct {
 }
 
 func New(cfg Config) *VPN {
+	disco.SetModifyDiscoConfig(cfg.ModifyDiscoConfig)
 	return &VPN{
 		cfg:        cfg,
 		outbound:   make(chan []byte, 512),

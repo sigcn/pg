@@ -13,6 +13,7 @@ import (
 
 	"github.com/manifoldco/promptui"
 	"github.com/mdp/qrterminal/v3"
+	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/network"
 	"github.com/rkonfj/peerguard/peermap/oidc"
@@ -41,18 +42,38 @@ func init() {
 	Cmd.Flags().StringSlice("allowed-ip", []string{}, "declare IPs that can be routed/NATed by this machine (i.e. 192.168.0.0/24)")
 	Cmd.Flags().StringSlice("peer", []string{}, "specify peers instead of auto-discovery (pg://<peerID>?alias1=<ipv4>&alias2=<ipv6>)")
 
+	Cmd.Flags().Int("disco-port-scan-count", 1000, "scan ports count when disco")
+	Cmd.Flags().Int("disco-challenges-retry", 7, "ping challenges retry count when disco")
+	Cmd.Flags().Duration("disco-challenges-initial-interval", 300*time.Millisecond, "ping challenges initial interval when disco")
+	Cmd.Flags().Float64("disco-challenges-backoff-rate", 1.35, "ping challenges backoff rate when disco")
+
 	Cmd.MarkFlagRequired("peermap")
 	Cmd.MarkFlagsOneRequired("ipv4", "ipv6")
 }
 
 func run(cmd *cobra.Command, args []string) (err error) {
-	tunName, err := cmd.Flags().GetString("tun")
+	discoPortScanCount, err := cmd.Flags().GetInt("disco-port-scan-count")
 	if err != nil {
 		return
 	}
+	discoChallengesRetry, err := cmd.Flags().GetInt("disco-challenges-retry")
+	if err != nil {
+		return
+	}
+	discoChallengesInitialInterval, err := cmd.Flags().GetDuration("disco-challenges-initial-interval")
+	if err != nil {
+		return
+	}
+	discoChallengesBackoffRate, err := cmd.Flags().GetFloat64("disco-challenges-backoff-rate")
 
 	cfg := vpn.Config{
 		OnRoute: onRoute,
+		ModifyDiscoConfig: func(cfg *disco.DiscoConfig) {
+			cfg.PortScanCount = discoPortScanCount
+			cfg.ChallengesRetry = discoChallengesRetry
+			cfg.ChallengesInitialInterval = discoChallengesInitialInterval
+			cfg.ChallengesBackoffRate = discoChallengesBackoffRate
+		},
 	}
 	cfg.IPv4, err = cmd.Flags().GetString("ipv4")
 	if err != nil {
@@ -84,6 +105,11 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	cfg.Peermap, err = cmd.Flags().GetStringSlice("peermap")
+	if err != nil {
+		return
+	}
+
+	tunName, err := cmd.Flags().GetString("tun")
 	if err != nil {
 		return
 	}
