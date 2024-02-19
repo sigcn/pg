@@ -31,6 +31,7 @@ func (inp *interfaceNamePrefixs) HasPrefix(interfaceName string) bool {
 var (
 	ignoredLocalCIDRs                cidrs
 	ignoredLocalInterfaceNamePrefixs interfaceNamePrefixs
+	localIPs                         []net.IP
 )
 
 func SetIgnoredLocalCIDRs(cidrs ...string) {
@@ -54,7 +55,14 @@ func SetIgnoredLocalInterfaceNamePrefixs(prefixs ...string) {
 	ignoredLocalInterfaceNamePrefixs = prefixs
 }
 
+func SetLocalIPs(ips ...net.IP) {
+	localIPs = ips
+}
+
 func ListLocalIPs() ([]net.IP, error) {
+	if len(localIPs) > 0 {
+		return localIPs, nil
+	}
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return nil, err
