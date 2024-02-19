@@ -108,15 +108,7 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 		}
 		extra := make(map[string]any)
 		for k, v := range pgPeer.Query() {
-			if len(v) == 1 {
-				extra[k] = v[0]
-				continue
-			}
-			arr := make([]any, 0, len(v))
-			for _, v1 := range v {
-				arr = append(arr, v1)
-			}
-			extra[k] = arr
+			extra[k] = v[0]
 		}
 		vpn.setPeer(device, peer.PeerID(pgPeer.Host), peer.Metadata{
 			Alias1: pgPeer.Query().Get("alias1"),
@@ -326,7 +318,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			if peer, ok := vpn.getPeer(header.Dst.String()); ok {
 				_, err = packetConn.WriteTo(pkt, peer)
 				if err != nil {
-					panic(err)
+					slog.Error("WriteTo peer failed", "peer", peer, "detail", err)
 				}
 				continue
 			}
@@ -349,7 +341,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			if peer, ok := vpn.getPeer(header.Dst.String()); ok {
 				_, err = packetConn.WriteTo(pkt, peer)
 				if err != nil {
-					panic(err)
+					slog.Error("WriteTo peer failed", "peer", peer, "detail", err)
 				}
 				continue
 			}

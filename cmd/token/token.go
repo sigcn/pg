@@ -16,7 +16,7 @@ func init() {
 		Short: "Generate a pre-shared network secret",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clusterKey, err := cmd.Flags().GetString("cluster-key")
+			secretKey, err := cmd.Flags().GetString("secret-key")
 			if err != nil {
 				return err
 			}
@@ -28,7 +28,7 @@ func init() {
 			if err != nil {
 				return err
 			}
-			token, err := auth.NewAuthenticator(clusterKey).GenerateToken(networkID, validDuration)
+			token, err := auth.NewAuthenticator(secretKey).GenerateToken(networkID, validDuration)
 			if err != nil {
 				return err
 			}
@@ -37,9 +37,9 @@ func init() {
 		},
 	}
 	Cmd.Flags().String("network", "", "network")
-	Cmd.Flags().String("cluster-key", "", "key to generate token")
+	Cmd.Flags().String("secret-key", "", "key to generate network secret")
 	Cmd.Flags().Duration("duration", 365*24*time.Hour, "secret duration to expire")
 
 	Cmd.MarkFlagRequired("network")
-	Cmd.MarkFlagRequired("cluster-key")
+	Cmd.MarkFlagRequired("secret-key")
 }

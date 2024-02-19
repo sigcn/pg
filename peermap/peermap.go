@@ -2,11 +2,13 @@ package peermap
 
 import (
 	"context"
+	"crypto/md5"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path"
 	"sync"
 	"time"
@@ -18,6 +20,11 @@ import (
 	"github.com/rkonfj/peerguard/peermap/oidc"
 	"golang.org/x/time/rate"
 )
+
+type Network struct {
+	ID         string `json:"id"`
+	PeersCount int    `json:"peersCount"`
+}
 
 type Peer struct {
 	peerMap        *PeerMap
@@ -53,7 +60,18 @@ func (p *Peer) close() error {
 }
 
 func (p *Peer) String() string {
-	return string(p.id)
+	metadata := url.Values{}
+	metadata.Add("alias1", p.metadata.Alias1)
+	metadata.Add("alias2", p.metadata.Alias2)
+	for k, v := range p.metadata.Extra {
+		b, _ := json.Marshal(v)
+		metadata.Add(k, string(b))
+	}
+	return (&url.URL{
+		Scheme:   "pg",
+		Host:     string(p.id),
+		RawQuery: metadata.Encode(),
+	}).String()
 }
 
 func (p *Peer) Start() {
@@ -208,15 +226,43 @@ func New(cfg Config) (*PeerMap, error) {
 		cfg:           cfg,
 	}
 	mux.HandleFunc("/", pm.handleWebsocket)
-	mux.HandleFunc("/peermap", pm.handleQueryPeermap)
+	mux.HandleFunc("/networks", pm.handleQueryNetworks)
+	mux.HandleFunc("/peers", pm.handleQueryNetworkPeers)
 	mux.HandleFunc("/network/token", oidc.HandleNotifyToken)
 	mux.HandleFunc("/oidc/", oidc.RedirectAuthURL)
 	mux.HandleFunc("/oidc/authorize/", pm.handleOIDCAuthorize)
 	return &pm, nil
 }
 
-func (pm *PeerMap) handleQueryPeermap(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(pm.networkMap)
+func (pm *PeerMap) handleQueryNetworks(w http.ResponseWriter, r *http.Request) {
+	items := pm.networkMap.Items()
+	networks := make([]Network, 0, len(items))
+	for k, v := range items {
+		networks = append(networks, Network{
+			ID:         k,
+			PeersCount: v.Count(),
+		})
+	}
+	json.NewEncoder(w).Encode(networks)
+}
+
+func (pm *PeerMap) handleQueryNetworkPeers(w http.ResponseWriter, r *http.Request) {
+	networkID, err := pm.authenticator.VerifyToken(r.Header.Get("X-Network"))
+	if err != nil {
+		slog.Debug("Authenticate failed", "err", err, "network", r.Header.Get("X-Network"))
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	if networkContext, ok := pm.networkMap.Get(networkID); ok {
+		items := networkContext.Items()
+		peers := make([]string, 0, len(items))
+		for _, v := range items {
+			peers = append(peers, v.String())
+		}
+		json.NewEncoder(w).Encode(peers)
+		return
+	}
+	w.WriteHeader(http.StatusNotFound)
 }
 
 func (pm *PeerMap) handleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
@@ -232,13 +278,15 @@ func (pm *PeerMap) handleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		return
 	}
-	token, err := auth.NewAuthenticator(pm.cfg.SecretKey).GenerateToken(email, 2*24*time.Hour)
+	networkB := md5.Sum([]byte(email))
+	network := base64.URLEncoding.EncodeToString(networkB[:])
+	token, err := auth.NewAuthenticator(pm.cfg.SecretKey).GenerateToken(network, 2*24*time.Hour)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	err = oidc.NotifyToken(r.URL.Query().Get("state"), oidc.NetworkSecret{
-		Network: email,
+		Network: network,
 		Secret:  peer.NetworkSecret(token),
 		Expire:  time.Now().Add(2*24*time.Hour - 10*time.Second),
 	})
