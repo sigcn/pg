@@ -22,3 +22,11 @@ func (vpn *VPN) RunTunFD(ctx context.Context, tunFD int) error {
 	}
 	return vpn.run(ctx, device)
 }
+
+func (vpn *VPN) RunUnmonitoredTUNFromFD(ctx context.Context, tunFD int) error {
+	device, _, err := tun.CreateUnmonitoredTUNFromFD(tunFD)
+	if err != nil {
+		return err
+	}
+	return vpn.run(ctx, device)
+}
