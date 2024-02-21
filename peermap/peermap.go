@@ -175,6 +175,7 @@ func (p *Peer) keepalive() {
 			break
 		}
 	}
+	p.close()
 }
 
 type networkContext struct {
