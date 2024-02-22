@@ -24,6 +24,7 @@ import (
 type Network struct {
 	ID         string `json:"id"`
 	PeersCount int    `json:"peersCount"`
+	CreateTime string `json:"createTime"`
 }
 
 type Peer struct {
@@ -181,6 +182,7 @@ func (p *Peer) keepalive() {
 type networkContext struct {
 	cmap.ConcurrentMap[string, *Peer]
 	ratelimiter *rate.Limiter
+	createTime  time.Time
 }
 
 type PeerMap struct {
@@ -242,6 +244,7 @@ func (pm *PeerMap) handleQueryNetworks(w http.ResponseWriter, r *http.Request) {
 		networks = append(networks, Network{
 			ID:         k,
 			PeersCount: v.Count(),
+			CreateTime: fmt.Sprintf("%d", v.createTime.UnixNano()),
 		})
 	}
 	json.NewEncoder(w).Encode(networks)
@@ -329,6 +332,7 @@ func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		pm.networkMap.SetIfAbsent(networkID, &networkContext{
 			ConcurrentMap: cmap.New[*Peer](),
 			ratelimiter:   rateLimiter,
+			createTime:    time.Now(),
 		})
 	}
 
