@@ -16,15 +16,18 @@ func SetupLink(device tun.Device, cidr string) error {
 	if err != nil {
 		return err
 	}
-	if err = AddRoute(device, ipnet, nil); err != nil {
-		return err
-	}
 	if ip.To4() == nil { // ipv6
 		info.IPv6 = ip.String()
-		return exec.Command("ifconfig", ifName, "inet6", "add", cidr).Run()
+		if err := exec.Command("ifconfig", ifName, "inet6", "add", cidr).Run(); err != nil {
+			return err
+		}
+	} else {
+		info.IPv4 = ip.String()
+		if err := exec.Command("ifconfig", ifName, "inet", cidr, ip.String(), "up").Run(); err != nil {
+			return err
+		}
 	}
-	info.IPv4 = ip.String()
-	return exec.Command("ifconfig", ifName, "inet", cidr, ip.String(), "up").Run()
+	return AddRoute(device, ipnet, nil)
 }
 
 func AddRoute(device tun.Device, to *net.IPNet, _ net.IP) error {
