@@ -296,6 +296,20 @@ func (vpn *VPN) runPacketConnReadEventLoop(wg *sync.WaitGroup, packetConn net.Pa
 
 func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.PacketConn) {
 	defer wg.Done()
+	sendPacketToPeer := func(packet []byte, dstIP net.IP) {
+		if dstIP.IsMulticast() {
+			slog.Log(context.Background(), -10, "DropMulticastIP", "dst", dstIP)
+			return
+		}
+		if peer, ok := vpn.getPeer(dstIP.String()); ok {
+			_, err := packetConn.WriteTo(packet[IPPacketOffset:], peer)
+			if err != nil {
+				slog.Error("WriteTo peer failed", "peer", peer, "detail", err)
+			}
+			return
+		}
+		slog.Log(context.Background(), -10, "DropPacketPeerNotFound", "ip", dstIP)
+	}
 	for {
 		packet, ok := <-vpn.outbound
 		if !ok {
@@ -307,22 +321,11 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			if err != nil {
 				panic(err)
 			}
-			if header.Dst.To4()[0] >= 224 && header.Dst.To4()[0] <= 239 {
-				slog.Log(context.Background(), -10, "DropMulticastIPv4", "dst", header.Dst)
-				continue
-			}
 			if header.Dst.String() == link.Show().IPv4 {
 				vpn.inbound <- packet
 				continue
 			}
-			if peer, ok := vpn.getPeer(header.Dst.String()); ok {
-				_, err = packetConn.WriteTo(pkt, peer)
-				if err != nil {
-					slog.Error("WriteTo peer failed", "peer", peer, "detail", err)
-				}
-				continue
-			}
-			slog.Log(context.Background(), -10, "DropPacketPeerNotFound", "ip", header.Dst)
+			sendPacketToPeer(packet, header.Dst)
 			continue
 		}
 		if pkt[0]>>4 == 6 {
@@ -330,22 +333,11 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			if err != nil {
 				panic(err)
 			}
-			if header.Dst[0] == 0xff {
-				slog.Log(context.Background(), -10, "DropMulticastIPv6", "dst", header.Dst)
-				continue
-			}
 			if header.Dst.String() == link.Show().IPv6 {
 				vpn.inbound <- packet
 				continue
 			}
-			if peer, ok := vpn.getPeer(header.Dst.String()); ok {
-				_, err = packetConn.WriteTo(pkt, peer)
-				if err != nil {
-					slog.Error("WriteTo peer failed", "peer", peer, "detail", err)
-				}
-				continue
-			}
-			slog.Log(context.Background(), -10, "DropPacketPeerNotFound", "ip", header.Dst)
+			sendPacketToPeer(packet, header.Dst)
 			continue
 		}
 		slog.Warn("Received invalid packet", "packet", hex.EncodeToString(pkt))
