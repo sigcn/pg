@@ -14,17 +14,11 @@ import (
 )
 
 var (
-	notifyContext    = make(map[string]chan NetworkSecret)
+	notifyContext    = make(map[string]chan peer.NetworkSecret)
 	notifyContextMut sync.RWMutex
 )
 
-type NetworkSecret struct {
-	Secret  peer.NetworkSecret `json:"secret"`
-	Network string             `json:"network"`
-	Expire  time.Time          `json:"expire"`
-}
-
-func NotifyToken(state string, secret NetworkSecret) error {
+func NotifyToken(state string, secret peer.NetworkSecret) error {
 	notifyContextMut.RLock()
 	defer notifyContextMut.RUnlock()
 	if ch, ok := notifyContext[state]; ok {
@@ -35,7 +29,7 @@ func NotifyToken(state string, secret NetworkSecret) error {
 }
 
 func HandleNotifyToken(w http.ResponseWriter, r *http.Request) {
-	ch := make(chan NetworkSecret)
+	ch := make(chan peer.NetworkSecret)
 	state := r.URL.Query().Get("state")
 	notifyContextMut.Lock()
 	notifyContext[state] = ch

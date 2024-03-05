@@ -19,6 +19,7 @@ import (
 
 type WSConn struct {
 	*websocket.Conn
+	secretStore   peer.SecretStore
 	dialPeermap   func() (*websocket.Conn, byte, []string, error)
 	closedSig     chan int
 	datagrams     chan *Datagram
@@ -29,11 +30,18 @@ type WSConn struct {
 	writeMutex    sync.Mutex
 }
 
-func DialPeermapServer(peermapServers peer.PeermapCluster, secret peer.NetworkSecret, peerID peer.PeerID, metadata peer.Metadata) (*WSConn, error) {
+func DialPeermapServer(
+	peermapServers peer.PeermapCluster,
+	secretStore peer.SecretStore,
+	peerID peer.PeerID, metadata peer.Metadata) (*WSConn, error) {
 	dialPeermap := func() (*websocket.Conn, byte, []string, error) {
+		networkSecret, err := secretStore.NetworkSecret()
+		if err != nil {
+			return nil, 0, nil, fmt.Errorf("get network secret failed: %w", err)
+		}
 		for _, server := range peermapServers {
 			handshake := http.Header{}
-			handshake.Set("X-Network", string(secret))
+			handshake.Set("X-Network", networkSecret.Secret)
 			handshake.Set("X-PeerID", peerID.String())
 			handshake.Set("X-Nonce", peer.NewNonce())
 			handshake.Set("X-Metadata", base64.StdEncoding.EncodeToString(metadata.MustMarshalJSON()))
@@ -54,7 +62,7 @@ func DialPeermapServer(peermapServers peer.PeermapCluster, secret peer.NetworkSe
 				return nil, 0, nil, fmt.Errorf("address: %s is already in used", peerID)
 			}
 			if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
-				return nil, 0, nil, fmt.Errorf("join network denied: %s", secret)
+				return nil, 0, nil, fmt.Errorf("join network denied: %s", networkSecret)
 			}
 			if err != nil {
 				slog.Error("dial server error", "server", server, "err", err)
@@ -78,6 +86,7 @@ func DialPeermapServer(peermapServers peer.PeermapCluster, secret peer.NetworkSe
 
 	wsConn := WSConn{
 		Conn:          conn,
+		secretStore:   secretStore,
 		dialPeermap:   dialPeermap,
 		closedSig:     make(chan int),
 		datagrams:     make(chan *Datagram, 50),
@@ -157,6 +166,13 @@ func (c *WSConn) runWebSocketEventLoop() {
 				PeerID: peer.PeerID(b[2 : b[1]+2]),
 				Addr:   addr,
 			}
+		case peer.CONTROL_UPDATE_NETWORK_SECRET:
+			var secret peer.NetworkSecret
+			if err := json.Unmarshal(b[1:], &secret); err != nil {
+				slog.Error("NetworkSecretUpdate", "err", err)
+				break
+			}
+			go c.updateNetworkSecret(secret)
 		}
 	}
 }
@@ -203,4 +219,16 @@ func (c *WSConn) PeersUDPAddrs() <-chan *PeerUDPAddrEvent {
 
 func (c *WSConn) STUNs() []string {
 	return c.stuns
+}
+
+func (c *WSConn) updateNetworkSecret(secret peer.NetworkSecret) {
+	for i := 0; i < 5; i++ {
+		if err := c.secretStore.UpdateNetworkSecret(secret); err != nil {
+			slog.Error("NetworkSecretUpdate", "err", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		return
+	}
+	slog.Error("NetworkSecretUpdate give up", "secret", secret)
 }

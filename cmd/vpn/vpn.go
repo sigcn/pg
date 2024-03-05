@@ -2,7 +2,6 @@ package vpn
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"github.com/manifoldco/promptui"
 	"github.com/mdp/qrterminal/v3"
 	"github.com/rkonfj/peerguard/disco"
+	"github.com/rkonfj/peerguard/p2p"
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/network"
 	"github.com/rkonfj/peerguard/peermap/oidc"
@@ -36,7 +36,7 @@ func init() {
 	Cmd.Flags().Int("mtu", 1391, "mtu")
 
 	Cmd.Flags().String("key", "", "curve25519 private key in base64-url format (default generate a new one)")
-	Cmd.Flags().String("secret", "", "p2p network secret (default use OIDC to log into the network)")
+	Cmd.Flags().String("secret-file", "", "p2p network secret file (default $HOME/.peerguard_network_secret.json)")
 
 	Cmd.Flags().StringSlice("peermap", []string{}, "peermap cluster")
 	Cmd.Flags().StringSlice("allowed-ip", []string{}, "declare IPs that can be routed/NATed by this machine (i.e. 192.168.0.0/24)")
@@ -114,16 +114,21 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		return
 	}
 
-	secret, err := cmd.Flags().GetString("secret")
+	secretFile, err := cmd.Flags().GetString("secret-file")
 	if err != nil {
 		return err
 	}
-	cfg.NetworkSecret = peer.NetworkSecret(secret)
-	if len(secret) == 0 {
-		cfg.NetworkSecret, err = login(cfg.Peermap)
+	if len(secretFile) == 0 {
+		homeDir, err := os.UserHomeDir()
 		if err != nil {
 			return err
 		}
+		secretFile = filepath.Join(homeDir, ".peerguard_network_secret.json")
+	}
+
+	cfg.SecretStore, err = loginIfNecessary(cfg.Peermap, secretFile)
+	if err != nil {
+		return err
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -154,45 +159,30 @@ func onRoute(route vpn.Route) {
 	}
 }
 
-func login(peermapCluster []string) (peer.NetworkSecret, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	netSecretFile := filepath.Join(homeDir, ".peerguard_network_secret.json")
-	updateSecret := func() (peer.NetworkSecret, error) {
-		f, err := os.Create(netSecretFile)
-		if err != nil {
-			return "", err
-		}
-		defer f.Close()
+func loginIfNecessary(peermapCluster []string, secretFile string) (peer.SecretStore, error) {
+	store := p2p.FileSecretStore(secretFile)
+	newFileStore := func() (peer.SecretStore, error) {
 		joined, err := requestNetworkSecret(peermapCluster)
 		if err != nil {
-			return "", fmt.Errorf("request network secret failed: %w", err)
+			return nil, fmt.Errorf("request network secret failed: %w", err)
 		}
-		json.NewEncoder(f).Encode(joined)
-		slog.Info("NetworkJoined", "network", joined.Network, "expire", joined.Expire)
-		return joined.Secret, nil
+		return store, store.UpdateNetworkSecret(joined)
 	}
-	f, err := os.Open(netSecretFile)
-	if os.IsNotExist(err) {
-		return updateSecret()
+
+	if _, err := os.Stat(secretFile); os.IsNotExist(err) {
+		return newFileStore()
 	}
+	secret, err := store.NetworkSecret()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	defer f.Close()
-	var joined oidc.NetworkSecret
-	if err = json.NewDecoder(f).Decode(&joined); err != nil {
-		return updateSecret()
+	if secret.Expired() {
+		return newFileStore()
 	}
-	if time.Until(joined.Expire) > 0 {
-		return joined.Secret, nil
-	}
-	return updateSecret()
+	return store, nil
 }
 
-func requestNetworkSecret(peermapCluster []string) (*oidc.NetworkSecret, error) {
+func requestNetworkSecret(peermapCluster []string) (peer.NetworkSecret, error) {
 	prompt := promptui.Select{
 		Label:    "Select OpenID Connect Provider",
 		Items:    []string{oidc.ProviderGoogle, oidc.ProviderGithub},
@@ -205,12 +195,12 @@ func requestNetworkSecret(peermapCluster []string) (*oidc.NetworkSecret, error) 
 	}
 	_, provider, err := prompt.Run()
 	if err != nil {
-		return nil, err
+		return peer.NetworkSecret{}, err
 	}
 	join, err := network.JoinOIDC(provider, peermapCluster)
 	if err != nil {
 		slog.Error("JoinNetwork failed", "err", err)
-		return nil, err
+		return peer.NetworkSecret{}, err
 	}
 	fmt.Println("AuthURL:", join.AuthURL())
 	qrterminal.GenerateWithConfig(join.AuthURL(), qrterminal.Config{

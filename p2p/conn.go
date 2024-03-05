@@ -220,7 +220,7 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disc
 }
 
 // ListenPacket listen the p2p network for read/write packets
-func ListenPacket(network peer.NetworkSecret, cluster peer.PeermapCluster, opts ...Option) (*PeerPacketConn, error) {
+func ListenPacket(secretStore peer.SecretStore, cluster peer.PeermapCluster, opts ...Option) (*PeerPacketConn, error) {
 	id := make([]byte, 32)
 	rand.Read(id)
 	cfg := Config{
@@ -240,7 +240,7 @@ func ListenPacket(network peer.NetworkSecret, cluster peer.PeermapCluster, opts 
 	}
 	udpConn.SetKeepAlivePeriod(cfg.KeepAlivePeriod)
 
-	wsConn, err := disco.DialPeermapServer(cluster, network, cfg.PeerID, cfg.Metadata)
+	wsConn, err := disco.DialPeermapServer(cluster, secretStore, cfg.PeerID, cfg.Metadata)
 	if err != nil {
 		return nil, err
 	}

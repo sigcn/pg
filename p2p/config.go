@@ -99,8 +99,8 @@ func ListenPeerUp(onPeer OnPeer) Option {
 	}
 }
 
-func NetworkSecret(secret string) peer.NetworkSecret {
-	return peer.NetworkSecret(secret)
+func FileSecretStore(storeFilePath string) peer.SecretStore {
+	return &peer.FileSecretStore{StoreFilePath: storeFilePath}
 }
 
 func Peermap(servers ...string) peer.PeermapCluster {

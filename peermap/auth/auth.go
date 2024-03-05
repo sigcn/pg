@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/rkonfj/peerguard/secure"
@@ -17,11 +16,11 @@ var (
 )
 
 type Authenticator interface {
-	GenerateToken(string, time.Duration) (string, error)
-	VerifyToken(networkIDChiper string) (string, error)
+	GenerateSecret(string, time.Duration) (string, error)
+	ParseSecret(secret string) (JSONSecret, error)
 }
 
-type jsonToken struct {
+type JSONSecret struct {
 	Network  string `json:"n"`
 	Deadline int64  `json:"t"`
 }
@@ -35,12 +34,11 @@ func NewAuthenticator(key string) Authenticator {
 	return &authenticator{key: sum[:]}
 }
 
-func (auth *authenticator) GenerateToken(networkID string, validDuration time.Duration) (string, error) {
-	b, err := json.Marshal(jsonToken{
+func (auth *authenticator) GenerateSecret(networkID string, validDuration time.Duration) (string, error) {
+	b, err := json.Marshal(JSONSecret{
 		Network:  networkID,
 		Deadline: time.Now().Add(validDuration).Unix(),
 	})
-	fmt.Println(string(b))
 	if err != nil {
 		return "", err
 	}
@@ -48,24 +46,24 @@ func (auth *authenticator) GenerateToken(networkID string, validDuration time.Du
 	return base64.URLEncoding.EncodeToString(chiperData), err
 }
 
-func (auth *authenticator) VerifyToken(networkIDChiper string) (string, error) {
+func (auth *authenticator) ParseSecret(networkIDChiper string) (JSONSecret, error) {
 	chiperData, err := base64.URLEncoding.DecodeString(networkIDChiper)
 	if err != nil {
-		return "", ErrInvalidToken
+		return JSONSecret{}, ErrInvalidToken
 	}
 	plainData, err := secure.AESCBCDecrypt(auth.key, chiperData)
 	if err != nil {
-		return "", ErrInvalidToken
+		return JSONSecret{}, ErrInvalidToken
 	}
 
-	var token jsonToken
+	var token JSONSecret
 	err = json.Unmarshal(plainData, &token)
 	if err != nil {
-		return "", ErrInvalidToken
+		return JSONSecret{}, ErrInvalidToken
 	}
 
 	if time.Until(time.Unix(token.Deadline, 0)) <= 0 {
-		return "", ErrTokenExpired
+		return JSONSecret{}, ErrTokenExpired
 	}
-	return token.Network, nil
+	return token, nil
 }

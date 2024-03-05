@@ -1,15 +1,74 @@
 package peer
 
-import "encoding/json"
-
-const (
-	CONTROL_RELAY             = 0
-	CONTROL_NEW_PEER          = 1
-	CONTROL_NEW_PEER_UDP_ADDR = 2
-	CONTROL_LEAD_DISCO        = 3
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"time"
 )
 
-type NetworkSecret string
+const (
+	CONTROL_RELAY                 = 0
+	CONTROL_NEW_PEER              = 1
+	CONTROL_NEW_PEER_UDP_ADDR     = 2
+	CONTROL_LEAD_DISCO            = 3
+	CONTROL_UPDATE_NETWORK_SECRET = 20
+)
+
+type SecretStore interface {
+	NetworkSecret() (NetworkSecret, error)
+	UpdateNetworkSecret(NetworkSecret) error
+}
+
+type NetworkSecret struct {
+	Secret  string    `json:"secret"`
+	Network string    `json:"network"`
+	Expire  time.Time `json:"expire"`
+}
+
+func (s NetworkSecret) Expired() bool {
+	return time.Until(s.Expire) <= 0
+}
+
+func (s *NetworkSecret) NetworkSecret() (NetworkSecret, error) {
+	return *s, nil
+}
+
+func (s *NetworkSecret) UpdateNetworkSecret(secret NetworkSecret) error {
+	s.Secret = secret.Secret
+	s.Network = secret.Network
+	s.Expire = secret.Expire
+	return nil
+}
+
+type FileSecretStore struct {
+	StoreFilePath string
+}
+
+func (s *FileSecretStore) NetworkSecret() (NetworkSecret, error) {
+	f, err := os.Open(s.StoreFilePath)
+	if err != nil {
+		return NetworkSecret{}, fmt.Errorf("file secret store open failed: %s", err)
+	}
+	defer f.Close()
+	var secret NetworkSecret
+	if err = json.NewDecoder(f).Decode(&secret); err != nil {
+		return secret, fmt.Errorf("file secret store decode failed: %w", err)
+	}
+	return secret, nil
+}
+
+func (s *FileSecretStore) UpdateNetworkSecret(secret NetworkSecret) error {
+	f, err := os.Create(s.StoreFilePath)
+	if err != nil {
+		return fmt.Errorf("update network secret failed: %w", err)
+	}
+	defer f.Close()
+	if err := json.NewEncoder(f).Encode(secret); err != nil {
+		return fmt.Errorf("save network secret failed: %w", err)
+	}
+	return nil
+}
 
 type NetworkID string
 

@@ -40,7 +40,7 @@ type Config struct {
 	IPv6              string
 	AllowedIPs        []string
 	Peers             []string
-	NetworkSecret     peer.NetworkSecret
+	SecretStore       peer.SecretStore
 	Peermap           peer.PeermapCluster
 	PrivateKey        string
 	OnRoute           func(route Route)
@@ -87,7 +87,7 @@ func (vpn *VPN) RunTun(ctx context.Context, tunName string) error {
 }
 
 func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
-	disco.SetIgnoredLocalInterfaceNamePrefixs("pg", "wg", "veth", "docker", "nerdctl")
+	disco.SetIgnoredLocalInterfaceNamePrefixs("pg", "wg", "veth", "docker", "nerdctl", "tailscale")
 	disco.AddIgnoredLocalCIDRs(vpn.cfg.AllowedIPs...)
 	p2pOptions := []p2p.Option{
 		p2p.PeerMeta("allowedIPs", vpn.cfg.AllowedIPs),
@@ -141,7 +141,7 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 		p2pOptions = append(p2pOptions, p2p.ListenPeerSecure())
 	}
 
-	packetConn, err := p2p.ListenPacket(vpn.cfg.NetworkSecret, vpn.cfg.Peermap, p2pOptions...)
+	packetConn, err := p2p.ListenPacket(vpn.cfg.SecretStore, vpn.cfg.Peermap, p2pOptions...)
 	if err != nil {
 		return err
 	}

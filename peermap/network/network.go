@@ -11,7 +11,6 @@ import (
 	"net/url"
 
 	"github.com/rkonfj/peerguard/peer"
-	"github.com/rkonfj/peerguard/peermap/oidc"
 )
 
 var (
@@ -28,23 +27,23 @@ func (intent *JoinIntent) AuthURL() string {
 	return fmt.Sprintf("%s?state=%s", intent.authURL, intent.state)
 }
 
-func (intent *JoinIntent) Wait(ctx context.Context) (*oidc.NetworkSecret, error) {
+func (intent *JoinIntent) Wait(ctx context.Context) (peer.NetworkSecret, error) {
 	resp, err := client.Get(fmt.Sprintf("https://%s/network/token?state=%s", intent.peermap.Host, intent.state))
 	if err != nil {
-		return nil, err
+		return peer.NetworkSecret{}, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("wait token error: %s", resp.Status)
+		return peer.NetworkSecret{}, fmt.Errorf("wait token error: %s", resp.Status)
 	}
 
 	defer resp.Body.Close()
 
-	var joined oidc.NetworkSecret
+	var joined peer.NetworkSecret
 	if err := json.NewDecoder(resp.Body).Decode(&joined); err != nil {
-		return nil, err
+		return peer.NetworkSecret{}, err
 	}
-	return &joined, nil
+	return joined, nil
 }
 
 func JoinOIDC(oidcProvider string, cluster peer.PeermapCluster) (*JoinIntent, error) {

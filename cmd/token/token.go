@@ -1,9 +1,11 @@
 package token
 
 import (
-	"fmt"
+	"encoding/json"
+	"os"
 	"time"
 
+	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/auth"
 	"github.com/spf13/cobra"
 )
@@ -28,12 +30,15 @@ func init() {
 			if err != nil {
 				return err
 			}
-			token, err := auth.NewAuthenticator(secretKey).GenerateToken(networkID, validDuration)
+			token, err := auth.NewAuthenticator(secretKey).GenerateSecret(networkID, validDuration)
 			if err != nil {
 				return err
 			}
-			fmt.Println(token)
-			return nil
+			return json.NewEncoder(os.Stdout).Encode(peer.NetworkSecret{
+				Secret:  token,
+				Network: networkID,
+				Expire:  time.Now().Add(validDuration - 10*time.Second),
+			})
 		},
 	}
 	Cmd.Flags().String("network", "", "network")

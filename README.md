@@ -17,7 +17,7 @@ if err != nil {
 }
 
 packetConn, err := p2p.ListenPacket(
-    secret.Secret, peermap, 
+    &secret, peermap, 
     p2p.ListenPeerID("uniqueString"), // any unique string (less than 256bytes)
 )
 if err != nil {
