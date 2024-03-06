@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -36,7 +37,7 @@ func init() {
 	Cmd.Flags().Int("mtu", 1391, "mtu")
 
 	Cmd.Flags().String("key", "", "curve25519 private key in base64-url format (default generate a new one)")
-	Cmd.Flags().String("secret-file", "", "p2p network secret file (default $HOME/.peerguard_network_secret.json)")
+	Cmd.Flags().String("secret-file", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
 
 	Cmd.Flags().StringSlice("peermap", []string{}, "peermap cluster")
 	Cmd.Flags().StringSlice("allowed-ip", []string{}, "declare IPs that can be routed/NATed by this machine (i.e. 192.168.0.0/24)")
@@ -119,11 +120,11 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 	if len(secretFile) == 0 {
-		homeDir, err := os.UserHomeDir()
+		currentUser, err := user.Current()
 		if err != nil {
 			return err
 		}
-		secretFile = filepath.Join(homeDir, ".peerguard_network_secret.json")
+		secretFile = filepath.Join(currentUser.HomeDir, ".peerguard_network_secret.json")
 	}
 
 	cfg.SecretStore, err = loginIfNecessary(cfg.Peermap, secretFile)
