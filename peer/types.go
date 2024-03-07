@@ -48,12 +48,12 @@ type FileSecretStore struct {
 func (s *FileSecretStore) NetworkSecret() (NetworkSecret, error) {
 	f, err := os.Open(s.StoreFilePath)
 	if err != nil {
-		return NetworkSecret{}, fmt.Errorf("file secret store open failed: %s", err)
+		return NetworkSecret{}, fmt.Errorf("file secret store(%s) open failed: %s", s.StoreFilePath, err)
 	}
 	defer f.Close()
 	var secret NetworkSecret
 	if err = json.NewDecoder(f).Decode(&secret); err != nil {
-		return secret, fmt.Errorf("file secret store decode failed: %w", err)
+		return secret, fmt.Errorf("file secret store(%s) decode failed: %w", s.StoreFilePath, err)
 	}
 	return secret, nil
 }
@@ -63,11 +63,10 @@ func (s *FileSecretStore) UpdateNetworkSecret(secret NetworkSecret) error {
 	if err != nil {
 		return fmt.Errorf("update network secret failed: %w", err)
 	}
-	defer f.Close()
 	if err := json.NewEncoder(f).Encode(secret); err != nil {
 		return fmt.Errorf("save network secret failed: %w", err)
 	}
-	return nil
+	return f.Close()
 }
 
 type NetworkID string

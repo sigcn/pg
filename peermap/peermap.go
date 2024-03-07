@@ -40,6 +40,9 @@ type Peer struct {
 }
 
 func (p *Peer) write(b []byte) error {
+	for i, v := range b {
+		b[i] = v ^ p.nonce
+	}
 	return p.writeWS(websocket.BinaryMessage, b)
 }
 
@@ -103,9 +106,6 @@ func (p *Peer) leadDisco(target *Peer) {
 	b[1] = p.id.Len()
 	copy(b[2:], p.id.Bytes())
 	copy(b[len(p.id)+2:], myMeta)
-	for i, v := range b {
-		b[i] = v ^ target.nonce
-	}
 	target.write(b)
 
 	peerMeta := target.metadata.MustMarshalJSON()
@@ -114,9 +114,6 @@ func (p *Peer) leadDisco(target *Peer) {
 	b1[1] = target.id.Len()
 	copy(b1[2:], target.id.Bytes())
 	copy(b1[len(target.id)+2:], peerMeta)
-	for i, v := range b1 {
-		b1[i] = v ^ p.nonce
-	}
 	p.write(b1)
 }
 
@@ -162,9 +159,6 @@ func (p *Peer) readMessageLoope() {
 			bb[1] = p.id.Len()
 			copy(bb[2:p.id.Len()+2], p.id.Bytes())
 			copy(bb[p.id.Len()+2:], data)
-			for i, v := range bb {
-				bb[i] = v ^ tgtPeer.nonce
-			}
 			_ = tgtPeer.write(bb)
 		}
 	}
@@ -343,7 +337,7 @@ func (pm *PeerMap) handleWebsocket(w http.ResponseWriter, r *http.Request) {
 func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Request) {
 	jsonSecret, err := pm.authenticator.ParseSecret(r.Header.Get("X-Network"))
 	if err != nil {
-		slog.Debug("Authenticate failed", "err", err, "network", r.Header.Get("X-Network"))
+		slog.Debug("Authenticate failed", "err", err, "network", jsonSecret.Network, "secret", r.Header.Get("X-Network"))
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}

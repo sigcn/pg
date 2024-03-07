@@ -62,7 +62,7 @@ func DialPeermapServer(
 				return nil, 0, nil, fmt.Errorf("address: %s is already in used", peerID)
 			}
 			if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
-				return nil, 0, nil, fmt.Errorf("join network denied: %s", networkSecret)
+				return nil, 0, nil, fmt.Errorf("join network denied: %s", networkSecret.Network)
 			}
 			if err != nil {
 				slog.Error("dial server error", "server", server, "err", err)

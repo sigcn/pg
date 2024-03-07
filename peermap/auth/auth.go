@@ -63,7 +63,7 @@ func (auth *authenticator) ParseSecret(networkIDChiper string) (JSONSecret, erro
 	}
 
 	if time.Until(time.Unix(token.Deadline, 0)) <= 0 {
-		return JSONSecret{}, ErrTokenExpired
+		return token, ErrTokenExpired
 	}
 	return token, nil
 }
