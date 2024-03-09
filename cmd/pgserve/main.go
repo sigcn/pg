@@ -1,8 +1,9 @@
-package serve
+package main
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,18 +13,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var Cmd = &cobra.Command{
-	Use:   "serve",
-	Short: "PeerGuard peermap daemon",
-	Args:  cobra.NoArgs,
-	RunE:  run,
-}
+var (
+	Version = "unknown"
+	Commit  = "unknown"
+)
 
-func init() {
-	Cmd.Flags().StringP("config", "c", "config.yaml", "config file")
-	Cmd.Flags().StringP("listen", "l", "", "listen http address (default 127.0.0.1:9987)")
-	Cmd.Flags().String("secret-key", "", "key to generate network secret (defaut generate a random one)")
-	Cmd.Flags().StringSlice("stun", []string{}, "stun server for peers NAT traversal (leave blank to disable NAT traversal)")
+func main() {
+	serveCmd := &cobra.Command{
+		Use:          "pgserve",
+		Version:      fmt.Sprintf("%s, commit %s", Version, Commit),
+		Short:        "Run a peermap server daemon",
+		SilenceUsage: true,
+		Args:         cobra.NoArgs,
+		RunE:         run,
+	}
+	serveCmd.Flags().StringP("config", "c", "config.yaml", "config file")
+	serveCmd.Flags().StringP("listen", "l", "127.0.0.1:9987", "listen http address")
+	serveCmd.Flags().String("secret-key", "", "key to generate network secret (defaut generate a random one)")
+	serveCmd.Flags().StringSlice("stun", []string{}, "stun server for peers NAT traversal (leave blank to disable NAT traversal)")
+	serveCmd.Flags().IntP("verbose", "V", 0, "logger verbosity level")
+
+	serveCmd.Execute()
 }
 
 func run(cmd *cobra.Command, args []string) error {

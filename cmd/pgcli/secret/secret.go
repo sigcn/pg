@@ -1,4 +1,4 @@
-package token
+package secret
 
 import (
 	"encoding/json"
@@ -22,7 +22,7 @@ func init() {
 			if err != nil {
 				return err
 			}
-			networkID, err := cmd.Flags().GetString("network")
+			network, err := cmd.Flags().GetString("network")
 			if err != nil {
 				return err
 			}
@@ -30,18 +30,18 @@ func init() {
 			if err != nil {
 				return err
 			}
-			token, err := auth.NewAuthenticator(secretKey).GenerateSecret(networkID, validDuration)
+			secret, err := auth.NewAuthenticator(secretKey).GenerateSecret(network, validDuration)
 			if err != nil {
 				return err
 			}
 			return json.NewEncoder(os.Stdout).Encode(peer.NetworkSecret{
-				Secret:  token,
-				Network: networkID,
+				Secret:  secret,
+				Network: network,
 				Expire:  time.Now().Add(validDuration - 10*time.Second),
 			})
 		},
 	}
-	Cmd.Flags().String("network", "", "network")
+	Cmd.Flags().String("network", "default", "network")
 	Cmd.Flags().String("secret-key", "", "key to generate network secret")
 	Cmd.Flags().Duration("duration", 365*24*time.Hour, "secret duration to expire")
 

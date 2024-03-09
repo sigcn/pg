@@ -1,8 +1,31 @@
-## Example
+# PeerGuard - Another p2p network library in Go 
 
-### 1. Code
+## Get Started
 
-#### Peer1 (act as echo server)
+### Deploy the peermap server
+#### 1. Run the pgserve daemon
+```
+$ pgserve -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
+    --stun stun.qq.com:3478 --stun stun.miwifi.com:3478
+```
+
+#### 2. Wrap pgserve as an https server
+```
+$ caddy reverse-proxy --from https://synf.in/pg --to 127.0.0.1:9987
+```
+
+### Follow the steps below to run VPN nodes in different networks
+#### 1. Generate a network secret
+```
+# pgcli secret --secret-key 5172554832d76672d1959a5ac63c5ab9 > ~/.peerguard_network_secret.json
+```
+#### 2. Run a VPN daemon
+```
+# pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
+```
+
+## P2P programming example
+### Peer1 (act as echo server)
 ```go
 peermap := p2p.Peermap("wss://synf.in/pg")
 
@@ -11,13 +34,14 @@ if err != nil {
     panic(err)
 }
 fmt.Println(intent.AuthURL()) // https://synf.in/oidc/google?state=5G68CtYnMRMdrtrRF
-secret, err := intent.Wait(context.TODO())
+networkSecret, err := intent.Wait(context.TODO())
 if err != nil {
     panic(err)
 }
 
 packetConn, err := p2p.ListenPacket(
-    &secret, peermap, 
+    &networkSecret, 
+    peermap,
     p2p.ListenPeerID("uniqueString"), // any unique string (less than 256bytes)
 )
 if err != nil {
@@ -39,11 +63,11 @@ for {
 }
 ```
 
-#### Peer2 
+### Peer2 
 ```go
 ...
 
-packetConn, err := p2p.ListenPacket(secret.Secret, peermap)
+packetConn, err := p2p.ListenPacket(&networkSecret, peermap)
 if err != nil {
     panic(err)
 }
@@ -64,32 +88,4 @@ if err !=nil {
     panic(err)
 }
 fmt.Println(peerID, ":", string(buf[:n])) // uniqueString : hello
-```
-
-### 2. VPN(p2p)
-
-#### Machine 1
-```
-# peerguard vpn --peermap wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
-```
-
-#### Machine 2
-```
-# peerguard vpn --peermap wss://synf.in/pg --ipv4 100.64.0.2/24 --ipv6 fd00::2/64
-```
-**Another terminal on machine 2**
-```
-# ping 100.64.0.1
-PING 100.64.0.1 (100.64.0.1) 56(84) bytes of data.
-64 bytes from 100.64.0.1: icmp_seq=1 ttl=64 time=7.88 ms
-64 bytes from 100.64.0.1: icmp_seq=2 ttl=64 time=4.19 ms
-64 bytes from 100.64.0.1: icmp_seq=3 ttl=64 time=4.47 ms
-64 bytes from 100.64.0.1: icmp_seq=4 ttl=64 time=4.54 ms
-...
-# ping fd00::1
-PING fd00::1 (fd00::1) 56 data bytes
-64 bytes from fd00::1: icmp_seq=1 ttl=64 time=4.29 ms
-64 bytes from fd00::1: icmp_seq=2 ttl=64 time=5.84 ms
-64 bytes from fd00::1: icmp_seq=3 ttl=64 time=3.48 ms
-64 bytes from fd00::1: icmp_seq=4 ttl=64 time=4.69 ms
 ```

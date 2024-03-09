@@ -1,5 +1,6 @@
 *.exe
-peerguard*
+pgcli-*
+pgserve-*
 wintun/
 *.zip
 *.dll

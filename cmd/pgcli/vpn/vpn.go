@@ -25,7 +25,7 @@ import (
 
 var Cmd = &cobra.Command{
 	Use:   "vpn",
-	Short: "Run a vpn daemon powered by PeerGuard",
+	Short: "Run a vpn daemon which backend is PeerGuard p2p network",
 	Args:  cobra.NoArgs,
 	RunE:  run,
 }
@@ -39,7 +39,7 @@ func init() {
 	Cmd.Flags().String("key", "", "curve25519 private key in base64-url format (default generate a new one)")
 	Cmd.Flags().String("secret-file", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
 
-	Cmd.Flags().StringSlice("peermap", []string{}, "peermap cluster")
+	Cmd.Flags().StringP("server", "s", "", "peermap server")
 	Cmd.Flags().StringSlice("allowed-ip", []string{}, "declare IPs that can be routed/NATed by this machine (i.e. 192.168.0.0/24)")
 	Cmd.Flags().StringSlice("peer", []string{}, "specify peers instead of auto-discovery (pg://<peerID>?alias1=<ipv4>&alias2=<ipv6>)")
 
@@ -48,7 +48,7 @@ func init() {
 	Cmd.Flags().Duration("disco-challenges-initial-interval", 300*time.Millisecond, "ping challenges initial interval when disco")
 	Cmd.Flags().Float64("disco-challenges-backoff-rate", 1.35, "ping challenges backoff rate when disco")
 
-	Cmd.MarkFlagRequired("peermap")
+	Cmd.MarkFlagRequired("server")
 	Cmd.MarkFlagsOneRequired("ipv4", "ipv6")
 }
 
@@ -105,10 +105,11 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		return
 	}
 
-	cfg.Peermap, err = cmd.Flags().GetStringSlice("peermap")
+	server, err := cmd.Flags().GetString("server")
 	if err != nil {
 		return
 	}
+	cfg.Peermap = peer.PeermapCluster{server}
 
 	tunName, err := cmd.Flags().GetString("tun")
 	if err != nil {
