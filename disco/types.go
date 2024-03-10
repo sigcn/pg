@@ -171,8 +171,8 @@ type Datagram struct {
 	Data   []byte
 }
 
-func (d *Datagram) TryDecrypt(aesCBC *secure.AESCBC) []byte {
-	b, err := aesCBC.Decrypt(d.Data, d.PeerID)
+func (d *Datagram) TryDecrypt(symmAlgo secure.SymmAlgo) []byte {
+	b, err := symmAlgo.Decrypt(d.Data, d.PeerID.String())
 	if err != nil {
 		slog.Debug("Datagram decrypt error", "err", err)
 		return d.Data
@@ -180,8 +180,8 @@ func (d *Datagram) TryDecrypt(aesCBC *secure.AESCBC) []byte {
 	return b
 }
 
-func (d *Datagram) TryEncrypt(aesCBC *secure.AESCBC) []byte {
-	b, err := aesCBC.Encrypt(d.Data, d.PeerID)
+func (d *Datagram) TryEncrypt(symmAlgo secure.SymmAlgo) []byte {
+	b, err := symmAlgo.Encrypt(d.Data, d.PeerID.String())
 	if err != nil {
 		slog.Debug("Datagram encrypt error", "err", err)
 		return d.Data

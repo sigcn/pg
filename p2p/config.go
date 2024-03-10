@@ -6,6 +6,7 @@ import (
 
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/secure"
+	"github.com/rkonfj/peerguard/secure/aescbc"
 )
 
 type Config struct {
@@ -13,7 +14,7 @@ type Config struct {
 	PeerID          peer.PeerID
 	DisableIPv6     bool
 	DisableIPv4     bool
-	AES             *secure.AESCBC
+	SymmAlgo        secure.SymmAlgo
 	Metadata        peer.Metadata
 	OnPeer          OnPeer
 	KeepAlivePeriod time.Duration
@@ -35,7 +36,7 @@ func ListenUDPPort(port int) Option {
 
 func ListenPeerID(id string) Option {
 	return func(cfg *Config) error {
-		if cfg.AES != nil {
+		if cfg.SymmAlgo != nil {
 			return errors.New("options ListenPeerID and ListenPeerSecure/Curve25519 conflict")
 		}
 		peerID := peer.PeerID(id)
@@ -48,14 +49,14 @@ func ListenPeerID(id string) Option {
 
 func ListenPeerSecure() Option {
 	return func(cfg *Config) error {
-		if cfg.AES != nil {
+		if cfg.SymmAlgo != nil {
 			return errors.New("repeat secure options")
 		}
 		priv, err := secure.GenerateCurve25519()
 		if err != nil {
 			return err
 		}
-		cfg.AES = secure.NewAESCBC(priv)
+		cfg.SymmAlgo = aescbc.NewAESCBC(priv.SharedKey)
 		cfg.PeerID = peer.PeerID(priv.PublicKey.String())
 		return nil
 	}
@@ -63,14 +64,14 @@ func ListenPeerSecure() Option {
 
 func ListenPeerCurve25519(privateKey string) Option {
 	return func(cfg *Config) error {
-		if cfg.AES != nil {
+		if cfg.SymmAlgo != nil {
 			return errors.New("repeat secure options")
 		}
 		priv, err := secure.Curve25519PrivateKey(privateKey)
 		if err != nil {
 			return err
 		}
-		cfg.AES = secure.NewAESCBC(priv)
+		cfg.SymmAlgo = aescbc.NewAESCBC(priv.SharedKey)
 		cfg.PeerID = peer.PeerID(priv.PublicKey.String())
 		return nil
 	}

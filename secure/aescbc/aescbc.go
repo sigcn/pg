@@ -1,4 +1,4 @@
-package secure
+package aescbc
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/rkonfj/peerguard/lru"
-	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/secure"
 )
 
 func PKCS7Padding(data []byte, blockSize int) []byte {
@@ -35,7 +35,7 @@ func PKCS7UnPadding(data []byte) ([]byte, error) {
 	return data[:len(data)-int(padding)], nil
 }
 
-func AESCBCEncrypt(key, data []byte) ([]byte, error) {
+func Encrypt(key, data []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func AESCBCEncrypt(key, data []byte) ([]byte, error) {
 	return cipherText, nil
 }
 
-func AESCBCDecrypt(key, data []byte) ([]byte, error) {
+func Decrypt(key, data []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -74,24 +74,26 @@ func AESCBCDecrypt(key, data []byte) ([]byte, error) {
 	return PKCS7UnPadding(data)
 }
 
+var _ secure.SymmAlgo = (*AESCBC)(nil)
+
 type AESCBC struct {
-	mut    sync.RWMutex
-	cipher *lru.Cache[peer.PeerID, cipher.Block]
-	priv   *PrivateKey
+	mut              sync.RWMutex
+	cipher           *lru.Cache[string, cipher.Block]
+	provideSecretKey secure.ProvideSecretKey
 }
 
-func NewAESCBC(priv *PrivateKey) *AESCBC {
+func NewAESCBC(provideSecretKey secure.ProvideSecretKey) *AESCBC {
 	return &AESCBC{
-		cipher: lru.New[peer.PeerID, cipher.Block](128),
-		priv:   priv,
+		cipher:           lru.New[string, cipher.Block](128),
+		provideSecretKey: provideSecretKey,
 	}
 }
 
-func (s *AESCBC) Encrypt(b []byte, peerID peer.PeerID) ([]byte, error) {
+func (s *AESCBC) Encrypt(b []byte, pubKey string) ([]byte, error) {
 	if s == nil {
 		return nil, errors.New("aesCBC is nil")
 	}
-	block, err := s.ensureChiperBlock(peerID)
+	block, err := s.ensureChiperBlock(pubKey)
 	if err != nil {
 		return nil, err
 	}
@@ -108,11 +110,11 @@ func (s *AESCBC) Encrypt(b []byte, peerID peer.PeerID) ([]byte, error) {
 	return cipherText, nil
 }
 
-func (s *AESCBC) Decrypt(b []byte, peerID peer.PeerID) ([]byte, error) {
+func (s *AESCBC) Decrypt(b []byte, pubKey string) ([]byte, error) {
 	if s == nil {
 		return nil, errors.New("aesCBC is nil")
 	}
-	block, err := s.ensureChiperBlock(peerID)
+	block, err := s.ensureChiperBlock(pubKey)
 	if err != nil {
 		return nil, err
 	}
@@ -129,12 +131,12 @@ func (s *AESCBC) Decrypt(b []byte, peerID peer.PeerID) ([]byte, error) {
 	return PKCS7UnPadding(plainBytes)
 }
 
-func (s *AESCBC) ensureChiperBlock(peerID peer.PeerID) (cipher.Block, error) {
+func (s *AESCBC) ensureChiperBlock(pubKey string) (cipher.Block, error) {
 	s.mut.RLock()
-	block, ok := s.cipher.Get(peerID)
+	block, ok := s.cipher.Get(pubKey)
 	s.mut.RUnlock()
 	if !ok {
-		secretKey, err := s.priv.SharedKey(peerID.String())
+		secretKey, err := s.provideSecretKey(pubKey)
 		if err != nil {
 			return nil, err
 		}
@@ -144,7 +146,7 @@ func (s *AESCBC) ensureChiperBlock(peerID peer.PeerID) (cipher.Block, error) {
 		}
 		block = b
 		s.mut.Lock()
-		s.cipher.Put(peerID, block)
+		s.cipher.Put(pubKey, block)
 		s.mut.Unlock()
 	}
 

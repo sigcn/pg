@@ -54,11 +54,11 @@ func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 		return
 	case datagram := <-c.wsConn.Datagrams():
 		addr = datagram.PeerID
-		n = copy(p, datagram.TryDecrypt(c.cfg.AES))
+		n = copy(p, datagram.TryDecrypt(c.cfg.SymmAlgo))
 		return
 	case datagram := <-c.udpConn.Datagrams():
 		addr = datagram.PeerID
-		n = copy(p, datagram.TryDecrypt(c.cfg.AES))
+		n = copy(p, datagram.TryDecrypt(c.cfg.SymmAlgo))
 		return
 	}
 }
@@ -73,7 +73,7 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	}
 
 	datagram := disco.Datagram{PeerID: addr.(peer.PeerID), Data: p}
-	p = datagram.TryEncrypt(c.cfg.AES)
+	p = datagram.TryEncrypt(c.cfg.SymmAlgo)
 
 	n, err = c.udpConn.WriteToUDP(p, datagram.PeerID)
 	if err != nil {

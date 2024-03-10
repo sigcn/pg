@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/rkonfj/peerguard/secure"
+	"github.com/rkonfj/peerguard/secure/aescbc"
 )
 
 var (
@@ -42,7 +42,7 @@ func (auth *authenticator) GenerateSecret(networkID string, validDuration time.D
 	if err != nil {
 		return "", err
 	}
-	chiperData, err := secure.AESCBCEncrypt(auth.key, b)
+	chiperData, err := aescbc.Encrypt(auth.key, b)
 	return base64.URLEncoding.EncodeToString(chiperData), err
 }
 
@@ -51,7 +51,7 @@ func (auth *authenticator) ParseSecret(networkIDChiper string) (JSONSecret, erro
 	if err != nil {
 		return JSONSecret{}, ErrInvalidToken
 	}
-	plainData, err := secure.AESCBCDecrypt(auth.key, chiperData)
+	plainData, err := aescbc.Decrypt(auth.key, chiperData)
 	if err != nil {
 		return JSONSecret{}, ErrInvalidToken
 	}
