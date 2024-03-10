@@ -96,6 +96,7 @@ func DialPeermapServer(
 		stuns:         stuns,
 	}
 	go wsConn.runWebSocketEventLoop()
+	go wsConn.keepalive()
 	return &wsConn, nil
 }
 
@@ -177,6 +178,25 @@ func (c *WSConn) runWebSocketEventLoop() {
 	}
 }
 
+func (c *WSConn) write(messageType int, data []byte) error {
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
+	if wsConn := c.Conn; wsConn != nil {
+		return wsConn.WriteMessage(messageType, data)
+	}
+	return ErrUseOfClosedConnection
+}
+
+func (c *WSConn) keepalive() {
+	for {
+		time.Sleep(20 * time.Second)
+		if err := c.write(websocket.PingMessage, nil); err != nil {
+			break
+		}
+	}
+	c.Close()
+}
+
 func (c *WSConn) Close() error {
 	close(c.closedSig)
 	_ = c.Conn.WriteControl(websocket.CloseMessage,
@@ -193,12 +213,7 @@ func (c *WSConn) WriteTo(p []byte, peerID peer.PeerID, op byte) error {
 	for i, v := range b {
 		b[i] = v ^ c.nonce
 	}
-	c.writeMutex.Lock()
-	defer c.writeMutex.Unlock()
-	if wsConn := c.Conn; wsConn != nil {
-		return wsConn.WriteMessage(websocket.BinaryMessage, b)
-	}
-	return ErrUseOfClosedConnection
+	return c.write(websocket.BinaryMessage, b)
 }
 
 func (c *WSConn) LeadDisco(peerID peer.PeerID) error {

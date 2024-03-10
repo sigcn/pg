@@ -191,6 +191,10 @@ func (c *UDPConn) runPacketEventLoop() {
 
 		// datagram
 		peerID := c.findPeerID(peerAddr)
+		if peerID.Len() == 0 {
+			slog.Error("RecvButPeerNotReady", "addr", peerAddr)
+			continue
+		}
 		b := make([]byte, n)
 		copy(b, buf[:n])
 		c.datagrams <- &Datagram{
