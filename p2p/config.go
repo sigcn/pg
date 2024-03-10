@@ -6,8 +6,14 @@ import (
 
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/secure"
-	"github.com/rkonfj/peerguard/secure/aescbc"
+	"github.com/rkonfj/peerguard/secure/chacha20poly1305"
 )
+
+var defaultSymmAlgo func(secure.ProvideSecretKey) secure.SymmAlgo = chacha20poly1305.New
+
+func SetDefaultSymmAlgo(symmAlgo func(secure.ProvideSecretKey) secure.SymmAlgo) {
+	defaultSymmAlgo = symmAlgo
+}
 
 type Config struct {
 	UDPPort         int
@@ -49,16 +55,11 @@ func ListenPeerID(id string) Option {
 
 func ListenPeerSecure() Option {
 	return func(cfg *Config) error {
-		if cfg.SymmAlgo != nil {
-			return errors.New("repeat secure options")
-		}
 		priv, err := secure.GenerateCurve25519()
 		if err != nil {
 			return err
 		}
-		cfg.SymmAlgo = aescbc.NewAESCBC(priv.SharedKey)
-		cfg.PeerID = peer.PeerID(priv.PublicKey.String())
-		return nil
+		return ListenPeerCurve25519(priv.String())(cfg)
 	}
 }
 
@@ -71,7 +72,7 @@ func ListenPeerCurve25519(privateKey string) Option {
 		if err != nil {
 			return err
 		}
-		cfg.SymmAlgo = aescbc.NewAESCBC(priv.SharedKey)
+		cfg.SymmAlgo = defaultSymmAlgo(priv.SharedKey)
 		cfg.PeerID = peer.PeerID(priv.PublicKey.String())
 		return nil
 	}

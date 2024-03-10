@@ -82,13 +82,6 @@ type AESCBC struct {
 	provideSecretKey secure.ProvideSecretKey
 }
 
-func NewAESCBC(provideSecretKey secure.ProvideSecretKey) *AESCBC {
-	return &AESCBC{
-		cipher:           lru.New[string, cipher.Block](128),
-		provideSecretKey: provideSecretKey,
-	}
-}
-
 func (s *AESCBC) Encrypt(b []byte, pubKey string) ([]byte, error) {
 	if s == nil {
 		return nil, errors.New("aesCBC is nil")
@@ -151,4 +144,11 @@ func (s *AESCBC) ensureChiperBlock(pubKey string) (cipher.Block, error) {
 	}
 
 	return block, nil
+}
+
+func New(provideSecretKey secure.ProvideSecretKey) secure.SymmAlgo {
+	return &AESCBC{
+		cipher:           lru.New[string, cipher.Block](128),
+		provideSecretKey: provideSecretKey,
+	}
 }

@@ -85,7 +85,7 @@ func (s *Chacha20Poly1305) ensureChiperAEAD(pubKey string) (cipher.AEAD, error) 
 
 }
 
-func New(provideSecretKey secure.ProvideSecretKey) *Chacha20Poly1305 {
+func New(provideSecretKey secure.ProvideSecretKey) secure.SymmAlgo {
 	return &Chacha20Poly1305{
 		cipher:           lru.New[string, cipher.AEAD](128),
 		provideSecretKey: provideSecretKey,

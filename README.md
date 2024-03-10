@@ -1,4 +1,6 @@
-# PeerGuard - Another p2p network library in Go 
+# PeerGuard
+
+Another p2p network library in Go 
 
 ## Get Started
 
@@ -14,10 +16,10 @@ $ pgserve -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
 $ caddy reverse-proxy --from https://synf.in/pg --to 127.0.0.1:9987
 ```
 
-### Follow the steps below to run VPN nodes in different networks
-#### 1. Generate a network secret
+### Follow the steps below to run VPN nodes in different physical networks
+#### 1. Generate a private network secret
 ```
-# pgcli secret --secret-key 5172554832d76672d1959a5ac63c5ab9 > ~/.peerguard_network_secret.json
+$ pgcli secret --secret-key 5172554832d76672d1959a5ac63c5ab9 > ~/.peerguard_network_secret.json
 ```
 #### 2. Run a VPN daemon
 ```
