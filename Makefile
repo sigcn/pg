@@ -43,7 +43,13 @@ github: clean all
 	gh release delete ${version} -y --cleanup-tag 2>/dev/null || true
 	gh release create ${version} --generate-notes --title "peerguard ${version}" pgcli-${version}*.gz pgcli-${version}*.zip pgserve-${version}*.gz
 
-dist: github
+image:
+	docker build . -t rkonfj/peerguard:${version} --build-arg version=${version} --build-arg githash=${git_hash}
+
+dockerhub: image
+	docker push rkonfj/peerguard:${version}
+
+dist: github dockerhub
 
 clean:
 	rm pgcli* 2>/dev/null || true
