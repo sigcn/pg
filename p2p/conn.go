@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -78,7 +79,7 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	n, err = c.udpConn.WriteToUDP(p, datagram.PeerID)
 	if err != nil {
 		go c.TryLeadDisco(datagram.PeerID)
-		slog.Debug("[Relay] WriteTo", "addr", datagram.PeerID)
+		slog.Log(context.Background(), slog.Level(-3), "[Relay] WriteTo", "addr", datagram.PeerID)
 		return len(p), c.wsConn.WriteTo(p, datagram.PeerID, peer.CONTROL_RELAY)
 	}
 	return

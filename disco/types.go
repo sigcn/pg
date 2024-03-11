@@ -45,7 +45,7 @@ func (peer *PeerContext) AddAddr(addr *net.UDPAddr) {
 	if _, ok := peer.States[addr.String()]; ok {
 		return
 	}
-	peer.States[addr.String()] = &PeerState{Addr: addr}
+	peer.States[addr.String()] = &PeerState{Addr: addr, PeerID: peer.PeerID}
 }
 
 func (peer *PeerContext) Heartbeat(addr *net.UDPAddr) {
@@ -58,11 +58,13 @@ func (peer *PeerContext) Heartbeat(addr *net.UDPAddr) {
 				slog.Info("[UDP] AddPeer", "peer", peer.PeerID, "addr", addr)
 			}
 			state.LastActiveTime = time.Now()
+			peer.ping(addr)
 			return
 		}
 	}
 	slog.Info("[UDP][0RTT] AddPeer", "peer", peer.PeerID, "addr", addr)
 	peer.States[addr.String()] = &PeerState{Addr: addr, LastActiveTime: time.Now()}
+	peer.ping(addr)
 }
 
 func (peer *PeerContext) Healthcheck() {
@@ -151,6 +153,7 @@ func (peer *PeerContext) Close() error {
 }
 
 type PeerState struct {
+	PeerID         peer.PeerID
 	Addr           *net.UDPAddr
 	LastActiveTime time.Time
 }
