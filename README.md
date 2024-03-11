@@ -25,7 +25,8 @@ $ pgcli secret --secret-key 5172554832d76672d1959a5ac63c5ab9 > ~/.peerguard_netw
 ```
 # pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
 ```
-
+> [!NOTE]
+> Since the default encryption algorithm has been changed from AES to ChaCha20, it is required that the local clocks of each VPN node do not differ by more than 5 seconds.
 ## P2P programming example
 ### Peer1 (act as echo server)
 ```go
