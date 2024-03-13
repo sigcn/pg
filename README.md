@@ -2,6 +2,14 @@
 
 Another p2p network library in Go 
 
+## Features
+- Elegantly simple architecture (pgcli & pgserve & OpenID Connect)
+- NAT traversal with high success rate (STUN & UPnP & PortScan)
+- Full support for IPv4/IPv6 dual stack
+- Easy-to-use library (net.PacketConn) 
+- **Transport layer security (curve25519 & chacha20poly1305 for end-to-end encryption)**
+- Cross-platform compatibility (linux/windows/macOS/iOS/android)
+
 ## Get Started
 
 ### Deploy the peermap server
