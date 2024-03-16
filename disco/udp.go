@@ -116,16 +116,16 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 		Addr:   addr,
 	}
 	defer slog.Debug("[UDP] DiscoPingExit", "peer", peerID, "addr", addr)
+	c.discoPing(peerID, addr)
 	interval := defaultDiscoConfig.ChallengesInitialInterval
 	for i := 0; i <= defaultDiscoConfig.ChallengesRetry; i++ {
+		time.Sleep(interval)
 		select {
 		case <-c.closedSig:
 			return
 		default:
 		}
-		slog.Debug("[UDP] DiscoPing", "peer", peerID, "addr", addr)
-		c.UDPConn.WriteToUDP([]byte("_ping"+c.id), addr)
-		time.Sleep(interval)
+		c.discoPing(peerID, addr)
 		interval = time.Duration(float64(interval) * defaultDiscoConfig.ChallengesBackoffRate)
 		if c.findPeerID(addr) != "" {
 			return
@@ -154,6 +154,11 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 		}
 		slog.Info("[UDP] PortScanExit", "peer", peerID, "addr", addr)
 	}
+}
+
+func (c *UDPConn) discoPing(peerID peer.PeerID, peerAddr *net.UDPAddr) {
+	slog.Debug("[UDP] DiscoPing", "peer", peerID, "addr", peerAddr)
+	c.UDPConn.WriteToUDP([]byte("_ping"+c.id), peerAddr)
 }
 
 func (c *UDPConn) runPacketEventLoop() {
@@ -216,11 +221,8 @@ func (c *UDPConn) runPeerOPLoop() {
 		case OP_PEER_DISCO:
 			if _, ok := c.peersIndex[e.PeerID]; !ok {
 				peerCtx := PeerContext{
-					exitSig: make(chan struct{}),
-					ping: func(addr *net.UDPAddr) {
-						slog.Debug("[UDP] Ping", "peer", e.PeerID, "addr", addr)
-						c.UDPConn.WriteToUDP([]byte("_ping"+c.id), addr)
-					},
+					exitSig:           make(chan struct{}),
+					ping:              c.discoPing,
 					keepaliveInterval: c.peerKeepaliveInterval,
 					PeerID:            e.PeerID,
 					States:            make(map[string]*PeerState),

@@ -33,7 +33,7 @@ type PeerContext struct {
 	CreateTime time.Time
 
 	exitSig           chan struct{}
-	ping              func(addr *net.UDPAddr)
+	ping              func(peerID peer.PeerID, addr *net.UDPAddr)
 	keepaliveInterval time.Duration
 
 	statesMutex sync.RWMutex
@@ -58,13 +58,11 @@ func (peer *PeerContext) Heartbeat(addr *net.UDPAddr) {
 				slog.Info("[UDP] AddPeer", "peer", peer.PeerID, "addr", addr)
 			}
 			state.LastActiveTime = time.Now()
-			peer.ping(addr)
 			return
 		}
 	}
 	slog.Info("[UDP][0RTT] AddPeer", "peer", peer.PeerID, "addr", addr)
 	peer.States[addr.String()] = &PeerState{Addr: addr, LastActiveTime: time.Now()}
-	peer.ping(addr)
 }
 
 func (peer *PeerContext) Healthcheck() {
@@ -131,7 +129,7 @@ func (peer *PeerContext) Keepalive() {
 		}
 		peer.statesMutex.RUnlock()
 		for _, addr := range addrs {
-			peer.ping(addr)
+			peer.ping(peer.PeerID, addr)
 		}
 	}
 	ping()
