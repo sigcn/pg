@@ -109,9 +109,12 @@ func (peer *PeerContext) Select() *net.UDPAddr {
 	defer peer.statesMutex.RUnlock()
 	addrs := make([]*net.UDPAddr, 0, len(peer.States))
 	for _, state := range peer.States {
-		if time.Since(state.LastActiveTime) <= peer.keepaliveInterval+2*time.Second {
+		if time.Since(state.LastActiveTime) < peer.keepaliveInterval+2*time.Second {
 			addrs = append(addrs, state.Addr)
 		}
+	}
+	if len(addrs) == 0 {
+		return nil
 	}
 	return addrs[rand.Intn(len(addrs))]
 }

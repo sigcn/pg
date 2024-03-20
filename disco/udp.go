@@ -373,9 +373,10 @@ func (c *UDPConn) FindPeer(peerID peer.PeerID) (*PeerContext, bool) {
 
 func (n *UDPConn) WriteToUDP(p []byte, peerID peer.PeerID) (int, error) {
 	if peer, ok := n.FindPeer(peerID); ok {
-		addr := peer.Select()
-		slog.Log(context.Background(), slog.Level(-3), "[UDP] WriteTo", "peer", peerID, "addr", addr)
-		return n.UDPConn.WriteToUDP(p, addr)
+		if addr := peer.Select(); addr != nil {
+			slog.Log(context.Background(), -3, "[UDP] WriteTo", "peer", peerID, "addr", addr)
+			return n.UDPConn.WriteToUDP(p, addr)
+		}
 	}
 	return 0, ErrUseOfClosedConnection
 }
