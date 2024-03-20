@@ -217,6 +217,7 @@ func (c *WSConn) WriteTo(p []byte, peerID peer.PeerID, op byte) error {
 }
 
 func (c *WSConn) LeadDisco(peerID peer.PeerID) error {
+	slog.Debug("LeadDisco", "peer", peerID)
 	return c.WriteTo(nil, peerID, peer.CONTROL_LEAD_DISCO)
 }
 

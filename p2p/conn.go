@@ -180,7 +180,8 @@ func (c *PeerPacketConn) TryLeadDisco(peerID peer.PeerID) {
 		func() {
 			c.discoCoolingMutex.Lock()
 			defer c.discoCoolingMutex.Unlock()
-			if _, ok := c.discoCooling.Get(peerID); ok {
+			if lastTime, ok := c.discoCooling.Get(peerID); ok &&
+				time.Since(lastTime) <= 5*time.Minute {
 				return
 			}
 			c.wsConn.LeadDisco(peerID)
