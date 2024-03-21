@@ -32,8 +32,8 @@ type UDPConn struct {
 	stunResponse          chan []byte
 	udpAddrSends          chan *PeerUDPAddrEvent
 	peerKeepaliveInterval time.Duration
-	id                    peer.PeerID
-	peersIndex            map[peer.PeerID]*PeerContext
+	id                    peer.ID
+	peersIndex            map[peer.ID]*PeerContext
 	stunSessions          cmap.ConcurrentMap[string, STUNSession]
 
 	localAddrs        []string
@@ -57,7 +57,7 @@ func (c *UDPConn) UDPAddrSends() <-chan *PeerUDPAddrEvent {
 	return c.udpAddrSends
 }
 
-func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.PeerID, stunServers []string) {
+func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.ID, stunServers []string) {
 	c.peersOPs <- &PeerOP{
 		Op:     OP_PEER_DELETE,
 		PeerID: peerID,
@@ -109,7 +109,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.PeerID, stunServers []stri
 	})
 }
 
-func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr) {
+func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 	c.peersOPs <- &PeerOP{
 		Op:     OP_PEER_DISCO,
 		PeerID: peerID,
@@ -156,7 +156,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.PeerID, addr *net.UDPAddr)
 	}
 }
 
-func (c *UDPConn) discoPing(peerID peer.PeerID, peerAddr *net.UDPAddr) {
+func (c *UDPConn) discoPing(peerID peer.ID, peerAddr *net.UDPAddr) {
 	slog.Debug("[UDP] DiscoPing", "peer", peerID, "addr", peerAddr)
 	c.UDPConn.WriteToUDP([]byte("_ping"+c.id), peerAddr)
 }
@@ -182,7 +182,7 @@ func (c *UDPConn) runPacketEventLoop() {
 			peerID := string(buf[5:n])
 			c.peersOPs <- &PeerOP{
 				Op:     OP_PEER_CONFIRM,
-				PeerID: peer.PeerID(peerID),
+				PeerID: peer.ID(peerID),
 				Addr:   peerAddr,
 			}
 			continue
@@ -308,7 +308,7 @@ func (c *UDPConn) runPeersHealthcheckLoop() {
 	}
 }
 
-func (c *UDPConn) requestSTUN(peerID peer.PeerID, stunServers []string) {
+func (c *UDPConn) requestSTUN(peerID peer.ID, stunServers []string) {
 	txID := stun.NewTxID()
 	c.stunSessions.Set(string(txID[:]), STUNSession{PeerID: peerID, CTime: time.Now()})
 	for _, stunServer := range stunServers {
@@ -330,7 +330,7 @@ func (c *UDPConn) requestSTUN(peerID peer.PeerID, stunServers []string) {
 	}
 }
 
-func (c *UDPConn) findPeerID(udpAddr *net.UDPAddr) peer.PeerID {
+func (c *UDPConn) findPeerID(udpAddr *net.UDPAddr) peer.ID {
 	if udpAddr == nil {
 		return ""
 	}
@@ -362,7 +362,7 @@ peerSeek:
 	return candidates[0].PeerID
 }
 
-func (c *UDPConn) FindPeer(peerID peer.PeerID) (*PeerContext, bool) {
+func (c *UDPConn) FindPeer(peerID peer.ID) (*PeerContext, bool) {
 	c.peersIndexMutex.RLock()
 	defer c.peersIndexMutex.RUnlock()
 	if peer, ok := c.peersIndex[peerID]; ok && peer.Ready() {
@@ -371,7 +371,7 @@ func (c *UDPConn) FindPeer(peerID peer.PeerID) (*PeerContext, bool) {
 	return nil, false
 }
 
-func (n *UDPConn) WriteToUDP(p []byte, peerID peer.PeerID) (int, error) {
+func (n *UDPConn) WriteToUDP(p []byte, peerID peer.ID) (int, error) {
 	if peer, ok := n.FindPeer(peerID); ok {
 		if addr := peer.Select(); addr != nil {
 			slog.Log(context.Background(), -3, "[UDP] WriteTo", "peer", peerID, "addr", addr)
@@ -384,7 +384,7 @@ func (n *UDPConn) WriteToUDP(p []byte, peerID peer.PeerID) (int, error) {
 func (c *UDPConn) Broadcast(b []byte) (peerCount int, err error) {
 	c.peersIndexMutex.RLock()
 	peerCount = len(c.peersIndex)
-	peers := make([]peer.PeerID, 0, peerCount)
+	peers := make([]peer.ID, 0, peerCount)
 	for k := range c.peersIndex {
 		peers = append(peers, k)
 	}
@@ -409,7 +409,7 @@ func (c *UDPConn) SetKeepAlivePeriod(period time.Duration) {
 	c.peerKeepaliveInterval = max(period, time.Second)
 }
 
-func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.PeerID) (*UDPConn, error) {
+func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.ID) (*UDPConn, error) {
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: port})
 	if err != nil {
 		return nil, fmt.Errorf("listen udp error: %w", err)
@@ -428,7 +428,7 @@ func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.PeerID) (*UDPCon
 		udpAddrSends:          make(chan *PeerUDPAddrEvent, 10),
 		stunResponse:          make(chan []byte, 10),
 		peerKeepaliveInterval: 10 * time.Second,
-		peersIndex:            make(map[peer.PeerID]*PeerContext),
+		peersIndex:            make(map[peer.ID]*PeerContext),
 		stunSessions:          cmap.New[STUNSession](),
 	}
 

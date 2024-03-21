@@ -55,7 +55,7 @@ type VPN struct {
 
 	ipv6Routes *lru.Cache[string, []*net.IPNet]
 	ipv4Routes *lru.Cache[string, []*net.IPNet]
-	peers      *lru.Cache[string, peer.PeerID]
+	peers      *lru.Cache[string, peer.ID]
 	peersMutex sync.RWMutex
 }
 
@@ -68,7 +68,7 @@ func New(cfg Config) *VPN {
 		newBuf:     func() []byte { return make([]byte, cfg.MTU+IPPacketOffset+40) },
 		ipv6Routes: lru.New[string, []*net.IPNet](256),
 		ipv4Routes: lru.New[string, []*net.IPNet](256),
-		peers:      lru.New[string, peer.PeerID](1024),
+		peers:      lru.New[string, peer.ID](1024),
 	}
 }
 
@@ -91,7 +91,7 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 	disco.AddIgnoredLocalCIDRs(vpn.cfg.AllowedIPs...)
 	p2pOptions := []p2p.Option{
 		p2p.PeerMeta("allowedIPs", vpn.cfg.AllowedIPs),
-		p2p.ListenPeerUp(func(pi peer.PeerID, m peer.Metadata) { vpn.setPeer(device, pi, m) }),
+		p2p.ListenPeerUp(func(pi peer.ID, m peer.Metadata) { vpn.setPeer(device, pi, m) }),
 	}
 
 	if len(vpn.cfg.Peers) > 0 {
@@ -110,7 +110,7 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 		for k, v := range pgPeer.Query() {
 			extra[k] = v[0]
 		}
-		vpn.setPeer(device, peer.PeerID(pgPeer.Host), peer.Metadata{
+		vpn.setPeer(device, peer.ID(pgPeer.Host), peer.Metadata{
 			Alias1: pgPeer.Query().Get("alias1"),
 			Alias2: pgPeer.Query().Get("alias2"),
 			Extra:  extra,
@@ -162,7 +162,7 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 	return nil
 }
 
-func (vpn *VPN) setPeer(device tun.Device, peer peer.PeerID, metadata peer.Metadata) {
+func (vpn *VPN) setPeer(device tun.Device, peer peer.ID, metadata peer.Metadata) {
 	vpn.peersMutex.Lock()
 	defer vpn.peersMutex.Unlock()
 	vpn.peers.Put(metadata.Alias1, peer)
@@ -207,7 +207,7 @@ func (vpn *VPN) setPeer(device tun.Device, peer peer.PeerID, metadata peer.Metad
 	}
 }
 
-func (vpn *VPN) getPeer(ip string) (peer.PeerID, bool) {
+func (vpn *VPN) getPeer(ip string) (peer.ID, bool) {
 	vpn.peersMutex.RLock()
 	defer vpn.peersMutex.RUnlock()
 	peerID, ok := vpn.peers.Get(ip)

@@ -69,27 +69,21 @@ func (s *FileSecretStore) UpdateNetworkSecret(secret NetworkSecret) error {
 	return f.Close()
 }
 
-type NetworkID string
+type ID string
 
-func (id NetworkID) String() string {
+func (id ID) String() string {
 	return string(id)
 }
 
-type PeerID string
-
-func (id PeerID) String() string {
-	return string(id)
-}
-
-func (id PeerID) Network() string {
+func (id ID) Network() string {
 	return "p2p"
 }
 
-func (id PeerID) Len() byte {
+func (id ID) Len() byte {
 	return byte(len(id))
 }
 
-func (id PeerID) Bytes() []byte {
+func (id ID) Bytes() []byte {
 	return []byte(id)
 }
 

@@ -17,7 +17,7 @@ func SetDefaultSymmAlgo(symmAlgo func(secure.ProvideSecretKey) secure.SymmAlgo) 
 
 type Config struct {
 	UDPPort         int
-	PeerID          peer.PeerID
+	PeerID          peer.ID
 	DisableIPv6     bool
 	DisableIPv4     bool
 	SymmAlgo        secure.SymmAlgo
@@ -27,7 +27,7 @@ type Config struct {
 }
 
 type Option func(cfg *Config) error
-type OnPeer func(peer.PeerID, peer.Metadata)
+type OnPeer func(peer.ID, peer.Metadata)
 
 var (
 	OptionNoOp Option = func(cfg *Config) error { return nil }
@@ -45,7 +45,7 @@ func ListenPeerID(id string) Option {
 		if cfg.SymmAlgo != nil {
 			return errors.New("options ListenPeerID and ListenPeerSecure/Curve25519 conflict")
 		}
-		peerID := peer.PeerID(id)
+		peerID := peer.ID(id)
 		if peerID.Len() > 0 {
 			cfg.PeerID = peerID
 		}
@@ -73,7 +73,7 @@ func ListenPeerCurve25519(privateKey string) Option {
 			return err
 		}
 		cfg.SymmAlgo = defaultSymmAlgo(priv.SharedKey)
-		cfg.PeerID = peer.PeerID(priv.PublicKey.String())
+		cfg.PeerID = peer.ID(priv.PublicKey.String())
 		return nil
 	}
 }

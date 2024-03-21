@@ -24,16 +24,16 @@ const (
 )
 
 type PeerStore interface {
-	FindPeer(peer.PeerID) (*PeerContext, bool)
+	FindPeer(peer.ID) (*PeerContext, bool)
 }
 
 type PeerContext struct {
-	PeerID     peer.PeerID
+	PeerID     peer.ID
 	States     map[string]*PeerState
 	CreateTime time.Time
 
 	exitSig           chan struct{}
-	ping              func(peerID peer.PeerID, addr *net.UDPAddr)
+	ping              func(peerID peer.ID, addr *net.UDPAddr)
 	keepaliveInterval time.Duration
 
 	statesMutex sync.RWMutex
@@ -154,7 +154,7 @@ func (peer *PeerContext) Close() error {
 }
 
 type PeerState struct {
-	PeerID         peer.PeerID
+	PeerID         peer.ID
 	Addr           *net.UDPAddr
 	LastActiveTime time.Time
 }
@@ -162,16 +162,16 @@ type PeerState struct {
 type PeerOP struct {
 	Op     int
 	Addr   *net.UDPAddr
-	PeerID peer.PeerID
+	PeerID peer.ID
 }
 
 type STUNSession struct {
-	PeerID peer.PeerID
+	PeerID peer.ID
 	CTime  time.Time
 }
 
 type Datagram struct {
-	PeerID peer.PeerID
+	PeerID peer.ID
 	Data   []byte
 }
 
@@ -194,11 +194,11 @@ func (d *Datagram) TryEncrypt(symmAlgo secure.SymmAlgo) []byte {
 }
 
 type PeerFindEvent struct {
-	PeerID   peer.PeerID
+	PeerID   peer.ID
 	Metadata peer.Metadata
 }
 
 type PeerUDPAddrEvent struct {
-	PeerID peer.PeerID
+	PeerID peer.ID
 	Addr   *net.UDPAddr
 }

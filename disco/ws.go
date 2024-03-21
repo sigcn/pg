@@ -33,7 +33,7 @@ type WSConn struct {
 func DialPeermapServer(
 	peermapServers peer.PeermapCluster,
 	secretStore peer.SecretStore,
-	peerID peer.PeerID, metadata peer.Metadata) (*WSConn, error) {
+	peerID peer.ID, metadata peer.Metadata) (*WSConn, error) {
 	dialPeermap := func() (*websocket.Conn, byte, []string, error) {
 		networkSecret, err := secretStore.NetworkSecret()
 		if err != nil {
@@ -148,12 +148,12 @@ func (c *WSConn) runWebSocketEventLoop() {
 		switch b[0] {
 		case peer.CONTROL_RELAY:
 			c.datagrams <- &Datagram{
-				PeerID: peer.PeerID(b[2 : b[1]+2]),
+				PeerID: peer.ID(b[2 : b[1]+2]),
 				Data:   b[b[1]+2:],
 			}
 		case peer.CONTROL_NEW_PEER:
 			event := PeerFindEvent{
-				PeerID: peer.PeerID(b[2 : b[1]+2]),
+				PeerID: peer.ID(b[2 : b[1]+2]),
 			}
 			json.Unmarshal(b[b[1]+2:], &event.Metadata)
 			c.peers <- &event
@@ -164,7 +164,7 @@ func (c *WSConn) runWebSocketEventLoop() {
 				break
 			}
 			c.peersUDPAddrs <- &PeerUDPAddrEvent{
-				PeerID: peer.PeerID(b[2 : b[1]+2]),
+				PeerID: peer.ID(b[2 : b[1]+2]),
 				Addr:   addr,
 			}
 		case peer.CONTROL_UPDATE_NETWORK_SECRET:
@@ -204,7 +204,7 @@ func (c *WSConn) Close() error {
 	return c.Conn.Close()
 }
 
-func (c *WSConn) WriteTo(p []byte, peerID peer.PeerID, op byte) error {
+func (c *WSConn) WriteTo(p []byte, peerID peer.ID, op byte) error {
 	b := make([]byte, 0, 2+len(peerID)+len(p))
 	b = append(b, op)                // relay
 	b = append(b, peerID.Len())      // addr length
@@ -216,7 +216,7 @@ func (c *WSConn) WriteTo(p []byte, peerID peer.PeerID, op byte) error {
 	return c.write(websocket.BinaryMessage, b)
 }
 
-func (c *WSConn) LeadDisco(peerID peer.PeerID) error {
+func (c *WSConn) LeadDisco(peerID peer.ID) error {
 	slog.Debug("LeadDisco", "peer", peerID)
 	return c.WriteTo(nil, peerID, peer.CONTROL_LEAD_DISCO)
 }

@@ -32,7 +32,7 @@ type PeerPacketConn struct {
 	readTimeout       chan struct{}
 	udpConn           *disco.UDPConn
 	wsConn            *disco.WSConn
-	discoCooling      *lru.Cache[peer.PeerID, time.Time]
+	discoCooling      *lru.Cache[peer.ID, time.Time]
 	discoCoolingMutex sync.Mutex
 }
 
@@ -69,11 +69,11 @@ func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 // fixed time limit; see SetDeadline and SetWriteDeadline.
 // On packet-oriented connections, write timeouts are rare.
 func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	if _, ok := addr.(peer.PeerID); !ok {
+	if _, ok := addr.(peer.ID); !ok {
 		return 0, errors.New("not a p2p address")
 	}
 
-	datagram := disco.Datagram{PeerID: addr.(peer.PeerID), Data: p}
+	datagram := disco.Datagram{PeerID: addr.(peer.ID), Data: p}
 	p = datagram.TryEncrypt(c.cfg.SymmAlgo)
 
 	n, err = c.udpConn.WriteToUDP(p, datagram.PeerID)
@@ -172,7 +172,7 @@ func (c *PeerPacketConn) Broadcast(b []byte) (int, error) {
 
 // TryLeadDisco try lead a peer discovery
 // disco as soon as every 5 minutes
-func (c *PeerPacketConn) TryLeadDisco(peerID peer.PeerID) {
+func (c *PeerPacketConn) TryLeadDisco(peerID peer.ID) {
 	if !c.discoCoolingMutex.TryLock() {
 		return
 	}
@@ -222,7 +222,7 @@ func ListenPacket(secretStore peer.SecretStore, cluster peer.PeermapCluster, opt
 	cfg := Config{
 		UDPPort:         29877,
 		KeepAlivePeriod: 10 * time.Second,
-		PeerID:          peer.PeerID(base64.URLEncoding.EncodeToString(id)),
+		PeerID:          peer.ID(base64.URLEncoding.EncodeToString(id)),
 	}
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
@@ -248,7 +248,7 @@ func ListenPacket(secretStore peer.SecretStore, cluster peer.PeermapCluster, opt
 		readTimeout:  make(chan struct{}),
 		udpConn:      udpConn,
 		wsConn:       wsConn,
-		discoCooling: lru.New[peer.PeerID, time.Time](1024),
+		discoCooling: lru.New[peer.ID, time.Time](1024),
 	}
 	go packetConn.runControlEventLoop(wsConn, udpConn)
 	return &packetConn, nil

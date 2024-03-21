@@ -33,8 +33,8 @@ type Peer struct {
 	networkContext *networkContext
 	metadata       peer.Metadata
 	conn           *websocket.Conn
-	networkID      peer.NetworkID
-	id             peer.PeerID
+	networkID      string
+	id             peer.ID
 	nonce          byte
 	wMut           sync.Mutex
 }
@@ -142,7 +142,7 @@ func (p *Peer) readMessageLoope() {
 		for i, v := range b {
 			b[i] = v ^ p.nonce
 		}
-		tgtPeerID := peer.PeerID(b[2 : b[1]+2])
+		tgtPeerID := peer.ID(b[2 : b[1]+2])
 		slog.Debug("PeerEvent", "op", b[0], "from", p.id, "to", tgtPeerID)
 		tgtPeer, err := p.peerMap.FindPeer(p.networkID, tgtPeerID)
 		if err != nil {
@@ -209,7 +209,7 @@ type PeerMap struct {
 	authenticator auth.Authenticator
 }
 
-func (pm *PeerMap) FindPeer(networkID peer.NetworkID, peerID peer.PeerID) (*Peer, error) {
+func (pm *PeerMap) FindPeer(networkID string, peerID peer.ID) (*Peer, error) {
 	if ctx, ok := pm.networkMap.Get(string(networkID)); ok {
 		if peer, ok := ctx.Get(string(peerID)); ok {
 			return peer, nil
@@ -365,8 +365,8 @@ func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		peerMap:        pm,
 		secret:         jsonSecret,
 		networkContext: networkCtx,
-		networkID:      peer.NetworkID(jsonSecret.Network),
-		id:             peer.PeerID(peerID),
+		networkID:      jsonSecret.Network,
+		id:             peer.ID(peerID),
 		nonce:          nonce,
 		metadata:       peer.Metadata{},
 	}
