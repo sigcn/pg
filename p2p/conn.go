@@ -33,7 +33,7 @@ type PeerPacketConn struct {
 	udpConn           *disco.UDPConn
 	wsConn            *disco.WSConn
 	discoCooling      *lru.Cache[peer.PeerID, time.Time]
-	discoCoolingMutex sync.RWMutex
+	discoCoolingMutex sync.Mutex
 }
 
 // ReadFrom reads a packet from the connection,
@@ -78,8 +78,8 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 
 	n, err = c.udpConn.WriteToUDP(p, datagram.PeerID)
 	if err != nil {
-		go c.TryLeadDisco(datagram.PeerID)
-		slog.Log(context.Background(), slog.Level(-3), "[Relay] WriteTo", "addr", datagram.PeerID)
+		c.TryLeadDisco(datagram.PeerID)
+		slog.Log(context.Background(), -3, "[Relay] WriteTo", "addr", datagram.PeerID)
 		return len(p), c.wsConn.WriteTo(p, datagram.PeerID, peer.CONTROL_RELAY)
 	}
 	return
@@ -173,20 +173,14 @@ func (c *PeerPacketConn) Broadcast(b []byte) (int, error) {
 // TryLeadDisco try lead a peer discovery
 // disco as soon as every 5 minutes
 func (c *PeerPacketConn) TryLeadDisco(peerID peer.PeerID) {
-	c.discoCoolingMutex.RLock()
+	if !c.discoCoolingMutex.TryLock() {
+		return
+	}
+	defer c.discoCoolingMutex.Unlock()
 	lastTime, ok := c.discoCooling.Get(peerID)
-	c.discoCoolingMutex.RUnlock()
 	if !ok || time.Since(lastTime) > 5*time.Minute {
-		func() {
-			c.discoCoolingMutex.Lock()
-			defer c.discoCoolingMutex.Unlock()
-			if lastTime, ok := c.discoCooling.Get(peerID); ok &&
-				time.Since(lastTime) <= 5*time.Minute {
-				return
-			}
-			c.wsConn.LeadDisco(peerID)
-			c.discoCooling.Put(peerID, time.Now())
-		}()
+		c.wsConn.LeadDisco(peerID)
+		c.discoCooling.Put(peerID, time.Now())
 	}
 }
 
