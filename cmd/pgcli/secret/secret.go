@@ -14,7 +14,7 @@ var Cmd *cobra.Command
 
 func init() {
 	Cmd = &cobra.Command{
-		Use:   "token",
+		Use:   "secret",
 		Short: "Generate a pre-shared network secret",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -45,6 +45,5 @@ func init() {
 	Cmd.Flags().String("secret-key", "", "key to generate network secret")
 	Cmd.Flags().Duration("duration", 365*24*time.Hour, "secret duration to expire")
 
-	Cmd.MarkFlagRequired("network")
 	Cmd.MarkFlagRequired("secret-key")
 }
