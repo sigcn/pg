@@ -62,7 +62,7 @@ func (peer *PeerContext) Heartbeat(addr *net.UDPAddr) {
 		}
 	}
 	slog.Info("[UDP][0RTT] AddPeer", "peer", peer.PeerID, "addr", addr)
-	peer.States[addr.String()] = &PeerState{Addr: addr, LastActiveTime: time.Now()}
+	peer.States[addr.String()] = &PeerState{Addr: addr, LastActiveTime: time.Now(), PeerID: peer.PeerID}
 }
 
 func (peer *PeerContext) Healthcheck() {
