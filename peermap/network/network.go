@@ -3,7 +3,7 @@ package network
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,7 +57,7 @@ func JoinOIDC(oidcProvider string, cluster peer.PeermapCluster) (*JoinIntent, er
 	state := make([]byte, 12)
 	rand.Read(state)
 	return &JoinIntent{
-		state:   base64.URLEncoding.EncodeToString(state),
+		state:   hex.EncodeToString(state),
 		authURL: fmt.Sprintf("https://%s/oidc/%s", peermapURL.Host, oidcProvider),
 		peermap: peermapURL,
 	}, nil
