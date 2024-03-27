@@ -20,7 +20,7 @@ var (
 
 func main() {
 	serveCmd := &cobra.Command{
-		Use:          "pgserve",
+		Use:          "pgmap",
 		Version:      fmt.Sprintf("%s, commit %s", Version, Commit),
 		Short:        "Run a peermap server daemon",
 		SilenceUsage: true,

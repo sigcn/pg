@@ -7,10 +7,10 @@ all: linux windows darwin
 
 linuxamd64:
 	GOOS=linux GOARCH=amd64 ${GOBUILD} -o pgcli-${version}-linux-amd64 ./cmd/pgcli
-	GOOS=linux GOARCH=amd64 ${GOBUILD} -o pgserve-${version}-linux-amd64 ./cmd/pgserve
+	GOOS=linux GOARCH=amd64 ${GOBUILD} -o pgmap-${version}-linux-amd64 ./cmd/pgmap
 linuxarm64:
 	GOOS=linux GOARCH=arm64 ${GOBUILD} -o pgcli-${version}-linux-arm64 ./cmd/pgcli
-	GOOS=linux GOARCH=arm64 ${GOBUILD} -o pgserve-${version}-linux-arm64 ./cmd/pgserve
+	GOOS=linux GOARCH=arm64 ${GOBUILD} -o pgmap-${version}-linux-arm64 ./cmd/pgmap
 linux: linuxamd64 linuxarm64
 
 wintun:
@@ -38,10 +38,10 @@ darwin: darwinamd64 darwinarm64
 github: clean all
 	gzip pgcli-${version}-linux*
 	gzip pgcli-${version}-darwin*
-	gzip pgserve-${version}-linux*
+	gzip pgmap-${version}-linux*
 	git tag -d ${version} 2>/dev/null || true
 	gh release delete ${version} -y --cleanup-tag 2>/dev/null || true
-	gh release create ${version} --generate-notes --title "peerguard ${version}" pgcli-${version}*.gz pgcli-${version}*.zip pgserve-${version}*.gz
+	gh release create ${version} --generate-notes --title "peerguard ${version}" pgcli-${version}*.gz pgcli-${version}*.zip pgmap-${version}*.gz
 
 image:
 	docker build . -t rkonfj/peerguard:${version} --build-arg version=${version} --build-arg githash=${git_hash}
@@ -53,6 +53,6 @@ dist: github dockerhub
 
 clean:
 	rm pgcli* 2>/dev/null || true
-	rm pgserve* 2>/dev/null || true
+	rm pgmap* 2>/dev/null || true
 	rm *.zip 2>/dev/null || true
 	rm *.dll 2>/dev/null || true
