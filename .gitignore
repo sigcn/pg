@@ -1,6 +1,6 @@
 *.exe
 pgcli-*
-pgserve-*
+pgmap-*
 wintun/
 *.zip
 *.dll

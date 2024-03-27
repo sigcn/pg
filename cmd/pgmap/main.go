@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,8 +25,16 @@ func main() {
 		Version:      fmt.Sprintf("%s, commit %s", Version, Commit),
 		Short:        "Run a peermap server daemon",
 		SilenceUsage: true,
-		Args:         cobra.NoArgs,
-		RunE:         run,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			verbose, err := cmd.Flags().GetInt("verbose")
+			if err != nil {
+				return err
+			}
+			slog.SetLogLoggerLevel(slog.Level(verbose))
+			return nil
+		},
+		Args: cobra.NoArgs,
+		RunE: run,
 	}
 	serveCmd.Flags().StringP("config", "c", "config.yaml", "config file")
 	serveCmd.Flags().StringP("listen", "l", "127.0.0.1:9987", "listen http address")
