@@ -15,8 +15,8 @@ func (vpn *VPN) RunTunFD(ctx context.Context, tunFD int) error {
 	if err != nil {
 		return err
 	}
-	file := os.NewFile(uintptr(tunFD), "")
-	device, err := tun.CreateTUNFromFile(file, vpn.cfg.MTU)
+	file := os.NewFile(uintptr(tunFD), "/dev/net/tun")
+	device, err := tun.CreateTUNFromFile(file, 0)
 	if err != nil {
 		return err
 	}
