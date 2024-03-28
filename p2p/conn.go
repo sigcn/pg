@@ -15,6 +15,7 @@ import (
 	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/lru"
 	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/peer/peermap"
 )
 
 type PacketBroadcaster interface {
@@ -216,7 +217,7 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disc
 }
 
 // ListenPacket listen the p2p network for read/write packets
-func ListenPacket(secretStore peer.SecretStore, cluster peer.PeermapCluster, opts ...Option) (*PeerPacketConn, error) {
+func ListenPacket(peermap *peermap.Peermap, opts ...Option) (*PeerPacketConn, error) {
 	id := make([]byte, 32)
 	rand.Read(id)
 	cfg := Config{
@@ -236,7 +237,7 @@ func ListenPacket(secretStore peer.SecretStore, cluster peer.PeermapCluster, opt
 	}
 	udpConn.SetKeepAlivePeriod(cfg.KeepAlivePeriod)
 
-	wsConn, err := disco.DialPeermapServer(cluster, secretStore, cfg.PeerID, cfg.Metadata)
+	wsConn, err := disco.DialPeermapServer(peermap, cfg.PeerID, cfg.Metadata)
 	if err != nil {
 		return nil, err
 	}

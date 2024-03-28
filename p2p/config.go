@@ -105,10 +105,6 @@ func FileSecretStore(storeFilePath string) peer.SecretStore {
 	return &peer.FileSecretStore{StoreFilePath: storeFilePath}
 }
 
-func Peermap(servers ...string) peer.PeermapCluster {
-	return peer.PeermapCluster(servers)
-}
-
 func PeerSilenceMode() Option {
 	return func(cfg *Config) error {
 		cfg.Metadata.SilenceMode = true

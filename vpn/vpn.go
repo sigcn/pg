@@ -17,6 +17,7 @@ import (
 	"github.com/rkonfj/peerguard/lru"
 	"github.com/rkonfj/peerguard/p2p"
 	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/peer/peermap"
 	"github.com/rkonfj/peerguard/vpn/link"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
@@ -41,7 +42,7 @@ type Config struct {
 	AllowedIPs        []string
 	Peers             []string
 	SecretStore       peer.SecretStore
-	Peermap           peer.PeermapCluster
+	Peermap           *peermap.Peermap
 	PrivateKey        string
 	OnRoute           func(route Route)
 	ModifyDiscoConfig func(cfg *disco.DiscoConfig)
@@ -141,7 +142,7 @@ func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
 		p2pOptions = append(p2pOptions, p2p.ListenPeerSecure())
 	}
 
-	packetConn, err := p2p.ListenPacket(vpn.cfg.SecretStore, vpn.cfg.Peermap, p2pOptions...)
+	packetConn, err := p2p.ListenPacket(vpn.cfg.Peermap, p2pOptions...)
 	if err != nil {
 		return err
 	}

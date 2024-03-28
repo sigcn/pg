@@ -3,7 +3,6 @@ package disco
 import (
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -15,12 +14,14 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/peer/peermap"
 )
 
 type WSConn struct {
 	*websocket.Conn
-	secretStore   peer.SecretStore
-	dialPeermap   func() (*websocket.Conn, byte, []string, error)
+	peermap       *peermap.Peermap
+	peerID        peer.ID
+	metadata      peer.Metadata
 	closedSig     chan int
 	datagrams     chan *Datagram
 	peers         chan *PeerFindEvent
@@ -30,74 +31,76 @@ type WSConn struct {
 	writeMutex    sync.Mutex
 }
 
-func DialPeermapServer(
-	peermapServers peer.PeermapCluster,
-	secretStore peer.SecretStore,
-	peerID peer.ID, metadata peer.Metadata) (*WSConn, error) {
-	dialPeermap := func() (*websocket.Conn, byte, []string, error) {
-		networkSecret, err := secretStore.NetworkSecret()
-		if err != nil {
-			return nil, 0, nil, fmt.Errorf("get network secret failed: %w", err)
-		}
-		for _, server := range peermapServers {
-			handshake := http.Header{}
-			handshake.Set("X-Network", networkSecret.Secret)
-			handshake.Set("X-PeerID", peerID.String())
-			handshake.Set("X-Nonce", peer.NewNonce())
-			handshake.Set("X-Metadata", base64.StdEncoding.EncodeToString(metadata.MustMarshalJSON()))
-
-			peermap, err := url.Parse(server)
-			if err != nil {
-				slog.Error("invalid server format", "server", server, "err", err)
-				continue
-			}
-			if peermap.Scheme == "http" {
-				peermap.Scheme = "ws"
-			} else if peermap.Scheme == "https" {
-				peermap.Scheme = "wss"
-			}
-			t1 := time.Now()
-			conn, httpResp, err := websocket.DefaultDialer.Dial(peermap.String(), handshake)
-			if httpResp != nil && httpResp.StatusCode == http.StatusBadRequest {
-				return nil, 0, nil, fmt.Errorf("address: %s is already in used", peerID)
-			}
-			if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
-				return nil, 0, nil, fmt.Errorf("join network denied: %s", networkSecret.Network)
-			}
-			if err != nil {
-				slog.Error("dial server error", "server", server, "err", err)
-				continue
-			}
-			slog.Info("PeermapConnected", "server", server, "latency", time.Since(t1))
-			xSTUNs, err := base64.StdEncoding.DecodeString(httpResp.Header.Get("X-STUNs"))
-			if err != nil {
-				return nil, 0, nil, fmt.Errorf("decode stun error: %w", err)
-			}
-			var stuns []string
-			json.Unmarshal(xSTUNs, &stuns)
-			return conn, peer.MustParseNonce(httpResp.Header.Get("X-Nonce")), stuns, nil
-		}
-		return nil, 0, nil, errors.New("no peermap server available")
-	}
-	conn, nonce, stuns, err := dialPeermap()
-	if err != nil {
-		return nil, err
-	}
-
-	wsConn := WSConn{
-		Conn:          conn,
-		secretStore:   secretStore,
-		dialPeermap:   dialPeermap,
+func DialPeermapServer(peermap *peermap.Peermap, peerID peer.ID, metadata peer.Metadata) (*WSConn, error) {
+	wsConn := &WSConn{
+		peermap:       peermap,
+		peerID:        peerID,
+		metadata:      metadata,
 		closedSig:     make(chan int),
 		datagrams:     make(chan *Datagram, 50),
 		peers:         make(chan *PeerFindEvent, 20),
 		peersUDPAddrs: make(chan *PeerUDPAddrEvent, 20),
-		nonce:         nonce,
-		stuns:         stuns,
+	}
+	if err := wsConn.dial(""); err != nil {
+		return nil, err
 	}
 	go wsConn.runWebSocketEventLoop()
 	go wsConn.keepalive()
-	return &wsConn, nil
+	return wsConn, nil
+}
+
+func (c *WSConn) dial(server string) error {
+	networkSecret, err := c.peermap.SecretStore().NetworkSecret()
+	if err != nil {
+		return fmt.Errorf("get network secret failed: %w", err)
+	}
+	handshake := http.Header{}
+	handshake.Set("X-Network", networkSecret.Secret)
+	handshake.Set("X-PeerID", c.peerID.String())
+	handshake.Set("X-Nonce", peer.NewNonce())
+	handshake.Set("X-Metadata", base64.StdEncoding.EncodeToString(c.metadata.MustMarshalJSON()))
+	if server == "" {
+		server = c.peermap.String()
+	}
+	peermap, err := url.Parse(server)
+	if err != nil {
+		return fmt.Errorf("invalid server(%s) format: %w", server, err)
+	}
+	if peermap.Scheme == "http" {
+		peermap.Scheme = "ws"
+	} else if peermap.Scheme == "https" {
+		peermap.Scheme = "wss"
+	}
+	t1 := time.Now()
+	conn, httpResp, err := websocket.DefaultDialer.Dial(peermap.String(), handshake)
+	if httpResp != nil && httpResp.StatusCode == http.StatusBadRequest {
+		return fmt.Errorf("address: %s is already in used", c.peerID)
+	}
+	if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("join network denied: %s", networkSecret.Network)
+	}
+	if httpResp != nil && httpResp.StatusCode == http.StatusTemporaryRedirect {
+		slog.Info("RedirectPeermap", "location", httpResp.Header.Get("Location"))
+		return c.dial(httpResp.Header.Get("Location"))
+	}
+	if err != nil {
+		slog.Error("dial server error", "server", server, "err", err)
+		return fmt.Errorf("dial server(%s) error: %w", server, err)
+	}
+	slog.Info("PeermapConnected", "server", server, "latency", time.Since(t1))
+	xSTUNs, err := base64.StdEncoding.DecodeString(httpResp.Header.Get("X-STUNs"))
+	if err != nil {
+		return fmt.Errorf("decode stun error: %w", err)
+	}
+	var stuns []string
+	err = json.Unmarshal(xSTUNs, &stuns)
+	if err != nil {
+		return err
+	}
+	c.Conn = conn
+	c.stuns = stuns
+	c.nonce = peer.MustParseNonce(httpResp.Header.Get("X-Nonce"))
+	return nil
 }
 
 func (c *WSConn) runWebSocketEventLoop() {
@@ -122,14 +125,10 @@ func (c *WSConn) runWebSocketEventLoop() {
 				default:
 				}
 				time.Sleep(5 * time.Second)
-				conn, nonce, stuns, err := c.dialPeermap()
-				if err != nil {
+				if err := c.dial(""); err != nil {
 					slog.Error("PeermapConnectFailed", "err", err)
 					continue
 				}
-				c.Conn = conn
-				c.nonce = nonce
-				c.stuns = stuns
 				break
 			}
 			continue
@@ -239,7 +238,7 @@ func (c *WSConn) STUNs() []string {
 
 func (c *WSConn) updateNetworkSecret(secret peer.NetworkSecret) {
 	for i := 0; i < 5; i++ {
-		if err := c.secretStore.UpdateNetworkSecret(secret); err != nil {
+		if err := c.peermap.SecretStore().UpdateNetworkSecret(secret); err != nil {
 			slog.Error("NetworkSecretUpdate", "err", err)
 			time.Sleep(time.Second)
 			continue

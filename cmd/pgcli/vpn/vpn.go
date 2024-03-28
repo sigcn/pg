@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
 	"os/user"
@@ -16,6 +17,7 @@ import (
 	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/p2p"
 	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/peer/peermap"
 	"github.com/rkonfj/peerguard/peermap/network"
 	"github.com/rkonfj/peerguard/peermap/oidc"
 	"github.com/rkonfj/peerguard/vpn"
@@ -109,7 +111,6 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return
 	}
-	cfg.Peermap = peer.PeermapCluster{server}
 
 	tunName, err := cmd.Flags().GetString("tun")
 	if err != nil {
@@ -128,7 +129,13 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		secretFile = filepath.Join(currentUser.HomeDir, ".peerguard_network_secret.json")
 	}
 
-	cfg.SecretStore, err = loginIfNecessary(cfg.Peermap, secretFile)
+	secretStore, err := loginIfNecessary(server, secretFile)
+	if err != nil {
+		return err
+	}
+
+	peermapURL, _ := url.Parse(server)
+	cfg.Peermap, err = peermap.New(peermapURL, secretStore)
 	if err != nil {
 		return err
 	}
@@ -161,10 +168,10 @@ func onRoute(route vpn.Route) {
 	}
 }
 
-func loginIfNecessary(peermapCluster []string, secretFile string) (peer.SecretStore, error) {
+func loginIfNecessary(peermap, secretFile string) (peer.SecretStore, error) {
 	store := p2p.FileSecretStore(secretFile)
 	newFileStore := func() (peer.SecretStore, error) {
-		joined, err := requestNetworkSecret(peermapCluster)
+		joined, err := requestNetworkSecret(peermap)
 		if err != nil {
 			return nil, fmt.Errorf("request network secret failed: %w", err)
 		}
@@ -184,7 +191,7 @@ func loginIfNecessary(peermapCluster []string, secretFile string) (peer.SecretSt
 	return store, nil
 }
 
-func requestNetworkSecret(peermapCluster []string) (peer.NetworkSecret, error) {
+func requestNetworkSecret(peermap string) (peer.NetworkSecret, error) {
 	prompt := promptui.Select{
 		Label:    "Select OpenID Connect Provider",
 		Items:    []string{oidc.ProviderGoogle, oidc.ProviderGithub},
@@ -199,7 +206,7 @@ func requestNetworkSecret(peermapCluster []string) (peer.NetworkSecret, error) {
 	if err != nil {
 		return peer.NetworkSecret{}, err
 	}
-	join, err := network.JoinOIDC(provider, peermapCluster)
+	join, err := network.JoinOIDC(provider, peermap)
 	if err != nil {
 		slog.Error("JoinNetwork failed", "err", err)
 		return peer.NetworkSecret{}, err

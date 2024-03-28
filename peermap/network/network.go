@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -46,11 +45,8 @@ func (intent *JoinIntent) Wait(ctx context.Context) (peer.NetworkSecret, error) 
 	return joined, nil
 }
 
-func JoinOIDC(oidcProvider string, cluster peer.PeermapCluster) (*JoinIntent, error) {
-	if len(cluster) == 0 {
-		return nil, errors.New("no peermap server avaiable")
-	}
-	peermapURL, err := url.Parse(cluster[0])
+func JoinOIDC(oidcProvider, peermap string) (*JoinIntent, error) {
+	peermapURL, err := url.Parse(peermap)
 	if err != nil {
 		return nil, err
 	}

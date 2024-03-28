@@ -38,9 +38,9 @@ $ pgcli secret --secret-key 5172554832d76672d1959a5ac63c5ab9 > ~/.peerguard_netw
 ## P2P programming example
 ### Peer1 (act as echo server)
 ```go
-peermap := p2p.Peermap("wss://synf.in/pg")
+peermapURL := "wss://synf.in/pg"
 
-intent, err := network.JoinOIDC(oidc.ProviderGoogle, peermap)
+intent, err := network.JoinOIDC(oidc.ProviderGoogle, peermapURL)
 if err != nil {
     panic(err)
 }
@@ -50,9 +50,13 @@ if err != nil {
     panic(err)
 }
 
+pmap, err := peermap.New(peermapURL, networkSecret)
+if err != nil {
+    panic(err)
+}
+
 packetConn, err := p2p.ListenPacket(
-    &networkSecret, 
-    peermap,
+    pmap,
     p2p.ListenPeerID("uniqueString"), // any unique string (less than 256bytes)
 )
 if err != nil {
@@ -78,7 +82,7 @@ for {
 ```go
 ...
 
-packetConn, err := p2p.ListenPacket(&networkSecret, peermap)
+packetConn, err := p2p.ListenPacket(pmap)
 if err != nil {
     panic(err)
 }

@@ -87,8 +87,6 @@ func (id ID) Bytes() []byte {
 	return []byte(id)
 }
 
-type PeermapCluster []string
-
 type Metadata struct {
 	SilenceMode bool           `json:"silenceMode"`
 	Alias1      string         `json:"alias1"`

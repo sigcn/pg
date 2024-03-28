@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"time"
 
 	"github.com/rkonfj/peerguard/secure"
 	"github.com/rkonfj/peerguard/secure/aescbc"
@@ -19,6 +21,7 @@ func SetSecretKey(key string) {
 }
 
 type Instruction struct {
+	ExpiredAt int64 `json:"expired_at"`
 }
 
 func CheckToken(token string) (*Instruction, error) {
@@ -31,7 +34,11 @@ func CheckToken(token string) (*Instruction, error) {
 		return nil, err
 	}
 	var ins Instruction
-	return &ins, json.Unmarshal(plain, &ins)
+	json.Unmarshal(plain, &ins)
+	if ins.ExpiredAt-time.Now().Unix() <= 0 {
+		return nil, errors.New("token expired")
+	}
+	return &ins, nil
 }
 
 func GenerateToken(ins Instruction) (string, error) {
