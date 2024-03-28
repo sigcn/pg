@@ -3,7 +3,7 @@
 Another p2p network library in Go 
 
 ## Features
-- Elegantly simple architecture (pgcli & pgserve & OpenID Connect)
+- Elegantly simple architecture (pgcli & pgmap & OpenID Connect)
 - NAT traversal with high success rate (STUN & UPnP & PortScan)
 - Full support for IPv4/IPv6 dual stack
 - Easy-to-use library (net.PacketConn) 
@@ -13,13 +13,13 @@ Another p2p network library in Go
 ## Get Started
 
 ### Deploy the peermap server
-#### 1. Run the pgserve daemon
+#### 1. Run the pgmap daemon
 ```
-$ pgserve -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
+$ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
     --stun stun.qq.com:3478 --stun stun.miwifi.com:3478
 ```
 
-#### 2. Wrap pgserve as an https server
+#### 2. Wrap pgmap as an https server
 ```
 $ caddy reverse-proxy --from https://synf.in/pg --to 127.0.0.1:9987
 ```
