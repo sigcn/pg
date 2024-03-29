@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net"
 	"net/netip"
 	"slices"
@@ -117,7 +118,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 	}
 	defer slog.Debug("[UDP] DiscoPingExit", "peer", peerID, "addr", addr)
 	c.discoPing(peerID, addr)
-	interval := defaultDiscoConfig.ChallengesInitialInterval
+	interval := defaultDiscoConfig.ChallengesInitialInterval + time.Duration(rand.Intn(100)*int(time.Millisecond))
 	for i := 0; i <= defaultDiscoConfig.ChallengesRetry; i++ {
 		time.Sleep(interval)
 		select {

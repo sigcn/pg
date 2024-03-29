@@ -4,9 +4,9 @@ import "time"
 
 var defaultDiscoConfig = DiscoConfig{
 	PortScanCount:             1000,
-	ChallengesRetry:           7,
-	ChallengesInitialInterval: 300 * time.Millisecond,
-	ChallengesBackoffRate:     1.35,
+	ChallengesRetry:           6,
+	ChallengesInitialInterval: 200 * time.Millisecond,
+	ChallengesBackoffRate:     1.75,
 }
 
 type DiscoConfig struct {
