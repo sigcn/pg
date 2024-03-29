@@ -41,7 +41,6 @@ type Config struct {
 	IPv6              string
 	AllowedIPs        []string
 	Peers             []string
-	SecretStore       peer.SecretStore
 	Peermap           *peermap.Peermap
 	PrivateKey        string
 	OnRoute           func(route Route)
