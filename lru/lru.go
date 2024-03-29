@@ -62,3 +62,8 @@ func (c *Cache[K, V]) Put(key K, value V) {
 	elem := c.list.PushFront(&entry[K, V]{key: key, value: value})
 	c.cache[key] = elem
 }
+
+func (c *Cache[K, V]) Clear() {
+	clear(c.cache)
+	c.list.Init()
+}

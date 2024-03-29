@@ -1,6 +1,7 @@
 package disco
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -216,7 +217,7 @@ func (c *WSConn) WriteTo(p []byte, peerID peer.ID, op byte) error {
 }
 
 func (c *WSConn) LeadDisco(peerID peer.ID) error {
-	slog.Debug("LeadDisco", "peer", peerID)
+	slog.Log(context.Background(), -3, "LeadDisco", "peer", peerID)
 	return c.WriteTo(nil, peerID, peer.CONTROL_LEAD_DISCO)
 }
 

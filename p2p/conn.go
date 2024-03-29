@@ -194,14 +194,23 @@ func (c *PeerPacketConn) UDPConn() net.PacketConn {
 func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disco.UDPConn) {
 	for {
 		select {
-		case peer := <-wsConn.Peers():
+		case peer, ok := <-wsConn.Peers():
+			if !ok {
+				return
+			}
 			go udpConn.GenerateLocalAddrsSends(peer.PeerID, wsConn.STUNs())
 			if onPeer := c.cfg.OnPeer; onPeer != nil {
 				go onPeer(peer.PeerID, peer.Metadata)
 			}
-		case revcUDPAddr := <-wsConn.PeersUDPAddrs():
+		case revcUDPAddr, ok := <-wsConn.PeersUDPAddrs():
+			if !ok {
+				return
+			}
 			go udpConn.RunDiscoMessageSendLoop(revcUDPAddr.PeerID, revcUDPAddr.Addr)
-		case sendUDPAddr := <-udpConn.UDPAddrSends():
+		case sendUDPAddr, ok := <-udpConn.UDPAddrSends():
+			if !ok {
+				return
+			}
 			go func(e *disco.PeerUDPAddrEvent) {
 				for i := 0; i < 3; i++ {
 					err := wsConn.WriteTo([]byte(e.Addr.String()), e.PeerID, peer.CONTROL_NEW_PEER_UDP_ADDR)
@@ -212,6 +221,15 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disc
 					time.Sleep(200 * time.Millisecond)
 				}
 			}(sendUDPAddr)
+		case _, ok := <-udpConn.NetworkChangedEvents():
+			if !ok {
+				return
+			}
+			go func() {
+				c.discoCoolingMutex.Lock()
+				defer c.discoCoolingMutex.Unlock()
+				c.discoCooling.Clear()
+			}()
 		}
 	}
 }

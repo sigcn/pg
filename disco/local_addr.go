@@ -90,7 +90,6 @@ func ListLocalIPs() ([]net.IP, error) {
 				if ignoredLocalCIDRs.Contains(ipnet.IP) {
 					continue
 				}
-				slog.Debug("AddLocalIP " + ipnet.IP.String())
 				ips = append(ips, ipnet.IP)
 			}
 		}
