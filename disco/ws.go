@@ -29,6 +29,7 @@ type WSConn struct {
 	peersUDPAddrs chan *PeerUDPAddrEvent
 	nonce         byte
 	stuns         []string
+	activeTime    time.Time
 	writeMutex    sync.Mutex
 }
 
@@ -45,6 +46,7 @@ func DialPeermapServer(peermap *peermap.Peermap, peerID peer.ID, metadata peer.M
 	if err := wsConn.dial(""); err != nil {
 		return nil, err
 	}
+	wsConn.activeTime = time.Now()
 	go wsConn.keepalive()
 	go wsConn.runWebSocketEventLoop()
 	return wsConn, nil
@@ -117,7 +119,9 @@ func (c *WSConn) runWebSocketEventLoop() {
 				!strings.Contains(err.Error(), ErrUseOfClosedConnection.Error()) {
 				slog.Error("Read websocket message error", "err", err.Error())
 			}
-			c.Conn.Close()
+			if conn := c.Conn; conn != nil {
+				conn.Close()
+			}
 			for {
 				select {
 				case <-c.closedSig:
@@ -133,10 +137,8 @@ func (c *WSConn) runWebSocketEventLoop() {
 			}
 			continue
 		}
+		c.activeTime = time.Now()
 		switch mt {
-		case websocket.PingMessage:
-			c.Conn.WriteMessage(websocket.PongMessage, nil)
-			continue
 		case websocket.BinaryMessage:
 		default:
 			continue
@@ -193,8 +195,12 @@ func (c *WSConn) keepalive() {
 			return
 		default:
 		}
-		time.Sleep(20 * time.Second)
-		c.write(websocket.PingMessage, nil)
+		time.Sleep(12 * time.Second)
+		if time.Since(c.activeTime) > 25*time.Second {
+			c.CloseConn()
+			continue
+		}
+		c.write(websocket.TextMessage, nil)
 	}
 }
 
@@ -206,7 +212,9 @@ func (c *WSConn) Close() error {
 func (c *WSConn) CloseConn() error {
 	_ = c.Conn.WriteControl(websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(2*time.Second))
-	return c.Conn.Close()
+	err := c.Conn.Close()
+	c.Conn = nil
+	return err
 }
 
 func (c *WSConn) WriteTo(p []byte, peerID peer.ID, op byte) error {

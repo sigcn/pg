@@ -16,13 +16,6 @@ var (
 	ErrUseOfClosedConnection error = errors.New("use of closed network connection")
 )
 
-const (
-	OP_PEER_DISCO       = 1
-	OP_PEER_CONFIRM     = 2
-	OP_PEER_DELETE      = 3
-	OP_PEER_HEALTHCHECK = 10
-)
-
 type PeerStore interface {
 	FindPeer(peer.ID) (*PeerContext, bool)
 }
@@ -39,15 +32,6 @@ type PeerContext struct {
 	statesMutex sync.RWMutex
 }
 
-func (peer *PeerContext) AddAddr(addr *net.UDPAddr) {
-	peer.statesMutex.Lock()
-	defer peer.statesMutex.Unlock()
-	if _, ok := peer.States[addr.String()]; ok {
-		return
-	}
-	peer.States[addr.String()] = &PeerState{Addr: addr, PeerID: peer.PeerID}
-}
-
 func (peer *PeerContext) Heartbeat(addr *net.UDPAddr) {
 	peer.statesMutex.Lock()
 	defer peer.statesMutex.Unlock()
@@ -61,7 +45,7 @@ func (peer *PeerContext) Heartbeat(addr *net.UDPAddr) {
 			return
 		}
 	}
-	slog.Info("[UDP][0RTT] AddPeer", "peer", peer.PeerID, "addr", addr)
+	slog.Info("[UDP] AddPeer", "peer", peer.PeerID, "addr", addr)
 	peer.States[addr.String()] = &PeerState{Addr: addr, LastActiveTime: time.Now(), PeerID: peer.PeerID}
 }
 
@@ -157,12 +141,6 @@ type PeerState struct {
 	PeerID         peer.ID
 	Addr           *net.UDPAddr
 	LastActiveTime time.Time
-}
-
-type PeerOP struct {
-	Op     int
-	Addr   *net.UDPAddr
-	PeerID peer.ID
 }
 
 type STUNSession struct {

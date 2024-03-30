@@ -27,6 +27,7 @@ type Peer struct {
 	networkContext *networkContext
 	metadata       peer.Metadata
 	conn           *websocket.Conn
+	activeTime     time.Time
 	networkID      string
 	id             peer.ID
 	nonce          byte
@@ -74,7 +75,8 @@ func (p *Peer) String() string {
 }
 
 func (p *Peer) Start() {
-	go p.readMessageLoope()
+	p.activeTime = time.Now()
+	go p.readMessageLoop()
 	go p.keepalive()
 	if p.metadata.SilenceMode {
 		return
@@ -111,7 +113,7 @@ func (p *Peer) leadDisco(target *Peer) {
 	p.write(b1)
 }
 
-func (p *Peer) readMessageLoope() {
+func (p *Peer) readMessageLoop() {
 	for {
 		mt, b, err := p.conn.ReadMessage()
 		if err != nil {
@@ -122,13 +124,11 @@ func (p *Peer) readMessageLoope() {
 			p.close()
 			return
 		}
+		p.activeTime = time.Now()
 		if p.networkContext.ratelimiter != nil {
 			p.networkContext.ratelimiter.WaitN(context.Background(), len(b))
 		}
 		switch mt {
-		case websocket.PingMessage:
-			p.conn.WriteMessage(websocket.PongMessage, nil)
-			continue
 		case websocket.BinaryMessage:
 		default:
 			continue
@@ -160,8 +160,12 @@ func (p *Peer) readMessageLoope() {
 
 func (p *Peer) keepalive() {
 	for {
-		time.Sleep(10 * time.Second)
-		if err := p.writeWS(websocket.PingMessage, nil); err != nil {
+		time.Sleep(12 * time.Second)
+		if err := p.writeWS(websocket.TextMessage, nil); err != nil {
+			break
+		}
+		if time.Since(p.activeTime) > 25*time.Second {
+			slog.Debug("Closing inactive connection", "peer", p.id)
 			break
 		}
 

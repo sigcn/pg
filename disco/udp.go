@@ -34,7 +34,6 @@ func SetNetwotkDetectInterval(interval time.Duration) {
 type UDPConn struct {
 	*net.UDPConn
 	closedSig             chan int
-	peersOPs              chan *PeerOP
 	datagrams             chan *Datagram
 	stunResponse          chan []byte
 	udpAddrSends          chan *PeerUDPAddrEvent
@@ -59,7 +58,6 @@ func (c *UDPConn) Close() error {
 	}
 	close(c.closedSig)
 	close(c.datagrams)
-	close(c.peersOPs)
 	close(c.stunResponse)
 	close(c.udpAddrSends)
 	return c.UDPConn.Close()
@@ -78,10 +76,10 @@ func (c *UDPConn) NetworkChangedEvents() <-chan struct{} {
 }
 
 func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.ID, stunServers []string) {
-	c.peersOPs <- &PeerOP{
-		Op:     OP_PEER_DELETE,
-		PeerID: peerID,
-	}
+	c.peersIndexMutex.Lock()
+	delete(c.peersIndex, peerID)
+	c.peersIndexMutex.Unlock()
+
 	// UPnP
 	go func() {
 		nat, err := upnp.Discover()
@@ -129,12 +127,32 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.ID, stunServers []string) 
 	})
 }
 
-func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
-	c.peersOPs <- &PeerOP{
-		Op:     OP_PEER_DISCO,
-		PeerID: peerID,
-		Addr:   addr,
+func (c *UDPConn) ensurePeerContext(peerID peer.ID) *PeerContext {
+	c.peersIndexMutex.RLock()
+	ctx, ok := c.peersIndex[peerID]
+	c.peersIndexMutex.RUnlock()
+	if ok {
+		return ctx
 	}
+	c.peersIndexMutex.Lock()
+	defer c.peersIndexMutex.Unlock()
+	if ctx, ok := c.peersIndex[peerID]; ok {
+		return ctx
+	}
+	peerCtx := PeerContext{
+		exitSig:           make(chan struct{}),
+		ping:              c.discoPing,
+		keepaliveInterval: c.peerKeepaliveInterval,
+		PeerID:            peerID,
+		States:            make(map[string]*PeerState),
+		CreateTime:        time.Now(),
+	}
+	c.peersIndex[peerID] = &peerCtx
+	go peerCtx.Keepalive()
+	return &peerCtx
+}
+
+func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 	defer slog.Debug("[UDP] DiscoPingExit", "peer", peerID, "addr", addr)
 	c.discoPing(peerID, addr)
 	interval := defaultDiscoConfig.ChallengesInitialInterval + time.Duration(rand.Intn(100)*int(time.Millisecond))
@@ -250,11 +268,8 @@ func (c *UDPConn) runPacketEventLoop() {
 		// ping
 		if n > 4 && string(buf[:5]) == "_ping" && n <= 260 {
 			peerID := string(buf[5:n])
-			c.peersOPs <- &PeerOP{
-				Op:     OP_PEER_CONFIRM,
-				PeerID: peer.ID(peerID),
-				Addr:   peerAddr,
-			}
+			slog.Debug("[UDP] Heartbeat", "peer", peerID, "addr", peerAddr)
+			c.ensurePeerContext(peer.ID(peerID)).Heartbeat(peerAddr)
 			continue
 		}
 
@@ -277,52 +292,6 @@ func (c *UDPConn) runPacketEventLoop() {
 		c.datagrams <- &Datagram{
 			PeerID: peerID,
 			Data:   b,
-		}
-	}
-}
-
-func (c *UDPConn) runPeerOPLoop() {
-	handlePeerOp := func(e *PeerOP) {
-		c.peersIndexMutex.Lock()
-		defer c.peersIndexMutex.Unlock()
-		switch e.Op {
-		case OP_PEER_DELETE:
-			delete(c.peersIndex, e.PeerID)
-		case OP_PEER_DISCO:
-			if _, ok := c.peersIndex[e.PeerID]; !ok {
-				peerCtx := PeerContext{
-					exitSig:           make(chan struct{}),
-					ping:              c.discoPing,
-					keepaliveInterval: c.peerKeepaliveInterval,
-					PeerID:            e.PeerID,
-					States:            make(map[string]*PeerState),
-					CreateTime:        time.Now(),
-				}
-				c.peersIndex[e.PeerID] = &peerCtx
-				go peerCtx.Keepalive()
-			}
-			c.peersIndex[e.PeerID].AddAddr(e.Addr)
-		case OP_PEER_CONFIRM:
-			slog.Debug("[UDP] Heartbeat", "peer", e.PeerID, "addr", e.Addr)
-			if peer, ok := c.peersIndex[e.PeerID]; ok {
-				peer.Heartbeat(e.Addr)
-			}
-		case OP_PEER_HEALTHCHECK:
-			for k, v := range c.peersIndex {
-				v.Healthcheck()
-				if len(v.States) == 0 {
-					v.Close()
-					delete(c.peersIndex, k)
-				}
-			}
-		}
-	}
-	for {
-		select {
-		case <-c.closedSig:
-			return
-		case e := <-c.peersOPs:
-			handlePeerOp(e)
 		}
 	}
 }
@@ -374,9 +343,15 @@ func (c *UDPConn) runPeersHealthcheckLoop() {
 			ticker.Stop()
 			return
 		case <-ticker.C:
-			c.peersOPs <- &PeerOP{
-				Op: OP_PEER_HEALTHCHECK,
+			c.peersIndexMutex.RLock()
+			for k, v := range c.peersIndex {
+				v.Healthcheck()
+				if len(v.States) == 0 {
+					v.Close()
+					delete(c.peersIndex, k)
+				}
 			}
+			c.peersIndexMutex.RUnlock()
 		}
 	}
 }
@@ -492,7 +467,6 @@ func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.ID) (*UDPConn, e
 		id:                    id,
 		UDPConn:               conn,
 		closedSig:             make(chan int),
-		peersOPs:              make(chan *PeerOP),
 		datagrams:             make(chan *Datagram),
 		udpAddrSends:          make(chan *PeerUDPAddrEvent, 10),
 		stunResponse:          make(chan []byte, 10),
@@ -505,7 +479,6 @@ func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.ID) (*UDPConn, e
 		stunSessions:          cmap.New[STUNSession](),
 	}
 	udpConn.updateLocalNetworkAddrs()
-	go udpConn.runPeerOPLoop()
 	go udpConn.runSTUNEventLoop()
 	go udpConn.runPacketEventLoop()
 	go udpConn.runPeersHealthcheckLoop()
