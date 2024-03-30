@@ -175,11 +175,11 @@ func (c *UDPConn) discoPing(peerID peer.ID, peerAddr *net.UDPAddr) {
 	c.UDPConn.WriteToUDP([]byte("_ping"+c.id), peerAddr)
 }
 
-func (c *UDPConn) updateLocalNetworkAddrs() bool {
+func (c *UDPConn) updateLocalNetworkAddrs() []string {
 	ips, err := ListLocalIPs()
 	if err != nil {
 		slog.Error("ListLocalIPsFailed", "details", err)
-		return false
+		return nil
 	}
 	var detectIPs []string
 	for _, ip := range ips {
@@ -197,21 +197,17 @@ func (c *UDPConn) updateLocalNetworkAddrs() bool {
 			continue
 		}
 		detectIPs = append(detectIPs, addr)
-		slog.Debug("AddLocalIP " + addr)
 	}
 	slices.Sort(detectIPs)
 	if !slices.Equal(c.localAddrs, detectIPs) {
+		srcAddrsSize := len(c.localAddrs)
 		c.localAddrs = detectIPs
-		c.peersIndexMutex.Lock()
-		clear(c.peersIndex)
-		c.peersIndexMutex.Unlock()
-		if len(c.networkChanged) == cap(c.networkChanged) {
-			return true
+		if len(c.networkChanged) < cap(c.networkChanged) && srcAddrsSize > 0 {
+			c.networkChanged <- struct{}{}
 		}
-		c.networkChanged <- struct{}{}
-		return true
+		return detectIPs
 	}
-	return false
+	return nil
 }
 
 func (c *UDPConn) runNetworkChangedDetector() {
@@ -222,8 +218,8 @@ func (c *UDPConn) runNetworkChangedDetector() {
 			detectTicker.Stop()
 			return
 		case <-detectTicker.C:
-			if c.updateLocalNetworkAddrs() {
-				slog.Info("NetworkChanged")
+			if detectAddrs := c.updateLocalNetworkAddrs(); detectAddrs != nil {
+				slog.Info("DetectNetworkChanged", "addrs", detectAddrs)
 			}
 		}
 	}

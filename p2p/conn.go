@@ -228,7 +228,7 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disc
 			go func() {
 				c.discoCoolingMutex.Lock()
 				defer c.discoCoolingMutex.Unlock()
-				c.discoCooling.Clear()
+				c.wsConn.CloseConn()
 			}()
 		}
 	}

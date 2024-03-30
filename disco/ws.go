@@ -45,8 +45,8 @@ func DialPeermapServer(peermap *peermap.Peermap, peerID peer.ID, metadata peer.M
 	if err := wsConn.dial(""); err != nil {
 		return nil, err
 	}
-	go wsConn.runWebSocketEventLoop()
 	go wsConn.keepalive()
+	go wsConn.runWebSocketEventLoop()
 	return wsConn, nil
 }
 
@@ -125,9 +125,9 @@ func (c *WSConn) runWebSocketEventLoop() {
 					return
 				default:
 				}
-				time.Sleep(5 * time.Second)
 				if err := c.dial(""); err != nil {
 					slog.Error("PeermapConnectFailed", "err", err)
+					time.Sleep(5 * time.Second)
 					continue
 				}
 				break
@@ -189,16 +189,22 @@ func (c *WSConn) write(messageType int, data []byte) error {
 
 func (c *WSConn) keepalive() {
 	for {
-		time.Sleep(20 * time.Second)
-		if err := c.write(websocket.PingMessage, nil); err != nil {
-			break
+		select {
+		case <-c.closedSig:
+			return
+		default:
 		}
+		time.Sleep(20 * time.Second)
+		c.write(websocket.PingMessage, nil)
 	}
-	c.Close()
 }
 
 func (c *WSConn) Close() error {
 	close(c.closedSig)
+	return c.CloseConn()
+}
+
+func (c *WSConn) CloseConn() error {
 	_ = c.Conn.WriteControl(websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(2*time.Second))
 	return c.Conn.Close()
