@@ -21,9 +21,15 @@ import (
 )
 
 var (
+	networkDetectInterval = 5 * time.Second
+
 	_ net.PacketConn = (*UDPConn)(nil)
 	_ PeerStore      = (*UDPConn)(nil)
 )
+
+func SetNetwotkDetectInterval(interval time.Duration) {
+	networkDetectInterval = interval
+}
 
 type UDPConn struct {
 	*net.UDPConn
@@ -211,7 +217,7 @@ func (c *UDPConn) updateLocalNetworkAddrs() []string {
 }
 
 func (c *UDPConn) runNetworkChangedDetector() {
-	detectTicker := time.NewTicker(5 * time.Second)
+	detectTicker := time.NewTicker(max(networkDetectInterval, time.Second))
 	for {
 		select {
 		case <-c.closedSig:

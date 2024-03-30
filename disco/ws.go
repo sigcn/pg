@@ -85,8 +85,7 @@ func (c *WSConn) dial(server string) error {
 		return c.dial(httpResp.Header.Get("Location"))
 	}
 	if err != nil {
-		slog.Error("dial server error", "server", server, "err", err)
-		return fmt.Errorf("dial server(%s) error: %w", server, err)
+		return fmt.Errorf("dial server %s: %w", server, err)
 	}
 	slog.Info("PeermapConnected", "server", server, "latency", time.Since(t1))
 	xSTUNs, err := base64.StdEncoding.DecodeString(httpResp.Header.Get("X-STUNs"))
