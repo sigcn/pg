@@ -37,16 +37,13 @@ func (peer *PeerContext) Heartbeat(addr *net.UDPAddr) {
 	defer peer.statesMutex.Unlock()
 	for _, state := range peer.States {
 		if state.Addr.IP.Equal(addr.IP) && state.Addr.Port == addr.Port {
-			updated := time.Since(state.LastActiveTime) > 2*peer.keepaliveInterval+2*time.Second
-			if updated {
-				slog.Info("[UDP] AddPeer", "peer", peer.PeerID, "addr", addr)
-			}
 			state.LastActiveTime = time.Now()
 			return
 		}
 	}
 	slog.Info("[UDP] AddPeer", "peer", peer.PeerID, "addr", addr)
 	peer.States[addr.String()] = &PeerState{Addr: addr, LastActiveTime: time.Now(), PeerID: peer.PeerID}
+	peer.ping(peer.PeerID, addr)
 }
 
 func (peer *PeerContext) Healthcheck() {
@@ -119,7 +116,6 @@ func (peer *PeerContext) Keepalive() {
 			peer.ping(peer.PeerID, addr)
 		}
 	}
-	ping()
 	for {
 		select {
 		case <-peer.exitSig:
