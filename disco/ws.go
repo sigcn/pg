@@ -67,7 +67,6 @@ func (c *WSConn) CloseConn() error {
 		_ = c.Conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNoStatusReceived, ""), time.Now().Add(time.Second))
 		_ = c.Conn.Close()
-		c.Conn = nil
 	}
 	return nil
 }
@@ -181,16 +180,18 @@ func (c *WSConn) runEventsReadLoop() {
 			return
 		default:
 		}
-		mt, b, err := c.Conn.ReadMessage()
+		conn := c.Conn
+		if conn == nil {
+			continue
+		}
+		mt, b, err := conn.ReadMessage()
 		if err != nil {
 			if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) &&
 				!websocket.IsUnexpectedCloseError(err, websocket.CloseAbnormalClosure) &&
 				!strings.Contains(err.Error(), ErrUseOfClosedConnection.Error()) {
 				slog.Error("Read websocket message error", "err", err.Error())
 			}
-			if conn := c.Conn; conn != nil {
-				conn.Close()
-			}
+			conn.Close()
 			for {
 				select {
 				case <-c.closedSig:

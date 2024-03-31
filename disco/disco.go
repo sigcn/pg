@@ -3,7 +3,6 @@ package disco
 import (
 	"errors"
 	"log/slog"
-	"math/rand"
 	"net"
 	"slices"
 	"sync"
@@ -142,18 +141,24 @@ func (peer *PeerContext) Ready() bool {
 }
 
 func (peer *PeerContext) Select() *net.UDPAddr {
+	candidates := make([]PeerState, 0, len(peer.States))
 	peer.statesMutex.RLock()
-	defer peer.statesMutex.RUnlock()
-	addrs := make([]*net.UDPAddr, 0, len(peer.States))
 	for _, state := range peer.States {
 		if time.Since(state.LastActiveTime) < peer.keepaliveInterval+2*time.Second {
-			addrs = append(addrs, state.Addr)
+			candidates = append(candidates, *state)
 		}
 	}
-	if len(addrs) == 0 {
+	peer.statesMutex.RUnlock()
+	if len(candidates) == 0 {
 		return nil
 	}
-	return addrs[rand.Intn(len(addrs))]
+	slices.SortFunc(candidates, func(c1, c2 PeerState) int {
+		if c1.LastActiveTime.After(c2.LastActiveTime) {
+			return -1
+		}
+		return 1
+	})
+	return candidates[0].Addr
 }
 
 func (peer *PeerContext) Keepalive() {

@@ -77,10 +77,6 @@ func (c *UDPConn) NetworkChangedEvents() <-chan struct{} {
 }
 
 func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.ID, stunServers []string) {
-	c.peersIndexMutex.Lock()
-	delete(c.peersIndex, peerID)
-	c.peersIndexMutex.Unlock()
-
 	// UPnP
 	go func() {
 		nat, err := upnp.Discover()
@@ -140,6 +136,7 @@ func (c *UDPConn) ensurePeerContext(peerID peer.ID) *PeerContext {
 	if ctx, ok := c.peersIndex[peerID]; ok {
 		return ctx
 	}
+	fmt.Println("NewContext", peerID, c.peersIndex)
 	peerCtx := PeerContext{
 		exitSig:           make(chan struct{}),
 		ping:              c.discoPing,
