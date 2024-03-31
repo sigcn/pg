@@ -45,8 +45,8 @@ func init() {
 	Cmd.Flags().StringSlice("allowed-ip", []string{}, "declare IPs that can be routed/NATed by this machine (i.e. 192.168.0.0/24)")
 	Cmd.Flags().StringSlice("peer", []string{}, "specify peers instead of auto-discovery (pg://<peerID>?alias1=<ipv4>&alias2=<ipv6>)")
 
-	Cmd.Flags().Int("disco-port-scan-count", 1000, "scan ports count when disco")
-	Cmd.Flags().Int("disco-challenges-retry", 6, "ping challenges retry count when disco")
+	Cmd.Flags().Int("disco-port-scan-count", 2000, "scan ports count when disco")
+	Cmd.Flags().Int("disco-challenges-retry", 3, "ping challenges retry count when disco")
 	Cmd.Flags().Duration("disco-challenges-initial-interval", 200*time.Millisecond, "ping challenges initial interval when disco")
 	Cmd.Flags().Float64("disco-challenges-backoff-rate", 1.75, "ping challenges backoff rate when disco")
 
