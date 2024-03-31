@@ -33,7 +33,7 @@ type WSConn struct {
 	writeMutex    sync.Mutex
 }
 
-func DialPeermapServer(peermap *peermap.Peermap, peerID peer.ID, metadata peer.Metadata) (*WSConn, error) {
+func DialPeermap(peermap *peermap.Peermap, peerID peer.ID, metadata peer.Metadata) (*WSConn, error) {
 	wsConn := &WSConn{
 		peermap:       peermap,
 		peerID:        peerID,
@@ -47,9 +47,62 @@ func DialPeermapServer(peermap *peermap.Peermap, peerID peer.ID, metadata peer.M
 		return nil, err
 	}
 	wsConn.activeTime = time.Now()
-	go wsConn.keepalive()
-	go wsConn.runWebSocketEventLoop()
+	go wsConn.runKeepaliveLoop()
+	go wsConn.runEventsReadLoop()
 	return wsConn, nil
+}
+
+func (c *WSConn) Close() error {
+	close(c.closedSig)
+	if conn := c.Conn; conn != nil {
+		_ = c.Conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+		_ = c.Conn.Close()
+	}
+	return nil
+}
+
+func (c *WSConn) CloseConn() error {
+	if conn := c.Conn; conn != nil {
+		_ = c.Conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNoStatusReceived, ""), time.Now().Add(time.Second))
+		_ = c.Conn.Close()
+		c.Conn = nil
+	}
+	return nil
+}
+
+func (c *WSConn) WriteTo(p []byte, peerID peer.ID, op byte) error {
+	b := make([]byte, 0, 2+len(peerID)+len(p))
+	b = append(b, op)                // relay
+	b = append(b, peerID.Len())      // addr length
+	b = append(b, peerID.Bytes()...) // addr
+	b = append(b, p...)              // data
+	for i, v := range b {
+		b[i] = v ^ c.nonce
+	}
+	return c.write(websocket.BinaryMessage, b)
+}
+
+func (c *WSConn) LeadDisco(peerID peer.ID) error {
+	slog.Log(context.Background(), -3, "LeadDisco", "peer", peerID)
+	return c.WriteTo(nil, peerID, peer.CONTROL_LEAD_DISCO)
+}
+
+func (c *WSConn) Datagrams() <-chan *Datagram {
+	return c.datagrams
+}
+
+func (c *WSConn) Peers() <-chan *PeerFindEvent {
+	return c.peers
+}
+
+func (c *WSConn) PeersUDPAddrs() <-chan *PeerUDPAddrEvent {
+	return c.peersUDPAddrs
+}
+
+func (c *WSConn) STUNs() []string {
+	return c.stuns
 }
 
 func (c *WSConn) dial(server string) error {
@@ -105,7 +158,23 @@ func (c *WSConn) dial(server string) error {
 	return nil
 }
 
-func (c *WSConn) runWebSocketEventLoop() {
+func (c *WSConn) runKeepaliveLoop() {
+	for {
+		select {
+		case <-c.closedSig:
+			return
+		default:
+		}
+		time.Sleep(12 * time.Second)
+		if time.Since(c.activeTime) > 25*time.Second {
+			c.CloseConn()
+			continue
+		}
+		c.write(websocket.TextMessage, nil)
+	}
+}
+
+func (c *WSConn) runEventsReadLoop() {
 	for {
 		select {
 		case <-c.closedSig:
@@ -146,36 +215,40 @@ func (c *WSConn) runWebSocketEventLoop() {
 		for i, v := range b {
 			b[i] = v ^ c.nonce
 		}
-		switch b[0] {
-		case peer.CONTROL_RELAY:
-			c.datagrams <- &Datagram{
-				PeerID: peer.ID(b[2 : b[1]+2]),
-				Data:   b[b[1]+2:],
-			}
-		case peer.CONTROL_NEW_PEER:
-			event := PeerFindEvent{
-				PeerID: peer.ID(b[2 : b[1]+2]),
-			}
-			json.Unmarshal(b[b[1]+2:], &event.Metadata)
-			c.peers <- &event
-		case peer.CONTROL_NEW_PEER_UDP_ADDR:
-			addr, err := net.ResolveUDPAddr("udp", string(b[b[1]+2:]))
-			if err != nil {
-				slog.Error("Resolve udp addr error", "err", err)
-				break
-			}
-			c.peersUDPAddrs <- &PeerUDPAddrEvent{
-				PeerID: peer.ID(b[2 : b[1]+2]),
-				Addr:   addr,
-			}
-		case peer.CONTROL_UPDATE_NETWORK_SECRET:
-			var secret peer.NetworkSecret
-			if err := json.Unmarshal(b[1:], &secret); err != nil {
-				slog.Error("NetworkSecretUpdate", "err", err)
-				break
-			}
-			go c.updateNetworkSecret(secret)
+		c.handleEvents(b)
+	}
+}
+
+func (c *WSConn) handleEvents(b []byte) {
+	switch b[0] {
+	case peer.CONTROL_RELAY:
+		c.datagrams <- &Datagram{
+			PeerID: peer.ID(b[2 : b[1]+2]),
+			Data:   b[b[1]+2:],
 		}
+	case peer.CONTROL_NEW_PEER:
+		event := PeerFindEvent{
+			PeerID: peer.ID(b[2 : b[1]+2]),
+		}
+		json.Unmarshal(b[b[1]+2:], &event.Metadata)
+		c.peers <- &event
+	case peer.CONTROL_NEW_PEER_UDP_ADDR:
+		addr, err := net.ResolveUDPAddr("udp", string(b[b[1]+2:]))
+		if err != nil {
+			slog.Error("Resolve udp addr error", "err", err)
+			break
+		}
+		c.peersUDPAddrs <- &PeerUDPAddrEvent{
+			PeerID: peer.ID(b[2 : b[1]+2]),
+			Addr:   addr,
+		}
+	case peer.CONTROL_UPDATE_NETWORK_SECRET:
+		var secret peer.NetworkSecret
+		if err := json.Unmarshal(b[1:], &secret); err != nil {
+			slog.Error("NetworkSecretUpdate", "err", err)
+			break
+		}
+		go c.updateNetworkSecret(secret)
 	}
 }
 
@@ -186,68 +259,6 @@ func (c *WSConn) write(messageType int, data []byte) error {
 		return wsConn.WriteMessage(messageType, data)
 	}
 	return ErrUseOfClosedConnection
-}
-
-func (c *WSConn) keepalive() {
-	for {
-		select {
-		case <-c.closedSig:
-			return
-		default:
-		}
-		time.Sleep(12 * time.Second)
-		if time.Since(c.activeTime) > 25*time.Second {
-			c.CloseConn()
-			continue
-		}
-		c.write(websocket.TextMessage, nil)
-	}
-}
-
-func (c *WSConn) Close() error {
-	close(c.closedSig)
-	return c.CloseConn()
-}
-
-func (c *WSConn) CloseConn() error {
-	_ = c.Conn.WriteControl(websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(2*time.Second))
-	err := c.Conn.Close()
-	c.Conn = nil
-	return err
-}
-
-func (c *WSConn) WriteTo(p []byte, peerID peer.ID, op byte) error {
-	b := make([]byte, 0, 2+len(peerID)+len(p))
-	b = append(b, op)                // relay
-	b = append(b, peerID.Len())      // addr length
-	b = append(b, peerID.Bytes()...) // addr
-	b = append(b, p...)              // data
-	for i, v := range b {
-		b[i] = v ^ c.nonce
-	}
-	return c.write(websocket.BinaryMessage, b)
-}
-
-func (c *WSConn) LeadDisco(peerID peer.ID) error {
-	slog.Log(context.Background(), -3, "LeadDisco", "peer", peerID)
-	return c.WriteTo(nil, peerID, peer.CONTROL_LEAD_DISCO)
-}
-
-func (c *WSConn) Datagrams() <-chan *Datagram {
-	return c.datagrams
-}
-
-func (c *WSConn) Peers() <-chan *PeerFindEvent {
-	return c.peers
-}
-
-func (c *WSConn) PeersUDPAddrs() <-chan *PeerUDPAddrEvent {
-	return c.peersUDPAddrs
-}
-
-func (c *WSConn) STUNs() []string {
-	return c.stuns
 }
 
 func (c *WSConn) updateNetworkSecret(secret peer.NetworkSecret) {

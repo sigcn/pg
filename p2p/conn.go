@@ -255,7 +255,7 @@ func ListenPacket(peermap *peermap.Peermap, opts ...Option) (*PeerPacketConn, er
 	}
 	udpConn.SetKeepAlivePeriod(cfg.KeepAlivePeriod)
 
-	wsConn, err := disco.DialPeermapServer(peermap, cfg.PeerID, cfg.Metadata)
+	wsConn, err := disco.DialPeermap(peermap, cfg.PeerID, cfg.Metadata)
 	if err != nil {
 		return nil, err
 	}
