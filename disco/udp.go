@@ -136,7 +136,6 @@ func (c *UDPConn) ensurePeerContext(peerID peer.ID) *PeerContext {
 	if ctx, ok := c.peersIndex[peerID]; ok {
 		return ctx
 	}
-	fmt.Println("NewContext", peerID, c.peersIndex)
 	peerCtx := PeerContext{
 		exitSig:           make(chan struct{}),
 		ping:              c.discoPing,
@@ -241,7 +240,7 @@ func (c *UDPConn) runNetworkChangedDetector() {
 			return
 		case <-detectTicker.C:
 			if detectAddrs := c.updateLocalNetworkAddrs(); detectAddrs != nil {
-				slog.Info("DetectNetworkChanged", "addrs", detectAddrs)
+				slog.Info("NetworkChanged", "addrs", detectAddrs)
 			}
 		}
 	}

@@ -46,7 +46,6 @@ func DialPeermap(peermap *peermap.Peermap, peerID peer.ID, metadata peer.Metadat
 	if err := wsConn.dial(""); err != nil {
 		return nil, err
 	}
-	wsConn.activeTime = time.Now()
 	go wsConn.runKeepaliveLoop()
 	go wsConn.runEventsReadLoop()
 	return wsConn, nil
@@ -154,6 +153,7 @@ func (c *WSConn) dial(server string) error {
 	c.Conn = conn
 	c.stuns = stuns
 	c.nonce = peer.MustParseNonce(httpResp.Header.Get("X-Nonce"))
+	c.activeTime = time.Now()
 	return nil
 }
 
@@ -186,10 +186,14 @@ func (c *WSConn) runEventsReadLoop() {
 		}
 		mt, b, err := conn.ReadMessage()
 		if err != nil {
-			if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) &&
-				!websocket.IsUnexpectedCloseError(err, websocket.CloseAbnormalClosure) &&
+			if !websocket.IsCloseError(err,
+				websocket.CloseGoingAway,
+				websocket.CloseNormalClosure) &&
+				!websocket.IsUnexpectedCloseError(err,
+					websocket.CloseGoingAway,
+					websocket.CloseAbnormalClosure) &&
 				!strings.Contains(err.Error(), ErrUseOfClosedConnection.Error()) {
-				slog.Error("Read websocket message error", "err", err.Error())
+				slog.Error("ReadLoopExited", "details", err.Error())
 			}
 			conn.Close()
 			for {

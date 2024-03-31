@@ -22,6 +22,7 @@ import (
 )
 
 type Peer struct {
+	exitSig        chan struct{}
 	peerMap        *PeerMap
 	secret         auth.JSONSecret
 	networkContext *networkContext
@@ -52,11 +53,17 @@ func (p *Peer) writeWS(messageType int, b []byte) error {
 
 func (p *Peer) close() error {
 	if ctx, ok := p.peerMap.networkMap.Get(string(p.networkID)); ok {
+		slog.Debug("PeerRemoved", "network", p.networkID, "peer", p.id)
 		ctx.Remove(string(p.id))
 	}
 	_ = p.conn.WriteControl(websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(2*time.Second))
 	return p.conn.Close()
+}
+
+func (p *Peer) Close() error {
+	close(p.exitSig)
+	return p.close()
 }
 
 func (p *Peer) String() string {
@@ -115,13 +122,20 @@ func (p *Peer) leadDisco(target *Peer) {
 
 func (p *Peer) readMessageLoop() {
 	for {
+		select {
+		case <-p.exitSig:
+			return
+		default:
+		}
 		mt, b, err := p.conn.ReadMessage()
 		if err != nil {
 			if !websocket.IsCloseError(err,
-				websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				slog.Error(err.Error())
+				websocket.CloseGoingAway,
+				websocket.CloseNoStatusReceived,
+				websocket.CloseNormalClosure) {
+				slog.Error("ReadLoopExited", "details", err.Error())
 			}
-			p.close()
+			p.Close()
 			return
 		}
 		p.activeTime = time.Now()
@@ -159,8 +173,14 @@ func (p *Peer) readMessageLoop() {
 }
 
 func (p *Peer) keepalive() {
+	ticker := time.NewTicker(12 * time.Second)
 	for {
-		time.Sleep(12 * time.Second)
+		select {
+		case <-p.exitSig:
+			ticker.Stop()
+			return
+		case <-ticker.C:
+		}
 		if err := p.writeWS(websocket.TextMessage, nil); err != nil {
 			break
 		}
@@ -370,6 +390,7 @@ func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 
 	networkCtx, _ := pm.networkMap.Get(jsonSecret.Network)
 	peer := Peer{
+		exitSig:        make(chan struct{}),
 		peerMap:        pm,
 		secret:         jsonSecret,
 		networkContext: networkCtx,
@@ -406,4 +427,5 @@ func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	}
 	peer.conn = wsConn
 	peer.Start()
+	slog.Debug("PeerConnected", "network", jsonSecret.Network, "peer", peerID)
 }
