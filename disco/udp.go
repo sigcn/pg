@@ -188,7 +188,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 			}
 			dst := &net.UDPAddr{IP: addr.IP, Port: p}
 			c.UDPConn.WriteToUDP([]byte("_ping"+c.id), dst)
-			time.Sleep(50 * time.Microsecond)
+			time.Sleep(100 * time.Microsecond)
 		}
 		slog.Info("[UDP] PortScanExit", "peer", peerID, "addr", addr)
 	}

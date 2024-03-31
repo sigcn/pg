@@ -3,8 +3,8 @@ package disco
 import "time"
 
 var defaultDiscoConfig = DiscoConfig{
-	PortScanCount:             1000,
-	ChallengesRetry:           6,
+	PortScanCount:             2000,
+	ChallengesRetry:           3,
 	ChallengesInitialInterval: 200 * time.Millisecond,
 	ChallengesBackoffRate:     1.75,
 }
