@@ -268,7 +268,6 @@ func (c *UDPConn) runPacketEventLoop() {
 
 		// ping
 		if peerID := c.disco.ParsePing(buf[:n]); peerID.Len() > 0 {
-			slog.Debug("[UDP] Heartbeat", "peer", peerID, "addr", peerAddr)
 			c.ensurePeerContext(peerID).Heartbeat(peerAddr)
 			continue
 		}
