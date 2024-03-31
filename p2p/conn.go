@@ -211,16 +211,16 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disc
 			if !ok {
 				return
 			}
-			go func(e *disco.PeerUDPAddrEvent) {
+			go func() {
 				for i := 0; i < 3; i++ {
-					err := wsConn.WriteTo([]byte(e.Addr.String()), e.PeerID, peer.CONTROL_NEW_PEER_UDP_ADDR)
+					err := wsConn.WriteTo([]byte(sendUDPAddr.Addr.String()), sendUDPAddr.PeerID, peer.CONTROL_NEW_PEER_UDP_ADDR)
 					if err == nil {
-						slog.Debug("ListenUDP", "addr", e.Addr)
+						slog.Debug("ListenUDP", "addr", sendUDPAddr.Addr, "for", sendUDPAddr.PeerID)
 						break
 					}
 					time.Sleep(200 * time.Millisecond)
 				}
-			}(sendUDPAddr)
+			}()
 		case _, ok := <-udpConn.NetworkChangedEvents():
 			if !ok {
 				return

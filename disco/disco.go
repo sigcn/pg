@@ -19,7 +19,7 @@ var (
 
 var defaultDiscoConfig = DiscoConfig{
 	PortScanCount:             2000,
-	ChallengesRetry:           3,
+	ChallengesRetry:           2,
 	ChallengesInitialInterval: 200 * time.Millisecond,
 	ChallengesBackoffRate:     1.75,
 }
@@ -36,7 +36,7 @@ func SetModifyDiscoConfig(modify func(cfg *DiscoConfig)) {
 		modify(&defaultDiscoConfig)
 	}
 	defaultDiscoConfig.PortScanCount = min(max(32, defaultDiscoConfig.PortScanCount), 65535-1024)
-	defaultDiscoConfig.ChallengesRetry = max(2, defaultDiscoConfig.ChallengesRetry)
+	defaultDiscoConfig.ChallengesRetry = max(1, defaultDiscoConfig.ChallengesRetry)
 	defaultDiscoConfig.ChallengesInitialInterval = max(10*time.Millisecond, defaultDiscoConfig.ChallengesInitialInterval)
 	defaultDiscoConfig.ChallengesBackoffRate = max(1, defaultDiscoConfig.ChallengesBackoffRate)
 }
@@ -105,7 +105,7 @@ func (peer *PeerContext) Heartbeat(addr *net.UDPAddr) {
 func (peer *PeerContext) Healthcheck() {
 	if time.Since(peer.CreateTime) > 3*peer.keepaliveInterval {
 		for addr, state := range peer.States {
-			if time.Since(state.LastActiveTime) > 2*peer.keepaliveInterval {
+			if time.Since(state.LastActiveTime) > 2*peer.keepaliveInterval+time.Second {
 				if state.LastActiveTime.IsZero() {
 					slog.Debug("[UDP] RemovePeer", "peer", peer.PeerID, "addr", state.Addr)
 				} else {
@@ -176,7 +176,7 @@ func (peer *PeerContext) Keepalive() {
 		select {
 		case <-peer.exitSig:
 			ticker.Stop()
-			slog.Debug("[UDP] Ping exit", "peer", peer.PeerID)
+			slog.Debug("[UDP] KeepaliveExit", "peer", peer.PeerID)
 			return
 		case <-ticker.C:
 			ping()
