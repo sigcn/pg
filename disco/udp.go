@@ -33,6 +33,7 @@ func SetNetwotkDetectInterval(interval time.Duration) {
 
 type UDPConn struct {
 	*net.UDPConn
+	disco                 *Disco
 	closedSig             chan int
 	datagrams             chan *Datagram
 	stunResponse          chan []byte
@@ -187,7 +188,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 				return
 			}
 			dst := &net.UDPAddr{IP: addr.IP, Port: p}
-			c.UDPConn.WriteToUDP([]byte("_ping"+c.id), dst)
+			c.UDPConn.WriteToUDP(c.disco.NewPing(c.id), dst)
 			time.Sleep(100 * time.Microsecond)
 		}
 		slog.Info("[UDP] PortScanExit", "peer", peerID, "addr", addr)
@@ -196,7 +197,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 
 func (c *UDPConn) discoPing(peerID peer.ID, peerAddr *net.UDPAddr) {
 	slog.Debug("[UDP] DiscoPing", "peer", peerID, "addr", peerAddr)
-	c.UDPConn.WriteToUDP([]byte("_ping"+c.id), peerAddr)
+	c.UDPConn.WriteToUDP(c.disco.NewPing(c.id), peerAddr)
 }
 
 func (c *UDPConn) updateLocalNetworkAddrs() []string {
@@ -266,10 +267,9 @@ func (c *UDPConn) runPacketEventLoop() {
 		}
 
 		// ping
-		if n > 4 && string(buf[:5]) == "_ping" && n <= 260 {
-			peerID := string(buf[5:n])
+		if peerID := c.disco.ParsePing(buf[:n]); peerID.Len() > 0 {
 			slog.Debug("[UDP] Heartbeat", "peer", peerID, "addr", peerAddr)
-			c.ensurePeerContext(peer.ID(peerID)).Heartbeat(peerAddr)
+			c.ensurePeerContext(peerID).Heartbeat(peerAddr)
 			continue
 		}
 
@@ -466,6 +466,7 @@ func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.ID) (*UDPConn, e
 	udpConn := UDPConn{
 		id:                    id,
 		UDPConn:               conn,
+		disco:                 &Disco{Magic: func() []byte { return []byte("_ping") }},
 		closedSig:             make(chan int),
 		datagrams:             make(chan *Datagram),
 		udpAddrSends:          make(chan *PeerUDPAddrEvent, 10),
