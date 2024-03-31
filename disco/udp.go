@@ -259,7 +259,8 @@ func (c *UDPConn) runPacketEventLoop() {
 			if !strings.Contains(err.Error(), ErrUseOfClosedConnection.Error()) {
 				slog.Error("read from udp error", "err", err)
 			}
-			return
+			time.Sleep(10 * time.Millisecond) // avoid busy wait
+			continue
 		}
 
 		// ping
