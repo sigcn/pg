@@ -15,26 +15,21 @@ var (
 	ErrTokenExpired = errors.New("token expired")
 )
 
-type Authenticator interface {
-	GenerateSecret(string, time.Duration) (string, error)
-	ParseSecret(secret string) (JSONSecret, error)
-}
-
 type JSONSecret struct {
 	Network  string `json:"n"`
 	Deadline int64  `json:"t"`
 }
 
-type authenticator struct {
+type Authenticator struct {
 	key []byte
 }
 
-func NewAuthenticator(key string) Authenticator {
+func NewAuthenticator(key string) *Authenticator {
 	sum := sha256.Sum256([]byte(key))
-	return &authenticator{key: sum[:]}
+	return &Authenticator{key: sum[:]}
 }
 
-func (auth *authenticator) GenerateSecret(networkID string, validDuration time.Duration) (string, error) {
+func (auth *Authenticator) GenerateSecret(networkID string, validDuration time.Duration) (string, error) {
 	b, err := json.Marshal(JSONSecret{
 		Network:  networkID,
 		Deadline: time.Now().Add(validDuration).Unix(),
@@ -46,7 +41,7 @@ func (auth *authenticator) GenerateSecret(networkID string, validDuration time.D
 	return base64.URLEncoding.EncodeToString(chiperData), err
 }
 
-func (auth *authenticator) ParseSecret(networkIDChiper string) (JSONSecret, error) {
+func (auth *Authenticator) ParseSecret(networkIDChiper string) (JSONSecret, error) {
 	chiperData, err := base64.URLEncoding.DecodeString(networkIDChiper)
 	if err != nil {
 		return JSONSecret{}, ErrInvalidToken

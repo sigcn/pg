@@ -17,6 +17,7 @@ import (
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/auth"
 	"github.com/rkonfj/peerguard/peermap/exporter"
+	exporterauth "github.com/rkonfj/peerguard/peermap/exporter/auth"
 	"github.com/rkonfj/peerguard/peermap/oidc"
 	"golang.org/x/time/rate"
 )
@@ -220,11 +221,12 @@ type networkContext struct {
 }
 
 type PeerMap struct {
-	httpServer    *http.Server
-	wsUpgrader    *websocket.Upgrader
-	networkMap    cmap.ConcurrentMap[string, *networkContext]
-	cfg           Config
-	authenticator auth.Authenticator
+	httpServer            *http.Server
+	wsUpgrader            *websocket.Upgrader
+	networkMap            cmap.ConcurrentMap[string, *networkContext]
+	cfg                   Config
+	authenticator         *auth.Authenticator
+	exporterAuthenticator *exporterauth.Authenticator
 }
 
 func (pm *PeerMap) FindPeer(networkID string, peerID peer.ID) (*Peer, error) {
@@ -254,14 +256,14 @@ func New(cfg Config) (*PeerMap, error) {
 	if err := cfg.applyDefaults(); err != nil {
 		return nil, err
 	}
-	exporter.SetSecretKey(cfg.SecretKey)
 	mux := http.NewServeMux()
 	pm := PeerMap{
-		httpServer:    &http.Server{Handler: mux, Addr: cfg.Listen},
-		wsUpgrader:    &websocket.Upgrader{},
-		networkMap:    cmap.New[*networkContext](),
-		authenticator: auth.NewAuthenticator(cfg.SecretKey),
-		cfg:           cfg,
+		httpServer:            &http.Server{Handler: mux, Addr: cfg.Listen},
+		wsUpgrader:            &websocket.Upgrader{},
+		networkMap:            cmap.New[*networkContext](),
+		authenticator:         auth.NewAuthenticator(cfg.SecretKey),
+		exporterAuthenticator: exporterauth.New(cfg.SecretKey),
+		cfg:                   cfg,
 	}
 	mux.HandleFunc("/", pm.handleWebsocket)
 	mux.HandleFunc("/networks", pm.handleQueryNetworks)
@@ -275,7 +277,7 @@ func New(cfg Config) (*PeerMap, error) {
 
 func (pm *PeerMap) handleQueryNetworks(w http.ResponseWriter, r *http.Request) {
 	exporterToken := r.Header.Get("X-Token")
-	_, err := exporter.CheckToken(exporterToken)
+	_, err := pm.exporterAuthenticator.CheckToken(exporterToken)
 	if err != nil {
 		slog.Debug("ExporterAuthFailed", "details", err)
 		w.WriteHeader(http.StatusUnauthorized)
@@ -295,7 +297,7 @@ func (pm *PeerMap) handleQueryNetworks(w http.ResponseWriter, r *http.Request) {
 
 func (pm *PeerMap) handleQueryNetworkPeers(w http.ResponseWriter, r *http.Request) {
 	exporterToken := r.Header.Get("X-Token")
-	_, err := exporter.CheckToken(exporterToken)
+	_, err := pm.exporterAuthenticator.CheckToken(exporterToken)
 	if err != nil {
 		slog.Debug("ExporterAuthFailed", "details", err)
 		w.WriteHeader(http.StatusUnauthorized)

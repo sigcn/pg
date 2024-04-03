@@ -1,4 +1,4 @@
-package exporter
+package auth
 
 import (
 	"crypto/sha256"
@@ -11,25 +11,29 @@ import (
 	"github.com/rkonfj/peerguard/secure/aescbc"
 )
 
-var algo secure.SymmAlgo
+type Authenticator struct {
+	algo secure.SymmAlgo
+}
 
-func SetSecretKey(key string) {
-	sum := sha256.Sum256([]byte(key))
-	algo = aescbc.New(func(pubKey string) ([]byte, error) {
-		return sum[:], nil
-	})
+func New(secretKey string) *Authenticator {
+	sum := sha256.Sum256([]byte(secretKey))
+	return &Authenticator{
+		algo: aescbc.New(func(pubKey string) ([]byte, error) {
+			return sum[:], nil
+		}),
+	}
 }
 
 type Instruction struct {
 	ExpiredAt int64 `json:"expired_at"`
 }
 
-func CheckToken(token string) (*Instruction, error) {
+func (a *Authenticator) CheckToken(token string) (*Instruction, error) {
 	b, err := base64.StdEncoding.DecodeString(token)
 	if err != nil {
 		return nil, err
 	}
-	plain, err := algo.Decrypt(b, "")
+	plain, err := a.algo.Decrypt(b, "")
 	if err != nil {
 		return nil, err
 	}
@@ -41,12 +45,12 @@ func CheckToken(token string) (*Instruction, error) {
 	return &ins, nil
 }
 
-func GenerateToken(ins Instruction) (string, error) {
+func (a *Authenticator) GenerateToken(ins Instruction) (string, error) {
 	b, err := json.Marshal(ins)
 	if err != nil {
 		return "", err
 	}
-	chiper, err := algo.Encrypt(b, "")
+	chiper, err := a.algo.Encrypt(b, "")
 	if err != nil {
 		return "", err
 	}
