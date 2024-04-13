@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -16,6 +17,10 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peer/peermap"
+)
+
+var (
+	_ io.ReadWriter = (*WSConn)(nil)
 )
 
 type WSConn struct {
@@ -31,28 +36,47 @@ type WSConn struct {
 	stuns         []string
 	activeTime    time.Time
 	writeMutex    sync.Mutex
+
+	connData chan []byte
+	connBuf  []byte
 }
 
-func DialPeermap(peermap *peermap.Peermap, peerID peer.ID, metadata peer.Metadata) (*WSConn, error) {
-	wsConn := &WSConn{
-		peermap:       peermap,
-		peerID:        peerID,
-		metadata:      metadata,
-		closedSig:     make(chan int),
-		datagrams:     make(chan *Datagram, 50),
-		peers:         make(chan *PeerFindEvent, 20),
-		peersUDPAddrs: make(chan *PeerUDPAddrEvent, 20),
+func (c *WSConn) Read(p []byte) (n int, err error) {
+	if c.connBuf != nil {
+		n = copy(p, c.connBuf)
+		if n < len(c.connBuf) {
+			c.connBuf = c.connBuf[n:]
+		} else {
+			c.connBuf = nil
+		}
+		return
 	}
-	if err := wsConn.dial(""); err != nil {
-		return nil, err
+
+	wsb, ok := <-c.connData
+	if !ok {
+		return 0, io.EOF
 	}
-	go wsConn.runKeepaliveLoop()
-	go wsConn.runEventsReadLoop()
-	return wsConn, nil
+	n = copy(p, wsb)
+	if n < len(wsb) {
+		c.connBuf = wsb[n:]
+	}
+	return
+}
+
+func (c *WSConn) Write(p []byte) (n int, err error) {
+	err = c.write(append(append([]byte(nil), peer.CONTROL_CONN), p...))
+	if err != nil {
+		return
+	}
+	return len(p), nil
 }
 
 func (c *WSConn) Close() error {
 	close(c.closedSig)
+	close(c.datagrams)
+	close(c.peers)
+	close(c.peersUDPAddrs)
+	close(c.connData)
 	if conn := c.Conn; conn != nil {
 		_ = c.Conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
@@ -76,10 +100,7 @@ func (c *WSConn) WriteTo(p []byte, peerID peer.ID, op byte) error {
 	b = append(b, peerID.Len())      // addr length
 	b = append(b, peerID.Bytes()...) // addr
 	b = append(b, p...)              // data
-	for i, v := range b {
-		b[i] = v ^ c.nonce
-	}
-	return c.write(websocket.BinaryMessage, b)
+	return c.write(b)
 }
 
 func (c *WSConn) LeadDisco(peerID peer.ID) error {
@@ -169,7 +190,7 @@ func (c *WSConn) runKeepaliveLoop() {
 			c.CloseConn()
 			continue
 		}
-		c.write(websocket.TextMessage, nil)
+		c.writeWS(websocket.TextMessage, nil)
 	}
 }
 
@@ -254,10 +275,19 @@ func (c *WSConn) handleEvents(b []byte) {
 			break
 		}
 		go c.updateNetworkSecret(secret)
+	case peer.CONTROL_CONN:
+		c.connData <- b[1:]
 	}
 }
 
-func (c *WSConn) write(messageType int, data []byte) error {
+func (c *WSConn) write(b []byte) error {
+	for i, v := range b {
+		b[i] = v ^ c.nonce
+	}
+	return c.writeWS(websocket.BinaryMessage, b)
+}
+
+func (c *WSConn) writeWS(messageType int, data []byte) error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 	if wsConn := c.Conn; wsConn != nil {
@@ -276,4 +306,23 @@ func (c *WSConn) updateNetworkSecret(secret peer.NetworkSecret) {
 		return
 	}
 	slog.Error("NetworkSecretUpdate give up", "secret", secret)
+}
+
+func DialPeermap(peermap *peermap.Peermap, peerID peer.ID, metadata peer.Metadata) (*WSConn, error) {
+	wsConn := &WSConn{
+		peermap:       peermap,
+		peerID:        peerID,
+		metadata:      metadata,
+		closedSig:     make(chan int),
+		datagrams:     make(chan *Datagram, 50),
+		peers:         make(chan *PeerFindEvent, 20),
+		peersUDPAddrs: make(chan *PeerUDPAddrEvent, 20),
+		connData:      make(chan []byte, 128),
+	}
+	if err := wsConn.dial(""); err != nil {
+		return nil, err
+	}
+	go wsConn.runKeepaliveLoop()
+	go wsConn.runEventsReadLoop()
+	return wsConn, nil
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -188,6 +189,11 @@ func (c *PeerPacketConn) TryLeadDisco(peerID peer.ID) {
 // UDPConn return the os udp socket
 func (c *PeerPacketConn) UDPConn() net.PacketConn {
 	return c.udpConn
+}
+
+// ServerStream is the connection stream to the peermap server
+func (c *PeerPacketConn) ServerStream() io.ReadWriter {
+	return c.wsConn
 }
 
 // runControlEventLoop events control loop

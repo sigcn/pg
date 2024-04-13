@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -22,6 +23,10 @@ import (
 	"golang.org/x/time/rate"
 )
 
+var (
+	_ io.ReadWriter = (*Peer)(nil)
+)
+
 type Peer struct {
 	exitSig        chan struct{}
 	peerMap        *PeerMap
@@ -34,6 +39,11 @@ type Peer struct {
 	id             peer.ID
 	nonce          byte
 	wMut           sync.Mutex
+
+	connRRL  *rate.Limiter
+	connWRL  *rate.Limiter
+	connData chan []byte
+	connBuf  []byte
 }
 
 func (p *Peer) write(b []byte) error {
@@ -44,9 +54,6 @@ func (p *Peer) write(b []byte) error {
 }
 
 func (p *Peer) writeWS(messageType int, b []byte) error {
-	if p.networkContext.ratelimiter != nil {
-		p.networkContext.ratelimiter.WaitN(context.Background(), len(b))
-	}
 	p.wMut.Lock()
 	defer p.wMut.Unlock()
 	return p.conn.WriteMessage(messageType, b)
@@ -62,8 +69,47 @@ func (p *Peer) close() error {
 	return p.conn.Close()
 }
 
+func (p *Peer) Read(b []byte) (n int, err error) {
+	defer func() {
+		if p.connRRL != nil && n > 0 {
+			p.connRRL.WaitN(context.Background(), n)
+		}
+	}()
+	if p.connBuf != nil {
+		n = copy(b, p.connBuf)
+		if n < len(p.connBuf) {
+			p.connBuf = p.connBuf[n:]
+		} else {
+			p.connBuf = nil
+		}
+		return
+	}
+
+	wsb, ok := <-p.connData
+	if !ok {
+		return 0, io.EOF
+	}
+	n = copy(b, wsb)
+	if n < len(wsb) {
+		p.connBuf = wsb[n:]
+	}
+	return
+}
+
+func (p *Peer) Write(b []byte) (n int, err error) {
+	if p.connWRL != nil && len(b) > 0 {
+		p.connWRL.WaitN(context.Background(), len(b))
+	}
+	err = p.write(append(append([]byte(nil), peer.CONTROL_CONN), b...))
+	if err != nil {
+		return
+	}
+	return len(b), nil
+}
+
 func (p *Peer) Close() error {
 	close(p.exitSig)
+	close(p.connData)
 	return p.close()
 }
 
@@ -153,7 +199,7 @@ func (p *Peer) readMessageLoop() {
 		}
 		tgtPeerID := peer.ID(b[2 : b[1]+2])
 		slog.Debug("PeerEvent", "op", b[0], "from", p.id, "to", tgtPeerID)
-		tgtPeer, err := p.peerMap.FindPeer(p.networkID, tgtPeerID)
+		tgtPeer, err := p.peerMap.GetPeer(p.networkID, tgtPeerID)
 		if err != nil {
 			slog.Debug("FindPeer failed", "detail", err)
 			continue
@@ -161,6 +207,8 @@ func (p *Peer) readMessageLoop() {
 		switch b[0] {
 		case peer.CONTROL_LEAD_DISCO:
 			p.leadDisco(tgtPeer)
+		case peer.CONTROL_CONN:
+			p.connData <- b[1:]
 		default:
 			data := b[b[1]+2:]
 			bb := make([]byte, 2+len(p.id)+len(data))
@@ -168,6 +216,9 @@ func (p *Peer) readMessageLoop() {
 			bb[1] = p.id.Len()
 			copy(bb[2:p.id.Len()+2], p.id.Bytes())
 			copy(bb[p.id.Len()+2:], data)
+			if p.networkContext.ratelimiter != nil {
+				p.networkContext.ratelimiter.WaitN(context.Background(), len(b))
+			}
 			_ = tgtPeer.write(bb)
 		}
 	}
@@ -229,13 +280,26 @@ type PeerMap struct {
 	exporterAuthenticator *exporterauth.Authenticator
 }
 
-func (pm *PeerMap) FindPeer(networkID string, peerID peer.ID) (*Peer, error) {
-	if ctx, ok := pm.networkMap.Get(string(networkID)); ok {
+func (pm *PeerMap) GetPeer(network string, peerID peer.ID) (*Peer, error) {
+	if ctx, ok := pm.networkMap.Get(string(network)); ok {
 		if peer, ok := ctx.Get(string(peerID)); ok {
 			return peer, nil
 		}
 	}
-	return nil, fmt.Errorf("peer(%s/%s) not found", networkID, peerID)
+	return nil, fmt.Errorf("peer(%s/%s) not found", network, peerID)
+}
+
+func (pm *PeerMap) FindPeer(network string, filter func(peer.Metadata) bool) ([]*Peer, error) {
+	if ctx, ok := pm.networkMap.Get(network); ok {
+		var ret []*Peer
+		for item := range ctx.IterBuffered() {
+			if filter(item.Val.metadata) {
+				ret = append(ret, item.Val)
+			}
+		}
+		return ret, nil
+	}
+	return nil, fmt.Errorf("peer(%s/metafilter) not found", network)
 }
 
 func (pm *PeerMap) Serve(ctx context.Context) error {
@@ -246,33 +310,6 @@ func (pm *PeerMap) Serve(ctx context.Context) error {
 	}()
 	slog.Info("Serving for http now", "listen", pm.cfg.Listen)
 	return pm.httpServer.ListenAndServe()
-}
-
-func (pm *PeerMap) close() {
-	pm.httpServer.Shutdown(context.Background())
-}
-
-func New(cfg Config) (*PeerMap, error) {
-	if err := cfg.applyDefaults(); err != nil {
-		return nil, err
-	}
-	mux := http.NewServeMux()
-	pm := PeerMap{
-		httpServer:            &http.Server{Handler: mux, Addr: cfg.Listen},
-		wsUpgrader:            &websocket.Upgrader{},
-		networkMap:            cmap.New[*networkContext](),
-		authenticator:         auth.NewAuthenticator(cfg.SecretKey),
-		exporterAuthenticator: exporterauth.New(cfg.SecretKey),
-		cfg:                   cfg,
-	}
-	mux.HandleFunc("/", pm.HandlePeerPacketConnect)
-	mux.HandleFunc("/networks", pm.HandleQueryNetworks)
-	mux.HandleFunc("/peers", pm.HandleQueryNetworkPeers)
-
-	mux.HandleFunc("/network/token", oidc.HandleNotifyToken)
-	mux.HandleFunc("/oidc/", oidc.RedirectAuthURL)
-	mux.HandleFunc("/oidc/authorize/", pm.HandleOIDCAuthorize)
-	return &pm, nil
 }
 
 func (pm *PeerMap) HandleQueryNetworks(w http.ResponseWriter, r *http.Request) {
@@ -343,18 +380,6 @@ func (pm *PeerMap) HandleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("ok"))
 }
 
-func (pm *PeerMap) generateSecret(network string) (peer.NetworkSecret, error) {
-	secret, err := auth.NewAuthenticator(pm.cfg.SecretKey).GenerateSecret(network, 5*time.Hour)
-	if err != nil {
-		return peer.NetworkSecret{}, err
-	}
-	return peer.NetworkSecret{
-		Network: network,
-		Secret:  secret,
-		Expire:  time.Now().Add(5*time.Hour - 10*time.Second),
-	}, nil
-}
-
 func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Request) {
 	jsonSecret, err := pm.authenticator.ParseSecret(r.Header.Get("X-Network"))
 	if err != nil {
@@ -391,6 +416,7 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		id:             peer.ID(peerID),
 		nonce:          nonce,
 		metadata:       peer.Metadata{},
+		connData:       make(chan []byte, 128),
 	}
 
 	metadata := r.Header.Get("X-Metadata")
@@ -421,4 +447,48 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	peer.conn = wsConn
 	peer.Start()
 	slog.Debug("PeerConnected", "network", jsonSecret.Network, "peer", peerID)
+}
+
+func (pm *PeerMap) close() {
+	pm.httpServer.Shutdown(context.Background())
+}
+
+func (pm *PeerMap) generateSecret(network string) (peer.NetworkSecret, error) {
+	secret, err := auth.NewAuthenticator(pm.cfg.SecretKey).GenerateSecret(network, 5*time.Hour)
+	if err != nil {
+		return peer.NetworkSecret{}, err
+	}
+	return peer.NetworkSecret{
+		Network: network,
+		Secret:  secret,
+		Expire:  time.Now().Add(5*time.Hour - 10*time.Second),
+	}, nil
+}
+
+func New(server *http.Server, cfg Config) (*PeerMap, error) {
+	if err := cfg.applyDefaults(); err != nil {
+		return nil, err
+	}
+
+	pm := PeerMap{
+		wsUpgrader:            &websocket.Upgrader{},
+		networkMap:            cmap.New[*networkContext](),
+		authenticator:         auth.NewAuthenticator(cfg.SecretKey),
+		exporterAuthenticator: exporterauth.New(cfg.SecretKey),
+		cfg:                   cfg,
+	}
+
+	if server == nil {
+		mux := http.NewServeMux()
+		server = &http.Server{Handler: mux, Addr: cfg.Listen}
+		mux.HandleFunc("/", pm.HandlePeerPacketConnect)
+		mux.HandleFunc("/networks", pm.HandleQueryNetworks)
+		mux.HandleFunc("/peers", pm.HandleQueryNetworkPeers)
+
+		mux.HandleFunc("/network/token", oidc.HandleNotifyToken)
+		mux.HandleFunc("/oidc/", oidc.RedirectAuthURL)
+		mux.HandleFunc("/oidc/authorize/", pm.HandleOIDCAuthorize)
+	}
+	pm.httpServer = server
+	return &pm, nil
 }

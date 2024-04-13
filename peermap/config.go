@@ -35,7 +35,7 @@ func (cfg *Config) applyDefaults() error {
 		slog.Info("SecretKey " + cfg.SecretKey)
 	}
 	if len(cfg.STUNs) == 0 {
-		slog.Warn("No STUN servers are set up, NAT traversal is disabled")
+		slog.Warn("No STUN servers is set up, NAT traversal is disabled")
 	}
 	if cfg.RateLimiter != nil {
 		if cfg.RateLimiter.Burst < cfg.RateLimiter.Limit {

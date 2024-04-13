@@ -13,6 +13,7 @@ const (
 	CONTROL_NEW_PEER_UDP_ADDR     = 2
 	CONTROL_LEAD_DISCO            = 3
 	CONTROL_UPDATE_NETWORK_SECRET = 20
+	CONTROL_CONN                  = 30
 )
 
 type SecretStore interface {
