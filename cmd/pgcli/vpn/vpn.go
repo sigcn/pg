@@ -33,8 +33,8 @@ var Cmd = &cobra.Command{
 }
 
 func init() {
-	Cmd.Flags().String("ipv4", "", "ipv4 address prefix (i.e. 100.99.0.1/24)")
-	Cmd.Flags().String("ipv6", "", "ipv6 address prefix (i.e. fd00::1/64)")
+	Cmd.Flags().StringP("ipv4", "4", "", "ipv4 address prefix (i.e. 100.99.0.1/24)")
+	Cmd.Flags().StringP("ipv6", "6", "", "ipv6 address prefix (i.e. fd00::1/64)")
 	Cmd.Flags().String("tun", "pg0", "tun name")
 	Cmd.Flags().Int("mtu", 1436, "mtu")
 
