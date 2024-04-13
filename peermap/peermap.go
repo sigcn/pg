@@ -134,7 +134,7 @@ func (p *Peer) readMessageLoop() {
 				websocket.CloseGoingAway,
 				websocket.CloseNoStatusReceived,
 				websocket.CloseNormalClosure) {
-				slog.Error("ReadLoopExited", "details", err.Error())
+				slog.Debug("ReadLoopExited", "details", err.Error())
 			}
 			p.Close()
 			return
@@ -265,17 +265,17 @@ func New(cfg Config) (*PeerMap, error) {
 		exporterAuthenticator: exporterauth.New(cfg.SecretKey),
 		cfg:                   cfg,
 	}
-	mux.HandleFunc("/", pm.handleWebsocket)
-	mux.HandleFunc("/networks", pm.handleQueryNetworks)
-	mux.HandleFunc("/peers", pm.handleQueryNetworkPeers)
+	mux.HandleFunc("/", pm.HandlePeerPacketConnect)
+	mux.HandleFunc("/networks", pm.HandleQueryNetworks)
+	mux.HandleFunc("/peers", pm.HandleQueryNetworkPeers)
 
 	mux.HandleFunc("/network/token", oidc.HandleNotifyToken)
 	mux.HandleFunc("/oidc/", oidc.RedirectAuthURL)
-	mux.HandleFunc("/oidc/authorize/", pm.handleOIDCAuthorize)
+	mux.HandleFunc("/oidc/authorize/", pm.HandleOIDCAuthorize)
 	return &pm, nil
 }
 
-func (pm *PeerMap) handleQueryNetworks(w http.ResponseWriter, r *http.Request) {
+func (pm *PeerMap) HandleQueryNetworks(w http.ResponseWriter, r *http.Request) {
 	exporterToken := r.Header.Get("X-Token")
 	_, err := pm.exporterAuthenticator.CheckToken(exporterToken)
 	if err != nil {
@@ -295,7 +295,7 @@ func (pm *PeerMap) handleQueryNetworks(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(networks)
 }
 
-func (pm *PeerMap) handleQueryNetworkPeers(w http.ResponseWriter, r *http.Request) {
+func (pm *PeerMap) HandleQueryNetworkPeers(w http.ResponseWriter, r *http.Request) {
 	exporterToken := r.Header.Get("X-Token")
 	_, err := pm.exporterAuthenticator.CheckToken(exporterToken)
 	if err != nil {
@@ -317,7 +317,7 @@ func (pm *PeerMap) handleQueryNetworkPeers(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(networks)
 }
 
-func (pm *PeerMap) handleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
+func (pm *PeerMap) HandleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 	providerName := path.Base(r.URL.Path)
 	provider, ok := oidc.Provider(providerName)
 	if !ok {
@@ -355,16 +355,7 @@ func (pm *PeerMap) generateSecret(network string) (peer.NetworkSecret, error) {
 	}, nil
 }
 
-func (pm *PeerMap) handleWebsocket(w http.ResponseWriter, r *http.Request) {
-	networkID := r.Header.Get("X-Network")
-	if len(networkID) > 0 {
-		pm.handlePeerPacketConnect(w, r)
-		return
-	}
-	w.WriteHeader(http.StatusForbidden)
-}
-
-func (pm *PeerMap) handlePeerPacketConnect(w http.ResponseWriter, r *http.Request) {
+func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Request) {
 	jsonSecret, err := pm.authenticator.ParseSecret(r.Header.Get("X-Network"))
 	if err != nil {
 		slog.Debug("Authenticate failed", "err", err, "network", jsonSecret.Network, "secret", r.Header.Get("X-Network"))
