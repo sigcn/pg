@@ -36,7 +36,7 @@ func init() {
 	Cmd.Flags().StringP("ipv4", "4", "", "ipv4 address prefix (i.e. 100.99.0.1/24)")
 	Cmd.Flags().StringP("ipv6", "6", "", "ipv6 address prefix (i.e. fd00::1/64)")
 	Cmd.Flags().String("tun", "pg0", "tun name")
-	Cmd.Flags().Int("mtu", 1436, "mtu")
+	Cmd.Flags().Int("mtu", 1428, "mtu")
 
 	Cmd.Flags().String("key", "", "curve25519 private key in base64-url format (default generate a new one)")
 	Cmd.Flags().String("secret-file", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
