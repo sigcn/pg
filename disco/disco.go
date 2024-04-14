@@ -105,11 +105,7 @@ func (peer *PeerContext) Healthcheck() {
 	if time.Since(peer.CreateTime) > 3*peer.keepaliveInterval {
 		for addr, state := range peer.States {
 			if time.Since(state.LastActiveTime) > 2*peer.keepaliveInterval+time.Second {
-				if state.LastActiveTime.IsZero() {
-					slog.Debug("[UDP] RemovePeer", "peer", peer.PeerID, "addr", state.Addr)
-				} else {
-					slog.Info("[UDP] RemovePeer", "peer", peer.PeerID, "addr", state.Addr)
-				}
+				slog.Info("[UDP] RemovePeer", "peer", peer.PeerID, "addr", state.Addr)
 				peer.statesMutex.Lock()
 				delete(peer.States, addr)
 				peer.statesMutex.Unlock()
@@ -118,17 +114,7 @@ func (peer *PeerContext) Healthcheck() {
 	}
 }
 
-func (peer *PeerContext) IPv4Ready() bool {
-	peer.statesMutex.RLock()
-	defer peer.statesMutex.RUnlock()
-	for _, state := range peer.States {
-		if state.Addr.IP.To4() != nil && time.Since(state.LastActiveTime) <= peer.keepaliveInterval+2*time.Second {
-			return true
-		}
-	}
-	return false
-}
-
+// Ready when peer context has at least one active udp address
 func (peer *PeerContext) Ready() bool {
 	peer.statesMutex.RLock()
 	defer peer.statesMutex.RUnlock()
@@ -161,15 +147,12 @@ func (peer *PeerContext) Select() *net.UDPAddr {
 	return candidates[0].Addr
 }
 
-func (peer *PeerContext) Keepalive() {
+func (peer *PeerContext) RunKeepaliveLoop() {
 	ticker := time.NewTicker(peer.keepaliveInterval)
 	ping := func() {
 		addrs := make([]*net.UDPAddr, 0, len(peer.States))
 		peer.statesMutex.RLock()
 		for _, v := range peer.States {
-			if time.Since(v.LastActiveTime) > 2*peer.keepaliveInterval+2*time.Second {
-				continue
-			}
 			addrs = append(addrs, v.Addr)
 		}
 		peer.statesMutex.RUnlock()

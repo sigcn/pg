@@ -118,7 +118,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.ID, stunServers []string) 
 	}
 	// WAN
 	time.AfterFunc(time.Second, func() {
-		if ctx, ok := c.FindPeer(peerID); !ok || !ctx.IPv4Ready() {
+		if _, ok := c.FindPeer(peerID); !ok {
 			c.requestSTUN(peerID, stunServers)
 		}
 	})
@@ -145,7 +145,7 @@ func (c *UDPConn) ensurePeerContext(peerID peer.ID) *PeerContext {
 		CreateTime:        time.Now(),
 	}
 	c.peersIndex[peerID] = &peerCtx
-	go peerCtx.Keepalive()
+	go peerCtx.RunKeepaliveLoop()
 	return &peerCtx
 }
 
@@ -339,7 +339,7 @@ func (c *UDPConn) runPeersHealthcheckLoop() {
 			ticker.Stop()
 			return
 		case <-ticker.C:
-			c.peersIndexMutex.RLock()
+			c.peersIndexMutex.Lock()
 			for k, v := range c.peersIndex {
 				v.Healthcheck()
 				if len(v.States) == 0 {
@@ -347,7 +347,7 @@ func (c *UDPConn) runPeersHealthcheckLoop() {
 					delete(c.peersIndex, k)
 				}
 			}
-			c.peersIndexMutex.RUnlock()
+			c.peersIndexMutex.Unlock()
 		}
 	}
 }
@@ -406,6 +406,7 @@ peerSeek:
 	return candidates[0].PeerID
 }
 
+// FindPeer is used to find ready peer context by peer id
 func (c *UDPConn) FindPeer(peerID peer.ID) (*PeerContext, bool) {
 	c.peersIndexMutex.RLock()
 	defer c.peersIndexMutex.RUnlock()
@@ -453,6 +454,11 @@ func (c *UDPConn) SetKeepAlivePeriod(period time.Duration) {
 	c.peerKeepaliveInterval = max(period, time.Second)
 }
 
+// SetDiscoMagic set disco magic bytes provider function
+func (c *UDPConn) SetDiscoMagic(magic func() []byte) {
+	c.disco.Magic = magic
+}
+
 func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.ID) (*UDPConn, error) {
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: port})
 	if err != nil {
@@ -462,7 +468,7 @@ func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.ID) (*UDPConn, e
 	udpConn := UDPConn{
 		id:                    id,
 		UDPConn:               conn,
-		disco:                 &Disco{Magic: func() []byte { return []byte("_ping") }},
+		disco:                 &Disco{},
 		closedSig:             make(chan int),
 		datagrams:             make(chan *Datagram),
 		udpAddrSends:          make(chan *PeerUDPAddrEvent, 10),
