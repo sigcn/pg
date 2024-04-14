@@ -87,7 +87,9 @@ type PeerContext struct {
 }
 
 func (peer *PeerContext) Heartbeat(addr *net.UDPAddr) {
-	peer.statesMutex.Lock()
+	if peer == nil || !peer.statesMutex.TryLock() {
+		return
+	}
 	defer peer.statesMutex.Unlock()
 	slog.Debug("[UDP] Heartbeat", "peer", peer.PeerID, "addr", addr)
 	for _, state := range peer.States {

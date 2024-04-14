@@ -124,8 +124,10 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.ID, stunServers []string) 
 	})
 }
 
-func (c *UDPConn) ensurePeerContext(peerID peer.ID) *PeerContext {
-	c.peersIndexMutex.RLock()
+func (c *UDPConn) tryPeerContext(peerID peer.ID) *PeerContext {
+	if !c.peersIndexMutex.TryRLock() {
+		return nil
+	}
 	ctx, ok := c.peersIndex[peerID]
 	c.peersIndexMutex.RUnlock()
 	if ok {
@@ -265,7 +267,7 @@ func (c *UDPConn) runPacketEventLoop() {
 
 		// ping
 		if peerID := c.disco.ParsePing(buf[:n]); peerID.Len() > 0 {
-			c.ensurePeerContext(peerID).Heartbeat(peerAddr)
+			c.tryPeerContext(peerID).Heartbeat(peerAddr)
 			continue
 		}
 
@@ -283,6 +285,7 @@ func (c *UDPConn) runPacketEventLoop() {
 			slog.Error("RecvButPeerNotReady", "addr", peerAddr)
 			continue
 		}
+		c.tryPeerContext(peerID).Heartbeat(peerAddr)
 		b := make([]byte, n)
 		copy(b, buf[:n])
 		c.datagrams <- &Datagram{
