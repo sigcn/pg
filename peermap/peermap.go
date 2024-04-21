@@ -28,17 +28,18 @@ var (
 )
 
 type Peer struct {
-	exitSig        chan struct{}
-	peerMap        *PeerMap
-	secret         auth.JSONSecret
+	conn    *websocket.Conn
+	exitSig chan struct{}
+	peerMap *PeerMap
+
+	networkSecret  auth.JSONSecret
 	networkContext *networkContext
-	metadata       peer.Metadata
-	conn           *websocket.Conn
-	activeTime     time.Time
-	networkID      string
-	id             peer.ID
-	nonce          byte
-	wMut           sync.Mutex
+
+	metadata   peer.Metadata
+	activeTime time.Time
+	id         peer.ID
+	nonce      byte
+	wMut       sync.Mutex
 
 	connRRL  *rate.Limiter
 	connWRL  *rate.Limiter
@@ -60,8 +61,8 @@ func (p *Peer) writeWS(messageType int, b []byte) error {
 }
 
 func (p *Peer) close() error {
-	if ctx, ok := p.peerMap.networkMap.Get(string(p.networkID)); ok {
-		slog.Debug("PeerRemoved", "network", p.networkID, "peer", p.id)
+	if ctx, ok := p.peerMap.networkMap.Get(p.networkSecret.Network); ok {
+		slog.Debug("PeerRemoved", "network", p.networkSecret.Network, "peer", p.id)
 		ctx.Remove(string(p.id))
 	}
 	_ = p.conn.WriteControl(websocket.CloseMessage,
@@ -136,7 +137,7 @@ func (p *Peer) Start() {
 		return
 	}
 
-	ctx, _ := p.peerMap.networkMap.Get(string(p.networkID))
+	ctx, _ := p.peerMap.networkMap.Get(p.networkSecret.Network)
 	for target := range ctx.IterBuffered() {
 		if target.Key == string(p.id) {
 			continue
@@ -199,7 +200,7 @@ func (p *Peer) readMessageLoop() {
 		}
 		tgtPeerID := peer.ID(b[2 : b[1]+2])
 		slog.Debug("PeerEvent", "op", b[0], "from", p.id, "to", tgtPeerID)
-		tgtPeer, err := p.peerMap.GetPeer(p.networkID, tgtPeerID)
+		tgtPeer, err := p.peerMap.GetPeer(p.networkSecret.Network, tgtPeerID)
 		if err != nil {
 			slog.Debug("FindPeer failed", "detail", err)
 			continue
@@ -241,8 +242,8 @@ func (p *Peer) keepalive() {
 			break
 		}
 
-		if time.Until(time.Unix(p.secret.Deadline, 0)) < 1*time.Hour {
-			secret, err := p.peerMap.generateSecret(p.secret.Network)
+		if time.Until(time.Unix(p.networkSecret.Deadline, 0)) < 1*time.Hour {
+			secret, err := p.peerMap.generateSecret(p.networkSecret.Network)
 			if err != nil {
 				slog.Error("NetworkSecretRefresh", "err", err)
 				continue
@@ -259,7 +260,7 @@ func (p *Peer) keepalive() {
 				slog.Error("NetworkSecretRefresh", "err", err)
 				continue
 			}
-			p.secret, _ = p.peerMap.authenticator.ParseSecret(secret.Secret)
+			p.networkSecret, _ = p.peerMap.authenticator.ParseSecret(secret.Secret)
 		}
 	}
 	p.close()
@@ -410,9 +411,8 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	peer := Peer{
 		exitSig:        make(chan struct{}),
 		peerMap:        pm,
-		secret:         jsonSecret,
+		networkSecret:  jsonSecret,
 		networkContext: networkCtx,
-		networkID:      jsonSecret.Network,
 		id:             peer.ID(peerID),
 		nonce:          nonce,
 		metadata:       peer.Metadata{},
