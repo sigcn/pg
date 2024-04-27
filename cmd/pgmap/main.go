@@ -40,6 +40,7 @@ func main() {
 	serveCmd.Flags().StringP("listen", "l", "127.0.0.1:9987", "listen http address")
 	serveCmd.Flags().String("secret-key", "", "key to generate network secret (defaut generate a random one)")
 	serveCmd.Flags().StringSlice("stun", []string{}, "stun server for peers NAT traversal (leave blank to disable NAT traversal)")
+	serveCmd.Flags().String("pubnet", "", "public network (leave blank to disable public network)")
 	serveCmd.Flags().IntP("verbose", "V", 0, "logger verbosity level")
 
 	serveCmd.Execute()
@@ -77,6 +78,10 @@ func commandlineConfig(cmd *cobra.Command) (opts peermap.Config, err error) {
 		return
 	}
 	opts.SecretKey, err = cmd.Flags().GetString("secret-key")
+	if err != nil {
+		return
+	}
+	opts.PublicNetwork, err = cmd.Flags().GetString("pubnet")
 	if err != nil {
 		return
 	}

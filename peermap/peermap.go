@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"path"
@@ -134,6 +135,10 @@ func (p *Peer) Start() {
 	go p.readMessageLoop()
 	go p.keepalive()
 	if p.metadata.SilenceMode {
+		return
+	}
+
+	if p.peerMap.cfg.PublicNetwork == p.networkSecret.Network {
 		return
 	}
 
@@ -382,11 +387,19 @@ func (pm *PeerMap) HandleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 }
 
 func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Request) {
-	jsonSecret, err := pm.authenticator.ParseSecret(r.Header.Get("X-Network"))
-	if err != nil {
-		slog.Debug("Authenticate failed", "err", err, "network", jsonSecret.Network, "secret", r.Header.Get("X-Network"))
-		w.WriteHeader(http.StatusForbidden)
-		return
+	networkSecrest := r.Header.Get("X-Network")
+	jsonSecret := auth.JSONSecret{
+		Network:  networkSecrest,
+		Deadline: math.MaxInt64,
+	}
+	if len(pm.cfg.PublicNetwork) == 0 || pm.cfg.PublicNetwork != networkSecrest {
+		secret, err := pm.authenticator.ParseSecret(networkSecrest)
+		if err != nil {
+			slog.Debug("Authenticate failed", "err", err, "network", jsonSecret.Network, "secret", r.Header.Get("X-Network"))
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		jsonSecret = secret
 	}
 
 	peerID := r.Header.Get("X-PeerID")

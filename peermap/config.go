@@ -20,6 +20,7 @@ type Config struct {
 	Listen        string                    `yaml:"listen"`
 	SecretKey     string                    `yaml:"secret_key"`
 	STUNs         []string                  `yaml:"stuns"`
+	PublicNetwork string                    `yaml:"public_network"`
 	OIDCProviders []oidc.OIDCProviderConfig `yaml:"oidc_providers"`
 	RateLimiter   *RateLimiter              `yaml:"rate_limiter,omitempty"`
 }
@@ -60,6 +61,9 @@ func (cfg *Config) Overwrite(cfg1 Config) {
 	}
 	if len(cfg1.STUNs) > 0 {
 		cfg.STUNs = cfg1.STUNs
+	}
+	if len(cfg1.PublicNetwork) > 0 {
+		cfg.PublicNetwork = cfg1.PublicNetwork
 	}
 }
 
