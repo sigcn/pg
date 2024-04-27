@@ -2,10 +2,9 @@ package secure
 
 import (
 	"crypto/rand"
-	"encoding/base64"
-	"fmt"
 
 	"golang.org/x/crypto/curve25519"
+	"storj.io/common/base58"
 )
 
 type PrivateKey struct {
@@ -14,14 +13,11 @@ type PrivateKey struct {
 }
 
 func (key *PrivateKey) String() string {
-	return base64.URLEncoding.EncodeToString(key.b)
+	return base58.Encode(key.b)
 }
 
 func (key *PrivateKey) SharedKey(pubKey string) ([]byte, error) {
-	b, err := base64.URLEncoding.DecodeString(pubKey)
-	if err != nil {
-		return nil, fmt.Errorf("invalid publicKey format: %w", err)
-	}
+	b := base58.Decode(pubKey)
 	secret, err := curve25519.X25519(key.b, b)
 	if err != nil {
 		return nil, err
@@ -34,7 +30,7 @@ type PublicKey struct {
 }
 
 func (key *PublicKey) String() string {
-	return base64.URLEncoding.EncodeToString(key.b)
+	return base58.Encode(key.b)
 }
 
 func GenerateCurve25519() (*PrivateKey, error) {
@@ -54,10 +50,7 @@ func GenerateCurve25519() (*PrivateKey, error) {
 }
 
 func Curve25519PrivateKey(privateKey string) (*PrivateKey, error) {
-	priv, err := base64.URLEncoding.DecodeString(privateKey)
-	if err != nil {
-		return nil, fmt.Errorf("invalid privateKey format: %w", err)
-	}
+	priv := base58.Decode(privateKey)
 	var pub [32]byte
 	curve25519.ScalarBaseMult(&pub, (*[32]byte)(priv))
 	return &PrivateKey{b: priv, PublicKey: PublicKey{b: pub[:]}}, nil

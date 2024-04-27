@@ -5,7 +5,9 @@ import (
 	"log/slog"
 
 	"github.com/rkonfj/peerguard/cmd/pgcli/curve25519"
+	"github.com/rkonfj/peerguard/cmd/pgcli/download"
 	"github.com/rkonfj/peerguard/cmd/pgcli/secret"
+	"github.com/rkonfj/peerguard/cmd/pgcli/share"
 	"github.com/rkonfj/peerguard/cmd/pgcli/vpn"
 	"github.com/spf13/cobra"
 )
@@ -34,6 +36,8 @@ func main() {
 	cmd.AddCommand(vpn.Cmd)
 	cmd.AddCommand(secret.Cmd)
 	cmd.AddCommand(curve25519.Cmd)
+	cmd.AddCommand(share.Cmd)
+	cmd.AddCommand(download.Cmd)
 
 	cmd.PersistentFlags().IntP("verbose", "V", 0, "logger verbosity level")
 	cmd.Execute()

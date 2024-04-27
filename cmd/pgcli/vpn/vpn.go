@@ -38,7 +38,7 @@ func init() {
 	Cmd.Flags().String("tun", "pg0", "tun name")
 	Cmd.Flags().Int("mtu", 1428, "mtu")
 
-	Cmd.Flags().String("key", "", "curve25519 private key in base64-url format (default generate a new one)")
+	Cmd.Flags().String("key", "", "curve25519 private key in base58 format (default generate a new one)")
 	Cmd.Flags().String("secret-file", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
 
 	Cmd.Flags().StringP("server", "s", "", "peermap server")

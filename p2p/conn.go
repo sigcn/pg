@@ -3,7 +3,6 @@ package p2p
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +16,7 @@ import (
 	"github.com/rkonfj/peerguard/lru"
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peer/peermap"
+	"storj.io/common/base58"
 )
 
 type PacketBroadcaster interface {
@@ -242,12 +242,12 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disc
 
 // ListenPacket listen the p2p network for read/write packets
 func ListenPacket(peermap *peermap.Peermap, opts ...Option) (*PeerPacketConn, error) {
-	id := make([]byte, 32)
+	id := make([]byte, 16)
 	rand.Read(id)
 	cfg := Config{
 		UDPPort:         29877,
 		KeepAlivePeriod: 10 * time.Second,
-		PeerID:          peer.ID(base64.URLEncoding.EncodeToString(id)),
+		PeerID:          peer.ID(base58.Encode(id)),
 	}
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
