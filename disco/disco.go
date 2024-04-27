@@ -196,6 +196,9 @@ type Datagram struct {
 }
 
 func (d *Datagram) TryDecrypt(symmAlgo secure.SymmAlgo) []byte {
+	if symmAlgo == nil {
+		return d.Data
+	}
 	b, err := symmAlgo.Decrypt(d.Data, d.PeerID.String())
 	if err != nil {
 		slog.Debug("Datagram decrypt error", "err", err)
@@ -205,6 +208,9 @@ func (d *Datagram) TryDecrypt(symmAlgo secure.SymmAlgo) []byte {
 }
 
 func (d *Datagram) TryEncrypt(symmAlgo secure.SymmAlgo) []byte {
+	if symmAlgo == nil {
+		return d.Data
+	}
 	b, err := symmAlgo.Encrypt(d.Data, d.PeerID.String())
 	if err != nil {
 		slog.Debug("Datagram encrypt error", "err", err)
