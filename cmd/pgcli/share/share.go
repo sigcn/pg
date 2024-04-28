@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -72,7 +73,7 @@ func serve(ctx context.Context, pubnet pubnet.PublicNetwork, files []string) err
 		if index, err := fm.Add(file); err != nil {
 			slog.Warn("AddFile", "path", file, "err", err)
 		} else {
-			fmt.Printf("ShareURL: pg://%s/%d/%s\n", packetConn.LocalAddr(), index, filepath.Base(file))
+			fmt.Printf("ShareURL: pg://%s/%d/%s\n", packetConn.LocalAddr(), index, url.QueryEscape(filepath.Base(file)))
 		}
 	}
 
@@ -97,7 +98,7 @@ func serve(ctx context.Context, pubnet pubnet.PublicNetwork, files []string) err
 			continue
 		}
 		conn.SetStreamMode(true)
-		conn.SetNoDelay(1, 10, 2, 1)
+		conn.SetNoDelay(0, 10, 0, 1)
 		conn.SetWindowSize(1024, 1024)
 		go func() {
 			<-ctx.Done()

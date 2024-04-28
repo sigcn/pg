@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peer/peermap"
+	"golang.org/x/time/rate"
 )
 
 var (
@@ -36,6 +38,7 @@ type WSConn struct {
 	stuns         []string
 	activeTime    time.Time
 	writeMutex    sync.Mutex
+	rateLimiter   *rate.Limiter
 
 	connData chan []byte
 	connBuf  []byte
@@ -95,6 +98,9 @@ func (c *WSConn) CloseConn() error {
 }
 
 func (c *WSConn) WriteTo(p []byte, peerID peer.ID, op byte) error {
+	if op == peer.CONTROL_RELAY && c.rateLimiter != nil {
+		c.rateLimiter.WaitN(context.Background(), len(p))
+	}
 	b := make([]byte, 0, 2+len(peerID)+len(p))
 	b = append(b, op)                // relay
 	b = append(b, peerID.Len())      // addr length
@@ -170,6 +176,14 @@ func (c *WSConn) dial(server string) error {
 	err = json.Unmarshal(xSTUNs, &stuns)
 	if err != nil {
 		return err
+	}
+	limit, err := strconv.ParseInt(httpResp.Header.Get("X-Limiter-Limit"), 10, 64)
+	if err != nil {
+		return err
+	}
+	slog.Log(context.Background(), -2, "RealyRateLimiter", "limit", limit, "burst", limit)
+	if limit > 0 {
+		c.rateLimiter = rate.NewLimiter(rate.Limit(limit), int(limit))
 	}
 	c.Conn = conn
 	c.stuns = stuns

@@ -18,7 +18,7 @@ var (
 
 var defaultDiscoConfig = DiscoConfig{
 	PortScanCount:             2000,
-	ChallengesRetry:           2,
+	ChallengesRetry:           3,
 	ChallengesInitialInterval: 200 * time.Millisecond,
 	ChallengesBackoffRate:     1.75,
 }

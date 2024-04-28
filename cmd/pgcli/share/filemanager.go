@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -88,11 +89,11 @@ func (fm *FileManager) HandleRequest(peerID string, conn net.Conn) {
 
 	bar := progressbar.NewOptions64(
 		stat.Size(),
-		progressbar.OptionSetDescription(fmt.Sprintf("%s:%s", peerID, stat.Name())),
+		progressbar.OptionSetDescription(fmt.Sprintf("%s:%s", peerID, url.QueryEscape(stat.Name()))),
 		progressbar.OptionSetWriter(os.Stderr),
 		progressbar.OptionShowBytes(true),
 		progressbar.OptionSetWidth(10),
-		progressbar.OptionThrottle(10*time.Millisecond),
+		progressbar.OptionThrottle(200*time.Millisecond),
 		progressbar.OptionShowCount(),
 		progressbar.OptionOnCompletion(func() {
 			fmt.Fprint(os.Stderr, "\n")
@@ -110,11 +111,20 @@ func (fm *FileManager) HandleRequest(peerID string, conn net.Conn) {
 	)
 
 	sha256Checksum := sha256.New()
-	_, err = io.Copy(io.MultiWriter(conn, bar, sha256Checksum), f)
+	_, err = io.Copy(io.MultiWriter(&sender{conn}, bar, sha256Checksum), f)
 	if err != nil {
 		slog.Info("Copy file failed", "err", err)
 	}
 	conn.Write(sha256Checksum.Sum(nil))
+}
+
+type sender struct {
+	net.Conn
+}
+
+func (s *sender) Write(b []byte) (n int, err error) {
+	s.Conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	return s.Conn.Write(b)
 }
 
 func buildOK(fileSize int64) []byte {

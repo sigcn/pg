@@ -192,9 +192,6 @@ func (p *Peer) readMessageLoop() {
 			return
 		}
 		p.activeTime = time.Now()
-		if p.networkContext.ratelimiter != nil {
-			p.networkContext.ratelimiter.WaitN(context.Background(), len(b))
-		}
 		switch mt {
 		case websocket.BinaryMessage:
 		default:
@@ -451,6 +448,10 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	upgradeHeader.Set("X-Nonce", r.Header.Get("X-Nonce"))
 	stuns, _ := json.Marshal(pm.cfg.STUNs)
 	upgradeHeader.Set("X-STUNs", base64.StdEncoding.EncodeToString(stuns))
+	if pm.cfg.RateLimiter != nil {
+		upgradeHeader.Set("X-Limiter-Burst", fmt.Sprintf("%d", pm.cfg.RateLimiter.Burst))
+		upgradeHeader.Set("X-Limiter-Limit", fmt.Sprintf("%d", pm.cfg.RateLimiter.Limit))
+	}
 	wsConn, err := pm.wsUpgrader.Upgrade(w, r, upgradeHeader)
 	if err != nil {
 		slog.Error(err.Error())

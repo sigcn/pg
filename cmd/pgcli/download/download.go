@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"os/signal"
@@ -69,7 +70,11 @@ func init() {
 			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
-			return requestFile(ctx, pubnet, resourceURL.Host, uint16(index), filename)
+			fn, err := url.QueryUnescape(filename)
+			if err != nil {
+				fn = filename
+			}
+			return requestFile(ctx, pubnet, resourceURL.Host, uint16(index), fn)
 		},
 	}
 	Cmd.Flags().StringP("server", "s", "", "peermap server")
@@ -91,7 +96,7 @@ func requestFile(ctx context.Context, pubnet pubnet.PublicNetwork, peerID string
 	}
 	defer conn.Close()
 	conn.SetStreamMode(true)
-	conn.SetNoDelay(1, 10, 2, 1)
+	conn.SetNoDelay(0, 10, 0, 1)
 	conn.SetWindowSize(1024, 1024)
 
 	f, err := os.Create(filename)
@@ -123,24 +128,16 @@ func requestFile(ctx context.Context, pubnet pubnet.PublicNetwork, peerID string
 	fileSize := binary.BigEndian.Uint32(header[1:])
 	bar := progressbar.NewOptions64(
 		int64(fileSize),
-		progressbar.OptionSetDescription("downloading"),
+		progressbar.OptionSetDescription(filename),
 		progressbar.OptionSetWriter(os.Stderr),
 		progressbar.OptionShowBytes(true),
 		progressbar.OptionSetWidth(10),
-		progressbar.OptionThrottle(10*time.Millisecond),
+		progressbar.OptionThrottle(500*time.Millisecond),
 		progressbar.OptionShowCount(),
 		progressbar.OptionOnCompletion(func() {
 			fmt.Fprint(os.Stderr, "\n")
 		}),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "=",
-			SaucerHead:    ">",
-			SaucerPadding: " ",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
 		progressbar.OptionSpinnerType(14),
-		progressbar.OptionFullWidth(),
 		progressbar.OptionSetRenderBlankState(true),
 	)
 	go func() { // watch exit program event
@@ -156,7 +153,6 @@ func requestFile(ctx context.Context, pubnet pubnet.PublicNetwork, peerID string
 	if err != nil && !errors.Is(err, io.EOF) {
 		return fmt.Errorf("download file falied: %w", err)
 	}
-	conn.Write(buildChecksum())
 	checksum := make([]byte, 32)
 	if _, err = io.ReadFull(conn, checksum); err != nil {
 		return fmt.Errorf("read checksum failed: %w", err)
@@ -169,7 +165,7 @@ func requestFile(ctx context.Context, pubnet pubnet.PublicNetwork, peerID string
 }
 
 type downloader struct {
-	r        io.Reader
+	r        net.Conn
 	finished func() bool
 }
 
@@ -177,6 +173,7 @@ func (d *downloader) Read(p []byte) (n int, err error) {
 	if d.finished() {
 		return 0, io.EOF
 	}
+	d.r.SetReadDeadline(time.Now().Add(5 * time.Second))
 	return d.r.Read(p)
 }
 
@@ -189,8 +186,4 @@ func buildGet(index uint16) []byte {
 
 func buildClose() []byte {
 	return []byte{1}
-}
-
-func buildChecksum() []byte {
-	return []byte{2}
 }
