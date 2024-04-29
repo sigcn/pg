@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"sync"
 	"time"
 
@@ -200,6 +201,11 @@ func (p *Peer) readMessageLoop() {
 		for i, v := range b {
 			b[i] = v ^ p.nonce
 		}
+		if slices.Contains([]byte{peer.CONTROL_LEAD_DISCO, peer.CONTROL_NEW_PEER_UDP_ADDR}, b[0]) {
+			p.networkContext.disoRatelimiter.WaitN(context.Background(), len(b))
+		} else if p.networkContext.ratelimiter != nil {
+			p.networkContext.ratelimiter.WaitN(context.Background(), len(b))
+		}
 		tgtPeerID := peer.ID(b[2 : b[1]+2])
 		slog.Debug("PeerEvent", "op", b[0], "from", p.id, "to", tgtPeerID)
 		tgtPeer, err := p.peerMap.GetPeer(p.networkSecret.Network, tgtPeerID)
@@ -219,9 +225,6 @@ func (p *Peer) readMessageLoop() {
 			bb[1] = p.id.Len()
 			copy(bb[2:p.id.Len()+2], p.id.Bytes())
 			copy(bb[p.id.Len()+2:], data)
-			if p.networkContext.ratelimiter != nil {
-				p.networkContext.ratelimiter.WaitN(context.Background(), len(b))
-			}
 			_ = tgtPeer.write(bb)
 		}
 	}
@@ -270,8 +273,9 @@ func (p *Peer) keepalive() {
 
 type networkContext struct {
 	cmap.ConcurrentMap[string, *Peer]
-	ratelimiter *rate.Limiter
-	createTime  time.Time
+	ratelimiter     *rate.Limiter
+	disoRatelimiter *rate.Limiter
+	createTime      time.Time
 }
 
 type PeerMap struct {
@@ -411,9 +415,10 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 			}
 		}
 		pm.networkMap.SetIfAbsent(jsonSecret.Network, &networkContext{
-			ConcurrentMap: cmap.New[*Peer](),
-			ratelimiter:   rateLimiter,
-			createTime:    time.Now(),
+			ConcurrentMap:   cmap.New[*Peer](),
+			ratelimiter:     rateLimiter,
+			disoRatelimiter: rate.NewLimiter(rate.Limit(10*1024), 1024*1024),
+			createTime:      time.Now(),
 		})
 	}
 
