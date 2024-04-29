@@ -240,6 +240,14 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disc
 	}
 }
 
+// SharedKey get the key shared with the peer
+func (c *PeerPacketConn) SharedKey(peerID peer.ID) ([]byte, error) {
+	if c.cfg.SymmAlgo == nil {
+		return nil, errors.New("get shared key from plain conn")
+	}
+	return c.cfg.SymmAlgo.SecretKey()(peerID.String())
+}
+
 // ListenPacket listen the p2p network for read/write packets
 func ListenPacket(peermap *peermap.Peermap, opts ...Option) (*PeerPacketConn, error) {
 	id := make([]byte, 16)

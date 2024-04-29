@@ -124,6 +124,10 @@ func (s *AESCBC) Decrypt(b []byte, pubKey string) ([]byte, error) {
 	return PKCS7UnPadding(plainBytes)
 }
 
+func (s *AESCBC) SecretKey() secure.ProvideSecretKey {
+	return s.provideSecretKey
+}
+
 func (s *AESCBC) ensureChiperBlock(pubKey string) (cipher.Block, error) {
 	s.mut.RLock()
 	block, ok := s.cipher.Get(pubKey)

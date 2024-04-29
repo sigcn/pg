@@ -62,6 +62,10 @@ func (s *Chacha20Poly1305) Decrypt(data []byte, pubKey string) ([]byte, error) {
 	return plain, nil
 }
 
+func (s *Chacha20Poly1305) SecretKey() secure.ProvideSecretKey {
+	return s.provideSecretKey
+}
+
 func (s *Chacha20Poly1305) ensureChiperAEAD(pubKey string) (cipher.AEAD, error) {
 	s.mut.RLock()
 	aead, ok := s.cipher.Get(pubKey)
