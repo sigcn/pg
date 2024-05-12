@@ -95,6 +95,7 @@ func (fm *FileManager) HandleRequest(peerID string, conn net.Conn) {
 		progressbar.OptionSetWidth(10),
 		progressbar.OptionThrottle(200*time.Millisecond),
 		progressbar.OptionShowCount(),
+		progressbar.OptionShowElapsedTimeOnFinish(),
 		progressbar.OptionOnCompletion(func() {
 			fmt.Fprint(os.Stderr, "\n")
 		}),

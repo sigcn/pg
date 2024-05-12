@@ -130,6 +130,7 @@ func requestFile(ctx context.Context, pubnet pubnet.PublicNetwork, peerID string
 		progressbar.OptionShowBytes(true),
 		progressbar.OptionThrottle(500*time.Millisecond),
 		progressbar.OptionShowCount(),
+		progressbar.OptionShowElapsedTimeOnFinish(),
 		progressbar.OptionOnCompletion(func() {
 			fmt.Fprint(os.Stderr, "\n")
 		}),

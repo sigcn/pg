@@ -58,11 +58,28 @@ type rdtConn struct {
 // time limit; see SetDeadline and SetReadDeadline.
 func (c *rdtConn) Read(b []byte) (n int, err error) {
 	if c.inboundBuf == nil {
-		pkt, ok := <-c.inbound
-		if !ok {
-			return 0, io.ErrClosedPipe
+		select {
+		case <-c.exit:
+			err = &net.OpError{
+				Op:     "read",
+				Net:    c.c.LocalAddr().Network(),
+				Source: c.c.LocalAddr(),
+				Addr:   c.remoteAddr,
+				Err:    errors.New("closed"),
+			}
+			return
+		case pkt, ok := <-c.inbound:
+			if !ok {
+				return 0, &net.OpError{
+					Op:     "read",
+					Net:    c.c.LocalAddr().Network(),
+					Source: c.c.LocalAddr(),
+					Addr:   c.remoteAddr,
+					Err:    errors.New("closed"),
+				}
+			}
+			c.inboundBuf = pkt
 		}
-		c.inboundBuf = pkt
 	}
 	n = copy(b, c.inboundBuf)
 	if n == len(c.inboundBuf) {
@@ -87,7 +104,16 @@ func (c *rdtConn) Write(b []byte) (n int, err error) {
 		if len(c.sendPool) >= int(c.ackCount) {
 			c.sendMutex.Unlock()
 			for {
-				<-c.sendEvent
+				if _, ok := <-c.sendEvent; !ok {
+					err = &net.OpError{
+						Op:     "write",
+						Net:    c.c.LocalAddr().Network(),
+						Source: c.c.LocalAddr(),
+						Addr:   c.remoteAddr,
+						Err:    errors.New("closed"),
+					}
+					return
+				}
 				c.sendMutex.Lock()
 				if len(c.sendPool) >= int(c.ackCount) {
 					c.sendMutex.Unlock()
