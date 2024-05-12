@@ -11,7 +11,6 @@ require (
 	github.com/schollz/progressbar/v3 v3.14.2
 	github.com/spf13/cobra v1.8.0
 	github.com/vishvananda/netlink v1.2.1-beta.2
-	github.com/xtaci/kcp-go/v5 v5.6.8
 	golang.org/x/crypto v0.19.0
 	golang.org/x/net v0.21.0
 	golang.org/x/oauth2 v0.17.0
@@ -28,15 +27,9 @@ require (
 	github.com/go-jose/go-jose/v3 v3.0.1 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/klauspost/cpuid/v2 v2.2.6 // indirect
-	github.com/klauspost/reedsolomon v1.12.0 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/templexxx/cpu v0.1.0 // indirect
-	github.com/templexxx/xorsimd v0.4.2 // indirect
-	github.com/tjfoc/gmsm v1.4.1 // indirect
 	github.com/vishvananda/netns v0.0.4 // indirect
 	golang.org/x/term v0.19.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect

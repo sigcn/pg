@@ -115,7 +115,9 @@ func (fm *FileManager) HandleRequest(peerID string, conn net.Conn) {
 	if err != nil {
 		slog.Info("Copy file failed", "err", err)
 	}
-	conn.Write(sha256Checksum.Sum(nil))
+	checksum := sha256Checksum.Sum(nil)
+	slog.Debug("Checksum", "sum", checksum)
+	conn.Write(checksum)
 }
 
 type sender struct {

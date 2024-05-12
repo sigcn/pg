@@ -3,7 +3,6 @@ package download
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -22,9 +21,9 @@ import (
 
 	"github.com/rkonfj/peerguard/cmd/pgcli/share/pubnet"
 	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/rdt"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
-	"github.com/xtaci/kcp-go/v5"
 )
 
 var Cmd *cobra.Command
@@ -88,28 +87,26 @@ func requestFile(ctx context.Context, pubnet pubnet.PublicNetwork, peerID string
 		return fmt.Errorf("listen p2p packet failed: %w", err)
 	}
 
-	var convid uint32
-	binary.Read(rand.Reader, binary.LittleEndian, &convid)
-	conn, err := kcp.NewConn3(convid, peer.ID(peerID), nil, 10, 3, packetConn)
+	listener, err := rdt.Listen(packetConn, rdt.EnableStatsServer(":29880"))
 	if err != nil {
-		return fmt.Errorf("dial kcp server failed: %w", err)
+		return fmt.Errorf("listen rdt: %w", err)
+	}
+
+	conn, err := listener.DialContext(ctx, peer.ID(peerID))
+	if err != nil {
+		return fmt.Errorf("dial server failed: %w", err)
 	}
 	defer conn.Close()
-	conn.SetStreamMode(true)
-	conn.SetNoDelay(0, 10, 0, 1)
-	conn.SetWindowSize(1024, 1024)
 
 	f, err := os.Create(filename)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-
 	_, err = conn.Write(buildGet(uint16(index)))
 	if err != nil {
 		return err
 	}
-
 	header := make([]byte, 5)
 	_, err = io.ReadFull(conn, header)
 	if err != nil {
@@ -131,7 +128,6 @@ func requestFile(ctx context.Context, pubnet pubnet.PublicNetwork, peerID string
 		progressbar.OptionSetDescription(filename),
 		progressbar.OptionSetWriter(os.Stderr),
 		progressbar.OptionShowBytes(true),
-		progressbar.OptionSetWidth(10),
 		progressbar.OptionThrottle(500*time.Millisecond),
 		progressbar.OptionShowCount(),
 		progressbar.OptionOnCompletion(func() {
@@ -157,7 +153,9 @@ func requestFile(ctx context.Context, pubnet pubnet.PublicNetwork, peerID string
 	if _, err = io.ReadFull(conn, checksum); err != nil {
 		return fmt.Errorf("read checksum failed: %w", err)
 	}
-	if !bytes.Equal(checksum, sha256Checksum.Sum(nil)) {
+	recvSum := sha256Checksum.Sum(nil)
+	slog.Debug("Checksum", "recv", recvSum, "send", checksum)
+	if !bytes.Equal(checksum, recvSum) {
 		return fmt.Errorf("download file failed: checksum mismatched")
 	}
 	fmt.Printf("sha256: %x\n", checksum)

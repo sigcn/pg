@@ -12,8 +12,8 @@ import (
 	"syscall"
 
 	"github.com/rkonfj/peerguard/cmd/pgcli/share/pubnet"
+	"github.com/rkonfj/peerguard/rdt"
 	"github.com/spf13/cobra"
-	"github.com/xtaci/kcp-go/v5"
 )
 
 var Cmd *cobra.Command
@@ -77,9 +77,9 @@ func serve(ctx context.Context, pubnet pubnet.PublicNetwork, files []string) err
 		}
 	}
 
-	listener, err := kcp.ServeConn(nil, 10, 3, packetConn)
+	listener, err := rdt.Listen(packetConn)
 	if err != nil {
-		return fmt.Errorf("listen kcp failed: %w", err)
+		return fmt.Errorf("listen rdt: %w", err)
 	}
 
 	go func() {
@@ -92,14 +92,11 @@ func serve(ctx context.Context, pubnet pubnet.PublicNetwork, files []string) err
 			return nil
 		default:
 		}
-		conn, err := listener.AcceptKCP()
+		conn, err := listener.Accept()
 		if err != nil {
 			slog.Debug("Accept failed", "err", err)
 			continue
 		}
-		conn.SetStreamMode(true)
-		conn.SetNoDelay(0, 10, 0, 1)
-		conn.SetWindowSize(1024, 1024)
 		go func() {
 			<-ctx.Done()
 			conn.Close()
