@@ -77,7 +77,7 @@ func serve(ctx context.Context, pubnet pubnet.PublicNetwork, files []string) err
 		}
 	}
 
-	listener, err := rdt.Listen(packetConn)
+	listener, err := rdt.Listen(packetConn, rdt.EnableStatsServer(":29879"))
 	if err != nil {
 		return fmt.Errorf("listen rdt: %w", err)
 	}

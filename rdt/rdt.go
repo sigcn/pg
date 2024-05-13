@@ -19,29 +19,26 @@ type nck struct {
 	missing []uint32
 }
 
-type fin struct {
-	no uint32
-}
-
 var _ net.Conn = (*rdtConn)(nil)
 
 type rdtConn struct {
 	cfg        Config
-	ackCount   uint32
-	dataLen    int
+	window     uint32
+	frameSize  int
 	c          net.PacketConn
 	remoteAddr net.Addr
 
 	exit       chan struct{}
 	inbound    chan []byte
 	nck        chan nck
-	fin        chan fin
+	fin        chan uint32
 	sendEvent  chan struct{}
 	inboundBuf []byte
 
-	recvNO    uint32
-	sentNO    uint32
-	sendACKNO uint32
+	recvNO uint32
+	sentNO uint32
+	ackNO  uint32
+	rs     atomic.Uint32
 
 	recvPool  map[uint32][]byte
 	recvMutex sync.RWMutex
@@ -94,14 +91,24 @@ func (c *rdtConn) Read(b []byte) (n int, err error) {
 // Write can be made to time out and return an error after a fixed
 // time limit; see SetDeadline and SetWriteDeadline.
 func (c *rdtConn) Write(b []byte) (n int, err error) {
-	for i := range int(math.Ceil(float64(len(b)) / float64(c.dataLen))) {
-		start := i * c.dataLen
-		length := c.dataLen
-		if len(b)-start < c.dataLen {
+	if c.state.Load() > 0 {
+		err = &net.OpError{
+			Op:     "write",
+			Net:    c.c.LocalAddr().Network(),
+			Source: c.c.LocalAddr(),
+			Addr:   c.remoteAddr,
+			Err:    errors.New("closed"),
+		}
+		return
+	}
+	for i := range int(math.Ceil(float64(len(b)) / float64(c.frameSize))) {
+		start := i * c.frameSize
+		length := c.frameSize
+		if len(b)-start < c.frameSize {
 			length = len(b) - start
 		}
 		c.sendMutex.Lock()
-		if len(c.sendPool) >= int(c.ackCount) {
+		if len(c.sendPool) >= int(c.window) {
 			c.sendMutex.Unlock()
 			for {
 				if _, ok := <-c.sendEvent; !ok {
@@ -115,7 +122,7 @@ func (c *rdtConn) Write(b []byte) (n int, err error) {
 					return
 				}
 				c.sendMutex.Lock()
-				if len(c.sendPool) >= int(c.ackCount) {
+				if len(c.sendPool) >= int(c.window) {
 					c.sendMutex.Unlock()
 					continue
 				}
@@ -146,6 +153,7 @@ func (c *rdtConn) Close() error {
 		close(c.exit)
 		close(c.inbound)
 		close(c.nck)
+		close(c.fin)
 		close(c.sendEvent)
 		c.inboundBuf = nil
 		c.recvNO = 0
@@ -165,7 +173,7 @@ func (c *rdtConn) Flush() error {
 	for i := 0; i < 100; i++ {
 		c.askNCK(sentNO)
 		time.Sleep(50 * time.Millisecond)
-		if c.sendACKNO >= sentNO {
+		if c.ackNO >= sentNO {
 			return nil
 		}
 	}
@@ -231,6 +239,7 @@ func (c *rdtConn) resend(nck nck) {
 		c.sendMutex.RUnlock()
 		if ok {
 			c.send(pkt)
+			c.rs.Add(1)
 		}
 		missing[n] = struct{}{}
 	}
@@ -263,8 +272,8 @@ func (c *rdtConn) recv(pkt []byte) {
 			return
 		}
 		l := binary.BigEndian.Uint16(pkt[5:7])
-		if no%c.ackCount == 0 {
-			c.sendNCK(min(c.recvNO+c.ackCount, no))
+		if no%c.window == 0 {
+			c.sendNCK(min(c.recvNO+c.window, no))
 		}
 		if no <= c.recvNO {
 			return
@@ -283,8 +292,8 @@ func (c *rdtConn) recv(pkt []byte) {
 			}
 			return
 		}
-		if no-c.recvNO > c.ackCount*2 {
-			c.sendNCK(c.recvNO + c.ackCount)
+		if no-c.recvNO > c.window*2 {
+			c.sendNCK(c.recvNO + c.window)
 			return
 		}
 		c.recvMutex.Lock()
@@ -299,8 +308,8 @@ func (c *rdtConn) recv(pkt []byte) {
 			s := 7 + i*4
 			nck.missing = append(nck.missing, binary.BigEndian.Uint32(pkt[s:s+4]))
 		}
-		if len(nck.missing) == 0 && nck.no > c.sendACKNO {
-			c.sendACKNO = nck.no
+		if len(nck.missing) == 0 && nck.no > c.ackNO {
+			c.ackNO = nck.no
 		}
 		c.resend(nck)
 	case 21: // FIN
@@ -313,7 +322,7 @@ func (c *rdtConn) recv(pkt []byte) {
 		finackPKT = append(finackPKT, 0, 0)
 		c.send(finackPKT)
 	case 22: // FINACK
-		c.fin <- fin{no: no}
+		c.fin <- no
 	}
 }
 
@@ -336,8 +345,8 @@ func (c *rdtConn) sendNCK(no uint32) {
 			noData = append(noData, binary.BigEndian.AppendUint32(nil, uint32(i))...)
 		}
 	}
-	if missing > uint16(c.ackCount) {
-		slog.Debug("NCKOverflow", "missing", missing, "ackcount", c.ackCount, "no", no, "recvno", c.recvNO)
+	if missing > uint16(c.window) {
+		slog.Debug("NCKOverflow", "missing", missing, "ackcount", c.window, "no", no, "recvno", c.recvNO)
 		return
 	}
 	nckPKT := []byte{2}
@@ -348,9 +357,6 @@ func (c *rdtConn) sendNCK(no uint32) {
 }
 
 func (c *rdtConn) sendFIN() error {
-	finPKT := []byte{21}
-	finPKT = append(finPKT, binary.BigEndian.AppendUint32(nil, c.sentNO)...)
-	finPKT = append(finPKT, 0, 0)
 	exit := make(chan struct{})
 	go func() {
 		for range 5 {
@@ -359,20 +365,23 @@ func (c *rdtConn) sendFIN() error {
 				return
 			default:
 			}
+			finPKT := []byte{21}
+			finPKT = append(finPKT, binary.BigEndian.AppendUint32(nil, c.sentNO)...)
+			finPKT = append(finPKT, 0, 0)
 			c.send(finPKT)
 			time.Sleep(100 * time.Millisecond)
 		}
-		c.fin <- fin{}
+		c.fin <- 0
 	}()
 	for {
-		f, ok := <-c.fin
+		fin, ok := <-c.fin
 		if !ok {
 			return io.ErrClosedPipe
 		}
-		if f.no == 0 {
+		if fin == 0 {
 			return errors.New("timeout")
 		}
-		if f.no != c.sentNO {
+		if fin != c.sentNO {
 			continue
 		}
 		close(exit)
@@ -388,7 +397,10 @@ func (c *rdtConn) run() {
 		default:
 		}
 		time.Sleep(c.cfg.Interval)
-		if len(c.sendPool) > 0 {
+		c.sendMutex.RLock()
+		count := len(c.sendPool)
+		c.sendMutex.RUnlock()
+		if count > 0 {
 			c.askNCK(c.sentNO)
 		}
 	}
@@ -434,14 +446,14 @@ func (l *RDTListener) Close() error {
 func (l *RDTListener) DialContext(ctx context.Context, addr net.Addr) (net.Conn, error) {
 	c := rdtConn{
 		cfg:        l.cfg,
-		ackCount:   uint32((l.cfg.MTU - 7) / 4),
-		dataLen:    l.cfg.MTU - 7,
+		window:     uint32((l.cfg.MTU - 7) / 4),
+		frameSize:  l.cfg.MTU - 7,
 		c:          l.c,
 		remoteAddr: addr,
 		exit:       make(chan struct{}),
 		inbound:    make(chan []byte, 1024),
 		nck:        make(chan nck),
-		fin:        make(chan fin),
+		fin:        make(chan uint32),
 		sendEvent:  make(chan struct{}),
 		recvPool:   map[uint32][]byte{},
 		sendPool:   map[uint32][]byte{},
@@ -476,14 +488,14 @@ func (l *RDTListener) runPacketReadLoop() {
 			if _, ok := l.connMap[addr.String()]; !ok {
 				c := rdtConn{
 					cfg:        l.cfg,
-					ackCount:   uint32((l.cfg.MTU - 7) / 4),
-					dataLen:    l.cfg.MTU - 7,
+					window:     uint32((l.cfg.MTU - 7) / 4),
+					frameSize:  l.cfg.MTU - 7,
 					c:          l.c,
 					remoteAddr: addr,
 					exit:       make(chan struct{}),
 					inbound:    make(chan []byte, 1024),
 					nck:        make(chan nck),
-					fin:        make(chan fin),
+					fin:        make(chan uint32),
 					sendEvent:  make(chan struct{}),
 					recvPool:   map[uint32][]byte{},
 					sendPool:   map[uint32][]byte{},
@@ -502,8 +514,9 @@ func (l *RDTListener) runPacketReadLoop() {
 func Listen(conn net.PacketConn, opts ...Option) (*RDTListener, error) {
 	cfg := Config{
 		MTU:      1428,
-		Interval: 30 * time.Millisecond,
+		Interval: 50 * time.Millisecond,
 	}
+
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
 			return nil, err

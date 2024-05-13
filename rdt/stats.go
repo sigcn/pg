@@ -13,7 +13,7 @@ type Stat struct {
 	State      int    `json:"state"`
 	RecvPool   int    `json:"recvPool"`
 	SendPool   int    `json:"sendPool"`
-	Inbound    int    `json:"inbound"`
+	Resend     uint32 `json:"resend"`
 }
 
 func runStatsHTTPServer(statsListener net.Listener, l *RDTListener) {
@@ -27,7 +27,7 @@ func runStatsHTTPServer(statsListener net.Listener, l *RDTListener) {
 				State:      int(v.state.Load()),
 				RecvPool:   len(v.recvPool),
 				SendPool:   len(v.sendPool),
-				Inbound:    len(v.inbound),
+				Resend:     v.rs.Load(),
 			})
 		}
 		json.NewEncoder(w).Encode(stats)
