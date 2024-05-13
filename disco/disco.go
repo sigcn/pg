@@ -18,9 +18,9 @@ var (
 
 var defaultDiscoConfig = DiscoConfig{
 	PortScanCount:             2000,
-	ChallengesRetry:           3,
+	ChallengesRetry:           5,
 	ChallengesInitialInterval: 200 * time.Millisecond,
-	ChallengesBackoffRate:     1.75,
+	ChallengesBackoffRate:     1.65,
 }
 
 type DiscoConfig struct {

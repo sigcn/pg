@@ -154,7 +154,7 @@ func (c *UDPConn) tryPeerContext(peerID peer.ID) *PeerContext {
 func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 	defer slog.Debug("[UDP] DiscoExit", "peer", peerID, "addr", addr)
 	c.discoPing(peerID, addr)
-	interval := defaultDiscoConfig.ChallengesInitialInterval + time.Duration(rand.Intn(100)*int(time.Millisecond))
+	interval := defaultDiscoConfig.ChallengesInitialInterval + time.Duration(rand.Intn(50)*int(time.Millisecond))
 	for i := 0; i < defaultDiscoConfig.ChallengesRetry; i++ {
 		time.Sleep(interval)
 		select {
