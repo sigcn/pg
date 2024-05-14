@@ -92,7 +92,7 @@ func requestFile(ctx context.Context, pubnet pubnet.PublicNetwork, peerID string
 		return fmt.Errorf("listen rdt: %w", err)
 	}
 
-	conn, err := listener.DialContext(ctx, peer.ID(peerID))
+	conn, err := listener.OpenStream(peer.ID(peerID))
 	if err != nil {
 		return fmt.Errorf("dial server failed: %w", err)
 	}

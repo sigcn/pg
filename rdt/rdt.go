@@ -1,9 +1,9 @@
 package rdt
 
 import (
-	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -35,6 +35,7 @@ type rdtConn struct {
 	sendEvent  chan struct{}
 	inboundBuf []byte
 
+	convID uint32
 	recvNO uint32
 	sentNO uint32
 	ackNO  uint32
@@ -130,10 +131,7 @@ func (c *rdtConn) Write(b []byte) (n int, err error) {
 			}
 		}
 		no := c.sentNO + 1
-		pkt := []byte{0}
-		pkt = append(pkt, binary.BigEndian.AppendUint32(nil, no)...)
-		pkt = append(pkt, binary.BigEndian.AppendUint16(nil, uint16(length))...)
-		pkt = append(pkt, b[start:start+length]...)
+		pkt := c.buildFrame(0, no, uint16(length), b[start:start+length])
 		c.sendPool[no] = pkt
 		c.sentNO++
 		c.sendMutex.Unlock()
@@ -262,50 +260,28 @@ func (c *rdtConn) send(pkt []byte) {
 	c.c.WriteTo(pkt, c.RemoteAddr())
 }
 
+func (c *rdtConn) buildFrame(cmd byte, no uint32, length uint16, data []byte) []byte {
+	pkt := []byte{cmd}
+	pkt = append(pkt, binary.BigEndian.AppendUint32(nil, no)...)
+	pkt = append(pkt, binary.BigEndian.AppendUint32(nil, c.convID)...)
+	pkt = append(pkt, binary.BigEndian.AppendUint16(nil, length)...)
+	pkt = append(pkt, data...)
+	return pkt
+}
+
 func (c *rdtConn) recv(pkt []byte) {
 	no := binary.BigEndian.Uint32(pkt[1:5])
+	l := binary.BigEndian.Uint16(pkt[9:11])
 	slog.Debug("RDTRecv", "cmd", pkt[0], "no", no, "peer", c.remoteAddr, "len", len(pkt))
 	switch pkt[0] {
 	case 0: // DATA
-		if c.state.Load() == 1 {
-			slog.Warn("drop packet for closed conn")
-			return
-		}
-		l := binary.BigEndian.Uint16(pkt[5:7])
-		if no%c.window == 0 {
-			c.sendNCK(min(c.recvNO+c.window, no))
-		}
-		if no <= c.recvNO {
-			return
-		}
-		if no == c.recvNO+1 {
-			c.inbound <- pkt[7 : l+7]
-			c.recvNO++
-			for {
-				if k, ok := c.recvPool[c.recvNO+1]; ok {
-					c.inbound <- k
-					c.recvNO++
-					delete(c.recvPool, c.recvNO)
-					continue
-				}
-				break
-			}
-			return
-		}
-		if no-c.recvNO > c.window*2 {
-			c.sendNCK(c.recvNO + c.window)
-			return
-		}
-		c.recvMutex.Lock()
-		c.recvPool[no] = pkt[7 : l+7]
-		c.recvMutex.Unlock()
+		c.recvData(no, pkt[11:l+11])
 	case 1: // QueryNCK
 		c.sendNCK(no)
 	case 2: // NCK
-		l := binary.BigEndian.Uint16(pkt[5:7])
 		nck := nck{no: no}
 		for i := range l / 4 {
-			s := 7 + i*4
+			s := 11 + i*4
 			nck.missing = append(nck.missing, binary.BigEndian.Uint32(pkt[s:s+4]))
 		}
 		if len(nck.missing) == 0 && nck.no > c.ackNO {
@@ -317,20 +293,48 @@ func (c *rdtConn) recv(pkt []byte) {
 			c.sendNCK(no)
 			return
 		}
-		finackPKT := []byte{22}
-		finackPKT = append(finackPKT, binary.BigEndian.AppendUint32(nil, no)...)
-		finackPKT = append(finackPKT, 0, 0)
-		c.send(finackPKT)
+		c.send(c.buildFrame(22, no, 0, nil))
 	case 22: // FINACK
 		c.fin <- no
 	}
 }
 
+func (c *rdtConn) recvData(no uint32, data []byte) {
+	if c.state.Load() == 1 {
+		slog.Warn("drop packet for closed conn")
+		return
+	}
+	if no%c.window == 0 {
+		c.sendNCK(min(c.recvNO+c.window, no))
+	}
+	if no <= c.recvNO {
+		return
+	}
+	if no == c.recvNO+1 {
+		c.inbound <- data
+		c.recvNO++
+		for {
+			if k, ok := c.recvPool[c.recvNO+1]; ok {
+				c.inbound <- k
+				c.recvNO++
+				delete(c.recvPool, c.recvNO)
+				continue
+			}
+			break
+		}
+		return
+	}
+	if no-c.recvNO > c.window*2 {
+		c.sendNCK(c.recvNO + c.window)
+		return
+	}
+	c.recvMutex.Lock()
+	c.recvPool[no] = data
+	c.recvMutex.Unlock()
+}
+
 func (c *rdtConn) askNCK(no uint32) {
-	queryPKT := []byte{1}
-	queryPKT = append(queryPKT, binary.BigEndian.AppendUint32(nil, no)...)
-	queryPKT = append(queryPKT, binary.BigEndian.AppendUint16(nil, 0)...)
-	c.send(queryPKT)
+	c.send(c.buildFrame(1, no, 0, nil))
 }
 
 func (c *rdtConn) sendNCK(no uint32) {
@@ -349,11 +353,7 @@ func (c *rdtConn) sendNCK(no uint32) {
 		slog.Debug("NCKOverflow", "missing", missing, "ackcount", c.window, "no", no, "recvno", c.recvNO)
 		return
 	}
-	nckPKT := []byte{2}
-	nckPKT = append(nckPKT, binary.BigEndian.AppendUint32(nil, no)...)
-	nckPKT = append(nckPKT, binary.BigEndian.AppendUint16(nil, uint16(missing*4))...)
-	nckPKT = append(nckPKT, noData...)
-	c.send(nckPKT)
+	c.send(c.buildFrame(2, no, uint16(missing*4), noData))
 }
 
 func (c *rdtConn) sendFIN() error {
@@ -365,10 +365,7 @@ func (c *rdtConn) sendFIN() error {
 				return
 			default:
 			}
-			finPKT := []byte{21}
-			finPKT = append(finPKT, binary.BigEndian.AppendUint32(nil, c.sentNO)...)
-			finPKT = append(finPKT, 0, 0)
-			c.send(finPKT)
+			c.send(c.buildFrame(21, c.sentNO, 0, nil))
 			time.Sleep(100 * time.Millisecond)
 		}
 		c.fin <- 0
@@ -407,8 +404,8 @@ func (c *rdtConn) run() {
 }
 
 // RDTListener reliable data transmission listener
-// simultaneous accept and dial are currently not supported
 type RDTListener struct {
+	convNO       uint32
 	cfg          Config
 	c            net.PacketConn
 	accept       chan *rdtConn
@@ -417,6 +414,7 @@ type RDTListener struct {
 	exitSig      chan struct{}
 }
 
+// Accept accept a connection from addr (0RTT)
 func (l *RDTListener) Accept() (net.Conn, error) {
 	select {
 	case c, ok := <-l.accept:
@@ -443,24 +441,27 @@ func (l *RDTListener) Close() error {
 	return l.c.Close()
 }
 
-func (l *RDTListener) DialContext(ctx context.Context, addr net.Addr) (net.Conn, error) {
+// OpenStream open a connection to addr (0RTT)
+func (l *RDTListener) OpenStream(addr net.Addr) (net.Conn, error) {
+	l.connMapMutex.Lock()
+	defer l.connMapMutex.Unlock()
+	l.convNO++
 	c := rdtConn{
 		cfg:        l.cfg,
-		window:     uint32((l.cfg.MTU - 7) / 4),
-		frameSize:  l.cfg.MTU - 7,
+		window:     uint32((l.cfg.MTU - 11) / 4),
+		frameSize:  l.cfg.MTU - 11,
 		c:          l.c,
 		remoteAddr: addr,
 		exit:       make(chan struct{}),
 		inbound:    make(chan []byte, 1024),
 		nck:        make(chan nck),
 		fin:        make(chan uint32),
+		convID:     l.convNO,
 		sendEvent:  make(chan struct{}),
 		recvPool:   map[uint32][]byte{},
 		sendPool:   map[uint32][]byte{},
 	}
-	l.connMapMutex.Lock()
-	l.connMap[addr.String()] = &c
-	l.connMapMutex.Unlock()
+	l.connMap[fmt.Sprintf("%s:00000000", addr.String())] = &c
 	go c.run()
 	return &c, nil
 }
@@ -480,16 +481,21 @@ func (l *RDTListener) runPacketReadLoop() {
 			}
 			panic(err)
 		}
+		if n < 11 {
+			slog.Error("RDT received invalid packet")
+			continue
+		}
+		connKey := fmt.Sprintf("%s:%x", addr.String(), buf[5:9])
 		l.connMapMutex.RLock()
-		c, ok := l.connMap[addr.String()]
+		c, ok := l.connMap[connKey]
 		l.connMapMutex.RUnlock()
 		if !ok {
 			l.connMapMutex.Lock()
-			if _, ok := l.connMap[addr.String()]; !ok {
+			if conn, ok := l.connMap[connKey]; !ok || conn.state.Load() > 0 {
 				c := rdtConn{
 					cfg:        l.cfg,
-					window:     uint32((l.cfg.MTU - 7) / 4),
-					frameSize:  l.cfg.MTU - 7,
+					window:     uint32((l.cfg.MTU - 11) / 4),
+					frameSize:  l.cfg.MTU - 11,
 					c:          l.c,
 					remoteAddr: addr,
 					exit:       make(chan struct{}),
@@ -500,11 +506,11 @@ func (l *RDTListener) runPacketReadLoop() {
 					recvPool:   map[uint32][]byte{},
 					sendPool:   map[uint32][]byte{},
 				}
-				l.connMap[addr.String()] = &c
+				l.connMap[connKey] = &c
 				l.accept <- &c
 				go c.run()
 			}
-			c = l.connMap[addr.String()]
+			c = l.connMap[connKey]
 			l.connMapMutex.Unlock()
 		}
 		c.recv(append([]byte(nil), buf[:n]...))
