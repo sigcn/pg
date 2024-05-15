@@ -18,9 +18,9 @@ type Stat struct {
 
 func runStatsHTTPServer(statsListener net.Listener, l *RDTListener) {
 	http.HandleFunc("/stat", func(w http.ResponseWriter, r *http.Request) {
-		var stats []Stat
-		for k, v := range l.connMap {
-			stats = append(stats, Stat{
+		var acceptStats []Stat
+		for k, v := range l.acceptConnMap {
+			acceptStats = append(acceptStats, Stat{
 				RemoteAddr: k,
 				RecvNO:     v.recvNO,
 				SentNO:     v.sentNO,
@@ -30,7 +30,19 @@ func runStatsHTTPServer(statsListener net.Listener, l *RDTListener) {
 				Resend:     v.rs.Load(),
 			})
 		}
-		json.NewEncoder(w).Encode(stats)
+		var openStats []Stat
+		for k, v := range l.openConnMap {
+			openStats = append(openStats, Stat{
+				RemoteAddr: k,
+				RecvNO:     v.recvNO,
+				SentNO:     v.sentNO,
+				State:      int(v.state.Load()),
+				RecvPool:   len(v.recvPool),
+				SendPool:   len(v.sendPool),
+				Resend:     v.rs.Load(),
+			})
+		}
+		json.NewEncoder(w).Encode(map[string][]Stat{"accept": acceptStats, "open": openStats})
 	})
 	go http.Serve(statsListener, nil)
 }
