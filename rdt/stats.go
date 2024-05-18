@@ -10,6 +10,7 @@ type Stat struct {
 	RemoteAddr string `json:"remoteAddr"`
 	RecvNO     uint32 `json:"recvNO"`
 	SentNO     uint32 `json:"sentNO"`
+	ACKNO      uint32 `json:"ackNO"`
 	State      int    `json:"state"`
 	RecvPool   int    `json:"recvPool"`
 	SendPool   int    `json:"sendPool"`
@@ -24,6 +25,7 @@ func runStatsHTTPServer(statsListener net.Listener, l *RDTListener) {
 				RemoteAddr: k,
 				RecvNO:     v.recvNO,
 				SentNO:     v.sentNO,
+				ACKNO:      v.ackNO,
 				State:      int(v.state.Load()),
 				RecvPool:   len(v.recvPool),
 				SendPool:   len(v.sendPool),
@@ -36,6 +38,7 @@ func runStatsHTTPServer(statsListener net.Listener, l *RDTListener) {
 				RemoteAddr: k,
 				RecvNO:     v.recvNO,
 				SentNO:     v.sentNO,
+				ACKNO:      v.ackNO,
 				State:      int(v.state.Load()),
 				RecvPool:   len(v.recvPool),
 				SendPool:   len(v.sendPool),

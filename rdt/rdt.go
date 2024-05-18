@@ -3,7 +3,6 @@ package rdt
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -39,6 +38,7 @@ type rdtConn struct {
 	exit       chan struct{}
 	inbound    chan []byte
 	nck        chan nck
+	nckQuery   chan uint32
 	fin        chan uint32
 	finack     chan uint32
 	sendEvent  chan struct{}
@@ -141,6 +141,7 @@ func (c *rdtConn) Close() error {
 			}
 			c.state.Store(CLOSED)
 			close(c.fin)
+			close(c.nckQuery)
 			c.recvNO = 0
 			c.recvMutex.Lock()
 			clear(c.recvPool)
@@ -158,18 +159,6 @@ func (c *rdtConn) Close() error {
 		c.sendMutex.Unlock()
 	})
 	return nil
-}
-
-func (c *rdtConn) Flush() error {
-	sentNO := c.sentNO
-	for i := 0; i < 100; i++ {
-		c.askNCK(sentNO)
-		time.Sleep(50 * time.Millisecond)
-		if c.ackNO >= sentNO {
-			return nil
-		}
-	}
-	return errors.New("timeout")
 }
 
 // LocalAddr returns the local network address, if known.
@@ -242,10 +231,8 @@ func (c *rdtConn) resend(nck nck) {
 		}
 	}
 	c.sendMutex.Unlock()
-	go func() {
-		defer func() { recover() }()
-		c.sendEvent <- struct{}{}
-	}()
+	defer func() { recover() }()
+	c.sendEvent <- struct{}{}
 }
 
 func (c *rdtConn) send(pkt []byte) {
@@ -273,7 +260,7 @@ func (c *rdtConn) recv(pkt []byte) {
 	case 0: // DATA
 		c.recvData(no, pkt[7:l+7])
 	case 1: // QueryNCK
-		c.sendNCK(no)
+		c.nckQuery <- no
 	case 2: // NCK
 		nck := nck{no: no}
 		for i := range l / 4 {
@@ -283,7 +270,7 @@ func (c *rdtConn) recv(pkt []byte) {
 		if len(nck.missing) == 0 && nck.no > c.ackNO {
 			c.ackNO = nck.no
 		}
-		c.resend(nck)
+		c.nck <- nck
 	case 21: // FIN
 		if c.recvNO < no {
 			c.sendNCK(no)
@@ -311,10 +298,15 @@ func (c *rdtConn) recvData(no uint32, data []byte) {
 		c.inbound <- data
 		c.recvNO++
 		for {
-			if k, ok := c.recvPool[c.recvNO+1]; ok {
+			c.recvMutex.RLock()
+			k, ok := c.recvPool[c.recvNO+1]
+			c.recvMutex.RUnlock()
+			if ok {
+				c.recvMutex.Lock()
+				delete(c.recvPool, c.recvNO)
+				c.recvMutex.Unlock()
 				c.inbound <- k
 				c.recvNO++
-				delete(c.recvPool, c.recvNO)
 				continue
 			}
 			break
@@ -363,7 +355,7 @@ func (c *rdtConn) sendFIN() error {
 			default:
 			}
 			c.send(c.buildFrame(21, c.sentNO, 0, nil))
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
 		c.finack <- 0
 	}()
@@ -383,7 +375,7 @@ func (c *rdtConn) sendFIN() error {
 	}
 }
 
-func (c *rdtConn) run() {
+func (c *rdtConn) runCheckLoop() {
 	for {
 		select {
 		case <-c.exit:
@@ -395,9 +387,43 @@ func (c *rdtConn) run() {
 		count := len(c.sendPool)
 		c.sendMutex.RUnlock()
 		if count > 0 {
-			c.askNCK(c.sentNO)
+			c.askNCK(min(c.sentNO, c.ackNO+c.window))
 		}
 	}
+}
+
+func (c *rdtConn) runNCKLoop() {
+	for {
+		select {
+		case <-c.exit:
+			return
+		case nck, ok := <-c.nck:
+			if !ok {
+				return
+			}
+			c.resend(nck)
+		}
+	}
+}
+
+func (c *rdtConn) runNCKQueryLoop() {
+	for {
+		select {
+		case <-c.exit:
+			return
+		case q, ok := <-c.nckQuery:
+			if !ok {
+				return
+			}
+			c.sendNCK(q)
+		}
+	}
+}
+
+func (c *rdtConn) startEventLoopGroup() {
+	go c.runNCKLoop()
+	go c.runNCKQueryLoop()
+	go c.runCheckLoop()
 }
 
 // RDTListener reliable data transmission listener
@@ -455,7 +481,7 @@ func (l *RDTListener) OpenStream(addr net.Addr) (net.Conn, error) {
 	l.openConnMapMutex.Lock()
 	defer l.openConnMapMutex.Unlock()
 	l.openConnMap[addr.String()] = c
-	go c.run()
+	c.startEventLoopGroup()
 	return c, nil
 }
 
@@ -511,8 +537,7 @@ func (l *RDTListener) recvPacket(pkt []byte, addr net.Addr) {
 	conn.server = true
 	l.acceptConnMap[addr.String()] = conn
 	l.accept <- conn
-	fmt.Printf("accept new conn: %x\n", pkt)
-	go conn.run()
+	conn.startEventLoopGroup()
 	conn.recv(pkt)
 }
 
@@ -525,7 +550,8 @@ func (l *RDTListener) newConn(remoteAddr net.Addr) *rdtConn {
 		remoteAddr: remoteAddr,
 		exit:       make(chan struct{}),
 		inbound:    make(chan []byte, 1024),
-		nck:        make(chan nck),
+		nck:        make(chan nck, 256),
+		nckQuery:   make(chan uint32, 256),
 		fin:        make(chan uint32, 5),
 		finack:     make(chan uint32, 5),
 		sendEvent:  make(chan struct{}),
@@ -551,7 +577,7 @@ func (l *RDTListener) newConn(remoteAddr net.Addr) *rdtConn {
 func Listen(conn net.PacketConn, opts ...Option) (*RDTListener, error) {
 	cfg := Config{
 		MTU:      1428,
-		Interval: 50 * time.Millisecond,
+		Interval: 100 * time.Millisecond,
 	}
 
 	for _, opt := range opts {
