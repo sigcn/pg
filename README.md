@@ -8,6 +8,7 @@ Another p2p network library in Go
 - Full support for IPv4/IPv6 dual stack
 - Easy-to-use library (net.PacketConn) 
 - **Transport layer security (curve25519 & chacha20poly1305 for end-to-end encryption)**
+- [RDT](https://github.com/rkonfj/peerguard/tree/main/rdt) protocol for reliable data transfer  
 - Cross-platform compatibility (linux/windows/macOS/iOS/android)
 
 ## Get Started
