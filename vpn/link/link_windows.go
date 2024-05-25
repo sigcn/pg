@@ -6,16 +6,10 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
-
-	"golang.zx2c4.com/wireguard/tun"
 )
 
-func SetupLink(device tun.Device, cidr string) error {
+func SetupLink(ifName, cidr string) error {
 	ip, ipnet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return err
-	}
-	ifName, err := device.Name()
 	if err != nil {
 		return err
 	}
@@ -29,11 +23,7 @@ func SetupLink(device tun.Device, cidr string) error {
 	return exec.Command("netsh", "interface", "ipv4", "set", "address", ifName, "static", ip.String(), addrMask).Run()
 }
 
-func AddRoute(device tun.Device, to *net.IPNet, via net.IP) error {
-	ifName, err := device.Name()
-	if err != nil {
-		return err
-	}
+func AddRoute(ifName string, to *net.IPNet, via net.IP) error {
 	if via.To4() == nil { // ipv6
 		return exec.Command("netsh", "interface", "ipv6", "add", "route", to.String(), ifName, via.String()).Run()
 	}
@@ -42,11 +32,7 @@ func AddRoute(device tun.Device, to *net.IPNet, via net.IP) error {
 	return exec.Command("route", "add", to.IP.String(), "mask", addrMask, via.String()).Run()
 }
 
-func DelRoute(device tun.Device, to *net.IPNet, via net.IP) error {
-	ifName, err := device.Name()
-	if err != nil {
-		return err
-	}
+func DelRoute(ifName string, to *net.IPNet, via net.IP) error {
 	if via.To4() == nil { // ipv6
 		return exec.Command("netsh", "interface", "ipv6", "delete", "route", to.String(), ifName, via.String()).Run()
 	}

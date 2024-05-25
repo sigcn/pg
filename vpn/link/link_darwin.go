@@ -3,15 +3,9 @@ package link
 import (
 	"net"
 	"os/exec"
-
-	"golang.zx2c4.com/wireguard/tun"
 )
 
-func SetupLink(device tun.Device, cidr string) error {
-	ifName, err := device.Name()
-	if err != nil {
-		return err
-	}
+func SetupLink(ifName, cidr string) error {
 	ip, ipnet, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return err
@@ -27,21 +21,17 @@ func SetupLink(device tun.Device, cidr string) error {
 			return err
 		}
 	}
-	return AddRoute(device, ipnet, nil)
+	return AddRoute(ifName, ipnet, nil)
 }
 
-func AddRoute(device tun.Device, to *net.IPNet, _ net.IP) error {
-	ifName, err := device.Name()
-	if err != nil {
-		return err
-	}
+func AddRoute(ifName string, to *net.IPNet, _ net.IP) error {
 	if to.IP.To4() == nil { // ipv6
 		return exec.Command("route", "-qn", "add", "-inet6", to.String(), "-iface", ifName).Run()
 	}
 	return exec.Command("route", "-qn", "add", "-inet", to.String(), "-iface", ifName).Run()
 }
 
-func DelRoute(_ tun.Device, to *net.IPNet, _ net.IP) error {
+func DelRoute(_ string, to *net.IPNet, _ net.IP) error {
 	if to.IP.To4() == nil { // ipv6
 		return exec.Command("route", "-qn", "delete", "-inet6", to.String()).Run()
 	}

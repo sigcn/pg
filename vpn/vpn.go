@@ -7,17 +7,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"net/netip"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
 
 	"github.com/rkonfj/peerguard/disco"
-	"github.com/rkonfj/peerguard/lru"
-	"github.com/rkonfj/peerguard/p2p"
-	"github.com/rkonfj/peerguard/peer"
-	"github.com/rkonfj/peerguard/peer/peermap"
 	"github.com/rkonfj/peerguard/vpn/link"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
@@ -28,49 +22,31 @@ const (
 	IPPacketOffset = 16
 )
 
-type Route struct {
-	Device tun.Device
-	OldDst []*net.IPNet
-	NewDst []*net.IPNet
-	Via    net.IP
-}
-
 type Config struct {
-	MTU               int
-	IPv4              string
-	IPv6              string
-	AllowedIPs        []string
-	Peers             []string
-	Peermap           *peermap.Peermap
-	PrivateKey        string
-	OnRoute           func(route Route)
-	ModifyDiscoConfig func(cfg *disco.DiscoConfig)
-	InboundHandlers   []InboundHandler
-	OutboundHandlers  []OutboundHandler
+	MTU              int
+	IPv4             string
+	IPv6             string
+	InboundHandlers  []InboundHandler
+	OutboundHandlers []OutboundHandler
 }
 
 type VPN struct {
-	cfg      Config
-	outbound chan []byte
-	inbound  chan []byte
-	newBuf   func() []byte
-
-	ipv6Routes *lru.Cache[string, []*net.IPNet]
-	ipv4Routes *lru.Cache[string, []*net.IPNet]
-	peers      *lru.Cache[string, peer.ID]
-	peersMutex sync.RWMutex
+	routingTable RoutingTable
+	packetConn   net.PacketConn
+	cfg          Config
+	outbound     chan []byte
+	inbound      chan []byte
+	newBuf       func() []byte
 }
 
-func New(cfg Config) *VPN {
-	disco.SetModifyDiscoConfig(cfg.ModifyDiscoConfig)
+func New(routingTable RoutingTable, packetConn net.PacketConn, cfg Config) *VPN {
 	return &VPN{
-		cfg:        cfg,
-		outbound:   make(chan []byte, 512),
-		inbound:    make(chan []byte, 512),
-		newBuf:     func() []byte { return make([]byte, cfg.MTU+IPPacketOffset+40) },
-		ipv6Routes: lru.New[string, []*net.IPNet](256),
-		ipv4Routes: lru.New[string, []*net.IPNet](256),
-		peers:      lru.New[string, peer.ID](1024),
+		routingTable: routingTable,
+		packetConn:   packetConn,
+		cfg:          cfg,
+		outbound:     make(chan []byte, 512),
+		inbound:      make(chan []byte, 512),
+		newBuf:       func() []byte { return make([]byte, cfg.MTU+IPPacketOffset+40) },
 	}
 }
 
@@ -80,163 +56,29 @@ func (vpn *VPN) RunTun(ctx context.Context, tunName string) error {
 		return fmt.Errorf("create tun device (%s) failed: %w", tunName, err)
 	}
 	if vpn.cfg.IPv4 != "" {
-		link.SetupLink(device, vpn.cfg.IPv4)
+		link.SetupLink(tunName, vpn.cfg.IPv4)
 	}
 	if vpn.cfg.IPv6 != "" {
-		link.SetupLink(device, vpn.cfg.IPv6)
+		link.SetupLink(tunName, vpn.cfg.IPv6)
 	}
 	return vpn.run(ctx, device)
 }
 
 func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
-	disco.SetIgnoredLocalInterfaceNamePrefixs("pg", "wg", "veth", "docker", "nerdctl", "tailscale")
-	disco.AddIgnoredLocalCIDRs(vpn.cfg.AllowedIPs...)
-	p2pOptions := []p2p.Option{
-		p2p.PeerMeta("allowedIPs", vpn.cfg.AllowedIPs),
-		p2p.ListenPeerUp(func(pi peer.ID, m peer.Metadata) { vpn.setPeer(device, pi, m) }),
-	}
-
-	if len(vpn.cfg.Peers) > 0 {
-		p2pOptions = append(p2pOptions, p2p.PeerSilenceMode())
-	}
-
-	for _, peerURL := range vpn.cfg.Peers {
-		pgPeer, err := url.Parse(peerURL)
-		if err != nil {
-			continue
-		}
-		if pgPeer.Scheme != "pg" {
-			return fmt.Errorf("unsupport scheme %s", pgPeer.Scheme)
-		}
-		extra := make(map[string]any)
-		for k, v := range pgPeer.Query() {
-			extra[k] = v[0]
-		}
-		vpn.setPeer(device, peer.ID(pgPeer.Host), peer.Metadata{
-			Alias1: pgPeer.Query().Get("alias1"),
-			Alias2: pgPeer.Query().Get("alias2"),
-			Extra:  extra,
-		})
-	}
-
-	if vpn.cfg.IPv4 != "" {
-		ipv4, err := netip.ParsePrefix(vpn.cfg.IPv4)
-		if err != nil {
-			return err
-		}
-		disco.AddIgnoredLocalCIDRs(vpn.cfg.IPv4)
-		p2pOptions = append(p2pOptions, p2p.PeerAlias1(ipv4.Addr().String()))
-	}
-
-	if vpn.cfg.IPv6 != "" {
-		ipv6, err := netip.ParsePrefix(vpn.cfg.IPv6)
-		if err != nil {
-			return err
-		}
-		disco.AddIgnoredLocalCIDRs(vpn.cfg.IPv6)
-		p2pOptions = append(p2pOptions, p2p.PeerAlias2(ipv6.Addr().String()))
-	}
-
-	if vpn.cfg.PrivateKey != "" {
-		p2pOptions = append(p2pOptions, p2p.ListenPeerCurve25519(vpn.cfg.PrivateKey))
-	} else {
-		p2pOptions = append(p2pOptions, p2p.ListenPeerSecure())
-	}
-
-	packetConn, err := p2p.ListenPacket(vpn.cfg.Peermap, p2pOptions...)
-	if err != nil {
-		return err
-	}
-
 	var wg sync.WaitGroup
 	wg.Add(4)
 	go vpn.runTunReadEventLoop(&wg, device)
 	go vpn.runTunWriteEventLoop(&wg, device)
-	go vpn.runPacketConnReadEventLoop(&wg, packetConn)
-	go vpn.runPacketConnWriteEventLoop(&wg, packetConn)
+	go vpn.runPacketConnReadEventLoop(&wg, vpn.packetConn)
+	go vpn.runPacketConnWriteEventLoop(&wg, vpn.packetConn)
 
 	<-ctx.Done()
 	close(vpn.inbound)
 	close(vpn.outbound)
 	device.Close()
-	packetConn.Close()
+	vpn.packetConn.Close()
 	wg.Wait()
 	return nil
-}
-
-func (vpn *VPN) setPeer(device tun.Device, peer peer.ID, metadata peer.Metadata) {
-	vpn.peersMutex.Lock()
-	defer vpn.peersMutex.Unlock()
-	vpn.peers.Put(metadata.Alias1, peer)
-	vpn.peers.Put(metadata.Alias2, peer)
-	var allowedIPv4s, allowedIPv6s []*net.IPNet
-	if allowedIPs := metadata.Extra["allowedIPs"]; allowedIPs != nil {
-		for _, allowIP := range allowedIPs.([]any) {
-			_, cidr, err := net.ParseCIDR(allowIP.(string))
-			if err != nil {
-				continue
-			}
-			if cidr.IP.To4() != nil {
-				allowedIPv4s = append(allowedIPv4s, cidr)
-			} else {
-				allowedIPv6s = append(allowedIPv6s, cidr)
-			}
-		}
-	}
-	if len(allowedIPv4s) > 0 {
-		oldTo, _ := vpn.ipv4Routes.Get(metadata.Alias1)
-		vpn.ipv4Routes.Put(metadata.Alias1, allowedIPv4s)
-		if onRoute := vpn.cfg.OnRoute; onRoute != nil {
-			onRoute(Route{
-				Device: device,
-				OldDst: oldTo,
-				NewDst: allowedIPv4s,
-				Via:    net.ParseIP(metadata.Alias1),
-			})
-		}
-	}
-	if len(allowedIPv6s) > 0 {
-		oldTo, _ := vpn.ipv6Routes.Get(metadata.Alias2)
-		vpn.ipv6Routes.Put(metadata.Alias2, allowedIPv6s)
-		if onRoute := vpn.cfg.OnRoute; onRoute != nil {
-			onRoute(Route{
-				Device: device,
-				OldDst: oldTo,
-				NewDst: allowedIPv6s,
-				Via:    net.ParseIP(metadata.Alias2),
-			})
-		}
-	}
-}
-
-func (vpn *VPN) getPeer(ip string) (peer.ID, bool) {
-	vpn.peersMutex.RLock()
-	defer vpn.peersMutex.RUnlock()
-	peerID, ok := vpn.peers.Get(ip)
-	if ok {
-		return peerID, true
-	}
-	dstIP := net.ParseIP(ip)
-	if dstIP.To4() != nil {
-		k, _, _ := vpn.ipv4Routes.Find(func(k string, v []*net.IPNet) bool {
-			for _, cidr := range v {
-				if cidr.Contains(dstIP) {
-					return true
-				}
-			}
-			return false
-		})
-		return vpn.peers.Get(k)
-	}
-	k, _, _ := vpn.ipv6Routes.Find(func(k string, v []*net.IPNet) bool {
-		for _, cidr := range v {
-			if cidr.Contains(dstIP) {
-				return true
-			}
-		}
-		return false
-	})
-	return vpn.peers.Get(k)
 }
 
 func (vpn *VPN) runTunReadEventLoop(wg *sync.WaitGroup, device tun.Device) {
@@ -315,7 +157,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			slog.Log(context.Background(), -10, "DropMulticastIP", "dst", dstIP)
 			return
 		}
-		if peer, ok := vpn.getPeer(dstIP.String()); ok {
+		if peer, ok := vpn.routingTable.GetPeer(dstIP.String()); ok {
 			_, err := packetConn.WriteTo(packet[IPPacketOffset:], peer)
 			if err != nil {
 				slog.Error("WriteTo peer failed", "peer", peer, "detail", err)
