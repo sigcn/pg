@@ -45,6 +45,8 @@ type Config struct {
 	PrivateKey        string
 	OnRoute           func(route Route)
 	ModifyDiscoConfig func(cfg *disco.DiscoConfig)
+	InboundHandlers   []InboundHandler
+	OutboundHandlers  []OutboundHandler
 }
 
 type VPN struct {
@@ -265,10 +267,22 @@ func (vpn *VPN) runTunReadEventLoop(wg *sync.WaitGroup, device tun.Device) {
 
 func (vpn *VPN) runTunWriteEventLoop(wg *sync.WaitGroup, device tun.Device) {
 	defer wg.Done()
+	handle := func(pkt []byte) []byte {
+		for _, in := range vpn.cfg.InboundHandlers {
+			if pkt = in.In(pkt); pkt == nil {
+				slog.Debug("DropInbound", "handler", in.Name())
+				return nil
+			}
+		}
+		return pkt
+	}
 	for {
 		pkt, ok := <-vpn.inbound
 		if !ok {
 			return
+		}
+		if pkt = handle(pkt); pkt == nil {
+			continue
 		}
 		_, err := device.Write([][]byte{pkt}, IPPacketOffset)
 		if err != nil {
@@ -310,10 +324,22 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 		}
 		slog.Log(context.Background(), -10, "DropPacketPeerNotFound", "ip", dstIP)
 	}
+	handle := func(pkt []byte) []byte {
+		for _, out := range vpn.cfg.OutboundHandlers {
+			if pkt = out.Out(pkt); pkt == nil {
+				slog.Debug("DropOutbound", "handler", out.Name())
+				return nil
+			}
+		}
+		return pkt
+	}
 	for {
 		packet, ok := <-vpn.outbound
 		if !ok {
 			return
+		}
+		if packet = handle(packet); packet == nil {
+			continue
 		}
 		pkt := packet[IPPacketOffset:]
 		if pkt[0]>>4 == 4 {
