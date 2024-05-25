@@ -63,8 +63,12 @@ func (r *SimpleRoutingTable) GetPeer(ip string) (net.Addr, bool) {
 func (r *SimpleRoutingTable) AddPeer(ipv4, ipv6 string, peer net.Addr) {
 	r.peersMutex.Lock()
 	defer r.peersMutex.Unlock()
-	r.peers.Put(ipv4, peer)
-	r.peers.Put(ipv6, peer)
+	if ipv4 != "" {
+		r.peers.Put(ipv4, peer)
+	}
+	if ipv6 != "" {
+		r.peers.Put(ipv6, peer)
+	}
 }
 
 func (r *SimpleRoutingTable) AddRoute4(cidr *net.IPNet, viaIP, ifName string) {
