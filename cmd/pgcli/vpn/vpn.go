@@ -26,12 +26,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var Cmd = &cobra.Command{
-	Use:   "vpn",
-	Short: "Run a vpn daemon which backend is PeerGuard p2p network",
-	Args:  cobra.NoArgs,
-	RunE:  run,
-}
+var (
+	Cmd = &cobra.Command{
+		Use:   "vpn",
+		Short: "Run a vpn daemon which backend is PeerGuard p2p network",
+		Args:  cobra.NoArgs,
+		RunE:  run,
+	}
+	Version = "dev"
+	Commit  string
+)
 
 func init() {
 	Cmd.Flags().StringP("ipv4", "4", "", "ipv4 address prefix (i.e. 100.99.0.1/24)")
@@ -162,6 +166,7 @@ func (v *P2PVPN) listenPacketConn() (c net.PacketConn, err error) {
 	disco.AddIgnoredLocalCIDRs(v.Config.AllowedIPs...)
 	p2pOptions := []p2p.Option{
 		p2p.PeerMeta("allowedIPs", v.Config.AllowedIPs),
+		p2p.PeerMeta("version", fmt.Sprintf("%s-%s", Version, Commit)),
 		p2p.ListenPeerUp(v.addPeer),
 	}
 

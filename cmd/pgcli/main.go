@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	Version = "unknown"
+	Version = "dev"
 	Commit  = "unknown"
 )
 
@@ -33,6 +33,8 @@ func main() {
 		},
 	}
 
+	vpn.Version = Version
+	vpn.Commit = Commit
 	cmd.AddCommand(vpn.Cmd)
 	cmd.AddCommand(secret.Cmd)
 	cmd.AddCommand(curve25519.Cmd)
