@@ -148,14 +148,14 @@ type P2PVPN struct {
 }
 
 func (v *P2PVPN) Run(ctx context.Context) error {
-	c, err := v.listenPacketConn()
+	c, err := v.listenPacketConn(ctx)
 	if err != nil {
 		return err
 	}
 	return vpn.New(v.RoutingTable, c, v.Config.Config).RunTun(ctx, v.Config.TunName)
 }
 
-func (v *P2PVPN) listenPacketConn() (c net.PacketConn, err error) {
+func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err error) {
 	disco.SetModifyDiscoConfig(func(cfg *disco.DiscoConfig) {
 		cfg.PortScanCount = v.Config.DiscoPortScanCount
 		cfg.ChallengesRetry = v.Config.DiscoChallengesRetry
@@ -207,7 +207,7 @@ func (v *P2PVPN) listenPacketConn() (c net.PacketConn, err error) {
 		p2pOptions = append(p2pOptions, p2p.ListenPeerSecure())
 	}
 
-	secretStore, err := v.loginIfNecessary()
+	secretStore, err := v.loginIfNecessary(ctx)
 	if err != nil {
 		return
 	}
@@ -244,7 +244,7 @@ func (v *P2PVPN) addPeer(pi peer.ID, m url.Values) {
 	}
 }
 
-func (v *P2PVPN) loginIfNecessary() (peer.SecretStore, error) {
+func (v *P2PVPN) loginIfNecessary(ctx context.Context) (peer.SecretStore, error) {
 	if len(v.Config.SecretFile) == 0 {
 		currentUser, err := user.Current()
 		if err != nil {
@@ -255,7 +255,7 @@ func (v *P2PVPN) loginIfNecessary() (peer.SecretStore, error) {
 
 	store := p2p.FileSecretStore(v.Config.SecretFile)
 	newFileStore := func() (peer.SecretStore, error) {
-		joined, err := v.requestNetworkSecret()
+		joined, err := v.requestNetworkSecret(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("request network secret failed: %w", err)
 		}
@@ -275,7 +275,7 @@ func (v *P2PVPN) loginIfNecessary() (peer.SecretStore, error) {
 	return store, nil
 }
 
-func (v *P2PVPN) requestNetworkSecret() (peer.NetworkSecret, error) {
+func (v *P2PVPN) requestNetworkSecret(ctx context.Context) (peer.NetworkSecret, error) {
 	prompt := promptui.Select{
 		Label:    "Select OpenID Connect Provider",
 		Items:    []string{oidc.ProviderGoogle, oidc.ProviderGithub},
@@ -303,7 +303,7 @@ func (v *P2PVPN) requestNetworkSecret() (peer.NetworkSecret, error) {
 		WhiteChar: qrterminal.BLACK,
 		QuietZone: 1,
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	return join.Wait(ctx)
 }
