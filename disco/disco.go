@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"net/url"
 	"slices"
 	"sync"
 	"time"
@@ -221,7 +222,7 @@ func (d *Datagram) TryEncrypt(symmAlgo secure.SymmAlgo) []byte {
 
 type PeerFindEvent struct {
 	PeerID   peer.ID
-	Metadata peer.Metadata
+	Metadata url.Values
 }
 
 type PeerUDPAddrEvent struct {

@@ -164,16 +164,17 @@ func (v *P2PVPN) listenPacketConn() (c net.PacketConn, err error) {
 	})
 	disco.SetIgnoredLocalInterfaceNamePrefixs("pg", "wg", "veth", "docker", "nerdctl", "tailscale")
 	disco.AddIgnoredLocalCIDRs(v.Config.AllowedIPs...)
+
 	p2pOptions := []p2p.Option{
-		p2p.PeerMeta("allowedIPs", v.Config.AllowedIPs),
 		p2p.PeerMeta("version", fmt.Sprintf("%s-%s", Version, Commit)),
 		p2p.ListenPeerUp(v.addPeer),
 	}
-
+	for _, ip := range v.Config.AllowedIPs {
+		p2p.PeerMeta("allowedIP", ip)
+	}
 	if len(v.Config.Peers) > 0 {
 		p2pOptions = append(p2pOptions, p2p.PeerSilenceMode())
 	}
-
 	for _, peerURL := range v.Config.Peers {
 		pgPeer, err := url.Parse(peerURL)
 		if err != nil {
@@ -182,17 +183,8 @@ func (v *P2PVPN) listenPacketConn() (c net.PacketConn, err error) {
 		if pgPeer.Scheme != "pg" {
 			return nil, fmt.Errorf("unsupport scheme %s", pgPeer.Scheme)
 		}
-		extra := make(map[string]any)
-		for k, v := range pgPeer.Query() {
-			extra[k] = v[0]
-		}
-		v.addPeer(peer.ID(pgPeer.Host), peer.Metadata{
-			Alias1: pgPeer.Query().Get("alias1"),
-			Alias2: pgPeer.Query().Get("alias2"),
-			Extra:  extra,
-		})
+		v.addPeer(peer.ID(pgPeer.Host), pgPeer.Query())
 	}
-
 	if v.Config.IPv4 != "" {
 		ipv4, err := netip.ParsePrefix(v.Config.IPv4)
 		if err != nil {
@@ -201,7 +193,6 @@ func (v *P2PVPN) listenPacketConn() (c net.PacketConn, err error) {
 		disco.AddIgnoredLocalCIDRs(v.Config.IPv4)
 		p2pOptions = append(p2pOptions, p2p.PeerAlias1(ipv4.Addr().String()))
 	}
-
 	if v.Config.IPv6 != "" {
 		ipv6, err := netip.ParsePrefix(v.Config.IPv6)
 		if err != nil {
@@ -210,7 +201,6 @@ func (v *P2PVPN) listenPacketConn() (c net.PacketConn, err error) {
 		disco.AddIgnoredLocalCIDRs(v.Config.IPv6)
 		p2pOptions = append(p2pOptions, p2p.PeerAlias2(ipv6.Addr().String()))
 	}
-
 	if v.Config.PrivateKey != "" {
 		p2pOptions = append(p2pOptions, p2p.ListenPeerCurve25519(v.Config.PrivateKey))
 	} else {
@@ -233,21 +223,23 @@ func (v *P2PVPN) listenPacketConn() (c net.PacketConn, err error) {
 	return p2p.ListenPacket(peermap, p2pOptions...)
 }
 
-func (v *P2PVPN) addPeer(pi peer.ID, m peer.Metadata) {
-	v.RoutingTable.AddPeer(m.Alias1, m.Alias2, pi)
-	allowedIPs := m.Extra["allowedIPs"]
+func (v *P2PVPN) addPeer(pi peer.ID, m url.Values) {
+	alias1 := m.Get("alias1")
+	alias2 := m.Get("alias2")
+	v.RoutingTable.AddPeer(alias1, alias2, pi)
+	allowedIPs := m["allowedIP"]
 	if allowedIPs == nil {
 		return
 	}
-	for _, allowIP := range allowedIPs.([]any) {
-		_, cidr, err := net.ParseCIDR(allowIP.(string))
+	for _, allowIP := range allowedIPs {
+		_, cidr, err := net.ParseCIDR(allowIP)
 		if err != nil {
 			continue
 		}
 		if cidr.IP.To4() != nil {
-			v.RoutingTable.AddRoute4(cidr, m.Alias1, v.Config.TunName)
+			v.RoutingTable.AddRoute4(cidr, alias1, v.Config.TunName)
 		} else {
-			v.RoutingTable.AddRoute6(cidr, m.Alias2, v.Config.TunName)
+			v.RoutingTable.AddRoute6(cidr, alias2, v.Config.TunName)
 		}
 	}
 }

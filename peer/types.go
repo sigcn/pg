@@ -87,15 +87,3 @@ func (id ID) Len() byte {
 func (id ID) Bytes() []byte {
 	return []byte(id)
 }
-
-type Metadata struct {
-	SilenceMode bool           `json:"silenceMode"`
-	Alias1      string         `json:"alias1"`
-	Alias2      string         `json:"alias2"`
-	Extra       map[string]any `json:"extra"`
-}
-
-func (meta Metadata) MustMarshalJSON() []byte {
-	b, _ := json.Marshal(meta)
-	return b
-}

@@ -37,7 +37,7 @@ type Peer struct {
 	networkSecret  auth.JSONSecret
 	networkContext *networkContext
 
-	metadata   peer.Metadata
+	metadata   url.Values
 	activeTime time.Time
 	id         peer.ID
 	nonce      byte
@@ -117,17 +117,10 @@ func (p *Peer) Close() error {
 }
 
 func (p *Peer) String() string {
-	metadata := url.Values{}
-	metadata.Add("alias1", p.metadata.Alias1)
-	metadata.Add("alias2", p.metadata.Alias2)
-	for k, v := range p.metadata.Extra {
-		b, _ := json.Marshal(v)
-		metadata.Add(k, string(b))
-	}
 	return (&url.URL{
 		Scheme:   "pg",
 		Host:     string(p.id),
-		RawQuery: metadata.Encode(),
+		RawQuery: p.metadata.Encode(),
 	}).String()
 }
 
@@ -135,7 +128,7 @@ func (p *Peer) Start() {
 	p.activeTime = time.Now()
 	go p.readMessageLoop()
 	go p.keepalive()
-	if p.metadata.SilenceMode {
+	if p.metadata.Has("silenceMode") {
 		return
 	}
 
@@ -149,7 +142,7 @@ func (p *Peer) Start() {
 			continue
 		}
 
-		if target.Val.metadata.SilenceMode {
+		if target.Val.metadata.Has("silenceMode") {
 			continue
 		}
 		p.leadDisco(target.Val)
@@ -157,7 +150,7 @@ func (p *Peer) Start() {
 }
 
 func (p *Peer) leadDisco(target *Peer) {
-	myMeta := p.metadata.MustMarshalJSON()
+	myMeta := []byte(p.metadata.Encode())
 	b := make([]byte, 2+len(p.id)+len(myMeta))
 	b[0] = peer.CONTROL_NEW_PEER
 	b[1] = p.id.Len()
@@ -165,7 +158,7 @@ func (p *Peer) leadDisco(target *Peer) {
 	copy(b[len(p.id)+2:], myMeta)
 	target.write(b)
 
-	peerMeta := target.metadata.MustMarshalJSON()
+	peerMeta := []byte(target.metadata.Encode())
 	b1 := make([]byte, 2+len(target.id)+len(peerMeta))
 	b1[0] = peer.CONTROL_NEW_PEER
 	b1[1] = target.id.Len()
@@ -296,7 +289,7 @@ func (pm *PeerMap) GetPeer(network string, peerID peer.ID) (*Peer, error) {
 	return nil, fmt.Errorf("peer(%s/%s) not found", network, peerID)
 }
 
-func (pm *PeerMap) FindPeer(network string, filter func(peer.Metadata) bool) ([]*Peer, error) {
+func (pm *PeerMap) FindPeer(network string, filter func(url.Values) bool) ([]*Peer, error) {
 	if ctx, ok := pm.networkMap.Get(network); ok {
 		var ret []*Peer
 		for item := range ctx.IterBuffered() {
@@ -436,18 +429,22 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		networkContext: networkCtx,
 		id:             peer.ID(peerID),
 		nonce:          nonce,
-		metadata:       peer.Metadata{},
 		connData:       make(chan []byte, 128),
 	}
 
 	metadata := r.Header.Get("X-Metadata")
 	if len(metadata) > 0 {
-		b, err := base64.StdEncoding.DecodeString(metadata)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
+		_, err := base64.StdEncoding.DecodeString(metadata)
+		if err == nil {
+			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		json.Unmarshal(b, &peer.metadata)
+		meta, err := url.ParseQuery(metadata)
+		if err != nil {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		peer.metadata = meta
 	}
 
 	if ok := networkCtx.SetIfAbsent(peerID, &peer); !ok {

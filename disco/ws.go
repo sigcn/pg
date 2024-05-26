@@ -29,7 +29,7 @@ type WSConn struct {
 	*websocket.Conn
 	peermap       *peermap.Peermap
 	peerID        peer.ID
-	metadata      peer.Metadata
+	metadata      url.Values
 	closedSig     chan int
 	datagrams     chan *Datagram
 	peers         chan *PeerFindEvent
@@ -139,7 +139,7 @@ func (c *WSConn) dial(server string) error {
 	handshake.Set("X-Network", networkSecret.Secret)
 	handshake.Set("X-PeerID", c.peerID.String())
 	handshake.Set("X-Nonce", peer.NewNonce())
-	handshake.Set("X-Metadata", base64.StdEncoding.EncodeToString(c.metadata.MustMarshalJSON()))
+	handshake.Set("X-Metadata", c.metadata.Encode())
 	if server == "" {
 		server = c.peermap.String()
 	}
@@ -291,10 +291,11 @@ func (c *WSConn) handleEvents(b []byte) {
 			Data:   b[b[1]+2:],
 		}
 	case peer.CONTROL_NEW_PEER:
+		meta, _ := url.ParseQuery(string(b[b[1]+2:]))
 		event := PeerFindEvent{
-			PeerID: peer.ID(b[2 : b[1]+2]),
+			PeerID:   peer.ID(b[2 : b[1]+2]),
+			Metadata: meta,
 		}
-		json.Unmarshal(b[b[1]+2:], &event.Metadata)
 		c.peers <- &event
 	case peer.CONTROL_NEW_PEER_UDP_ADDR:
 		addr, err := net.ResolveUDPAddr("udp", string(b[b[1]+2:]))
@@ -346,7 +347,7 @@ func (c *WSConn) updateNetworkSecret(secret peer.NetworkSecret) {
 	slog.Error("NetworkSecretUpdate give up", "secret", secret)
 }
 
-func DialPeermap(peermap *peermap.Peermap, peerID peer.ID, metadata peer.Metadata) (*WSConn, error) {
+func DialPeermap(peermap *peermap.Peermap, peerID peer.ID, metadata url.Values) (*WSConn, error) {
 	wsConn := &WSConn{
 		peermap:       peermap,
 		peerID:        peerID,

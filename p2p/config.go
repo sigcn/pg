@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"errors"
+	"net/url"
 	"time"
 
 	"github.com/rkonfj/peerguard/peer"
@@ -21,13 +22,13 @@ type Config struct {
 	DisableIPv6     bool
 	DisableIPv4     bool
 	SymmAlgo        secure.SymmAlgo
-	Metadata        peer.Metadata
+	Metadata        url.Values
 	OnPeer          OnPeer
 	KeepAlivePeriod time.Duration
 }
 
 type Option func(cfg *Config) error
-type OnPeer func(peer.ID, peer.Metadata)
+type OnPeer func(peer.ID, url.Values)
 
 var (
 	OptionNoOp Option = func(cfg *Config) error { return nil }
@@ -107,31 +108,40 @@ func FileSecretStore(storeFilePath string) peer.SecretStore {
 
 func PeerSilenceMode() Option {
 	return func(cfg *Config) error {
-		cfg.Metadata.SilenceMode = true
+		if cfg.Metadata == nil {
+			cfg.Metadata = url.Values{}
+		}
+		cfg.Metadata.Set("silenceMode", "")
 		return nil
 	}
 }
 
 func PeerAlias1(alias string) Option {
 	return func(cfg *Config) error {
-		cfg.Metadata.Alias1 = alias
+		if cfg.Metadata == nil {
+			cfg.Metadata = url.Values{}
+		}
+		cfg.Metadata.Set("alias1", alias)
 		return nil
 	}
 }
 
 func PeerAlias2(alias string) Option {
 	return func(cfg *Config) error {
-		cfg.Metadata.Alias2 = alias
+		if cfg.Metadata == nil {
+			cfg.Metadata = url.Values{}
+		}
+		cfg.Metadata.Set("alias2", alias)
 		return nil
 	}
 }
 
-func PeerMeta(key string, value any) Option {
+func PeerMeta(key string, value string) Option {
 	return func(cfg *Config) error {
-		if cfg.Metadata.Extra == nil {
-			cfg.Metadata.Extra = make(map[string]any)
+		if cfg.Metadata == nil {
+			cfg.Metadata = url.Values{}
 		}
-		cfg.Metadata.Extra[key] = value
+		cfg.Metadata.Add(key, value)
 		return nil
 	}
 }
