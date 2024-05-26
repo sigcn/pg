@@ -158,6 +158,10 @@ func (c *WSConn) dial(server string) error {
 		return fmt.Errorf("address: %s is already in used", c.peerID)
 	}
 	if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
+		msg, _ := io.ReadAll(httpResp.Body)
+		if len(msg) > 0 {
+			return fmt.Errorf("join network denied: %s: %s", networkSecret.Network, string(msg))
+		}
 		return fmt.Errorf("join network denied: %s", networkSecret.Network)
 	}
 	if httpResp != nil && httpResp.StatusCode == http.StatusTemporaryRedirect {
