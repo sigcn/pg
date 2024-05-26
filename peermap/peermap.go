@@ -372,6 +372,12 @@ func (pm *PeerMap) HandleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("OIDC get userInfo error", "err", err)
 		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(fmt.Sprintf("oidc: %s", err)))
+		return
+	}
+	if email == "" {
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte("odic: email is required"))
 		return
 	}
 	secret, err := pm.generateSecret(email)
