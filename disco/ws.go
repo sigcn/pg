@@ -168,27 +168,51 @@ func (c *WSConn) dial(server string) error {
 		return fmt.Errorf("dial server %s: %w", server, err)
 	}
 	slog.Info("PeermapConnected", "server", server, "latency", time.Since(t1))
-	xSTUNs, err := base64.StdEncoding.DecodeString(httpResp.Header.Get("X-STUNs"))
-	if err != nil {
-		return fmt.Errorf("decode stun error: %w", err)
-	}
-	var stuns []string
-	err = json.Unmarshal(xSTUNs, &stuns)
-	if err != nil {
+
+	if err := c.configureSTUNs(httpResp.Header); err != nil {
 		return err
 	}
-	limit, err := strconv.ParseInt(httpResp.Header.Get("X-Limiter-Limit"), 10, 64)
-	if err != nil {
+
+	if err := c.configureRatelimiter(httpResp.Header); err != nil {
 		return err
 	}
-	slog.Log(context.Background(), -2, "RealyRateLimiter", "limit", limit, "burst", limit)
+
+	c.Conn = conn
+	c.nonce = peer.MustParseNonce(httpResp.Header.Get("X-Nonce"))
+	c.activeTime = time.Now()
+	return nil
+}
+
+func (c *WSConn) configureSTUNs(respHeader http.Header) error {
+	stunsArg := respHeader.Get("X-STUNs")
+	if stunsArg == "" {
+		slog.Warn("NAT traversal is disabled")
+		return nil
+	}
+	xSTUNs, err := base64.StdEncoding.DecodeString(stunsArg)
+	if err != nil {
+		return fmt.Errorf("invalid pgmap server: decode stuns: %w", err)
+	}
+	err = json.Unmarshal(xSTUNs, &c.stuns)
+	if err != nil {
+		return fmt.Errorf("invalid pgmap server: unmarshal json: %w", err)
+	}
+	return nil
+}
+
+func (c *WSConn) configureRatelimiter(respHeader http.Header) error {
+	limitArg := respHeader.Get("X-Limiter-Limit")
+	if limitArg == "" {
+		return nil
+	}
+	limit, err := strconv.ParseInt(limitArg, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid pgmap server: parse ratelimiter: %w", err)
+	}
+	slog.Log(context.Background(), -2, "RealyRatelimiter", "limit", limit, "burst", limit)
 	if limit > 0 {
 		c.rateLimiter = rate.NewLimiter(rate.Limit(limit), int(limit))
 	}
-	c.Conn = conn
-	c.stuns = stuns
-	c.nonce = peer.MustParseNonce(httpResp.Header.Get("X-Nonce"))
-	c.activeTime = time.Now()
 	return nil
 }
 
