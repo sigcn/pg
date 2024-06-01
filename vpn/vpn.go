@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/rkonfj/peerguard/disco"
+	"github.com/rkonfj/peerguard/vpn/iface"
 	"github.com/rkonfj/peerguard/vpn/link"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
@@ -24,59 +24,41 @@ const (
 
 type Config struct {
 	MTU              int
-	IPv4             string
-	IPv6             string
 	InboundHandlers  []InboundHandler
 	OutboundHandlers []OutboundHandler
 }
 
 type VPN struct {
-	routingTable RoutingTable
-	packetConn   net.PacketConn
-	cfg          Config
-	outbound     chan []byte
-	inbound      chan []byte
-	newBuf       func() []byte
+	rt       iface.RoutingTable
+	cfg      Config
+	outbound chan []byte
+	inbound  chan []byte
+	newBuf   func() []byte
 }
 
-func New(routingTable RoutingTable, packetConn net.PacketConn, cfg Config) *VPN {
+func New(cfg Config) *VPN {
 	return &VPN{
-		routingTable: routingTable,
-		packetConn:   packetConn,
-		cfg:          cfg,
-		outbound:     make(chan []byte, 512),
-		inbound:      make(chan []byte, 512),
-		newBuf:       func() []byte { return make([]byte, cfg.MTU+IPPacketOffset+40) },
+		cfg:      cfg,
+		outbound: make(chan []byte, 512),
+		inbound:  make(chan []byte, 512),
+		newBuf:   func() []byte { return make([]byte, cfg.MTU+IPPacketOffset+40) },
 	}
 }
 
-func (vpn *VPN) RunTun(ctx context.Context, tunName string) error {
-	device, err := tun.CreateTUN(tunName, vpn.cfg.MTU)
-	if err != nil {
-		return fmt.Errorf("create tun device (%s) failed: %w", tunName, err)
-	}
-	if vpn.cfg.IPv4 != "" {
-		link.SetupLink(tunName, vpn.cfg.IPv4)
-	}
-	if vpn.cfg.IPv6 != "" {
-		link.SetupLink(tunName, vpn.cfg.IPv6)
-	}
-	return vpn.run(ctx, device)
-}
-
-func (vpn *VPN) run(ctx context.Context, device tun.Device) error {
+func (vpn *VPN) Run(ctx context.Context, iface iface.Interface, packetConn net.PacketConn) error {
+	vpn.rt = iface
 	var wg sync.WaitGroup
 	wg.Add(4)
-	go vpn.runTunReadEventLoop(&wg, device)
-	go vpn.runTunWriteEventLoop(&wg, device)
-	go vpn.runPacketConnReadEventLoop(&wg, vpn.packetConn)
-	go vpn.runPacketConnWriteEventLoop(&wg, vpn.packetConn)
+	go vpn.runTunReadEventLoop(&wg, iface.Device())
+	go vpn.runTunWriteEventLoop(&wg, iface.Device())
+	go vpn.runPacketConnReadEventLoop(&wg, packetConn)
+	go vpn.runPacketConnWriteEventLoop(&wg, packetConn)
 
 	<-ctx.Done()
 	close(vpn.inbound)
 	close(vpn.outbound)
-	device.Close()
-	vpn.packetConn.Close()
+	iface.Close()
+	packetConn.Close()
 	wg.Wait()
 	return nil
 }
@@ -157,7 +139,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			slog.Log(context.Background(), -10, "DropMulticastIP", "dst", dstIP)
 			return
 		}
-		if peer, ok := vpn.routingTable.GetPeer(dstIP.String()); ok {
+		if peer, ok := vpn.rt.GetPeer(dstIP.String()); ok {
 			_, err := packetConn.WriteTo(packet[IPPacketOffset:], peer)
 			if err != nil {
 				slog.Error("WriteTo peer failed", "peer", peer, "detail", err)

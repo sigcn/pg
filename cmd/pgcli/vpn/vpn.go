@@ -2,6 +2,7 @@ package vpn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -23,6 +24,7 @@ import (
 	"github.com/rkonfj/peerguard/peermap/network"
 	"github.com/rkonfj/peerguard/peermap/oidc"
 	"github.com/rkonfj/peerguard/vpn"
+	"github.com/rkonfj/peerguard/vpn/iface"
 	"github.com/spf13/cobra"
 )
 
@@ -67,8 +69,7 @@ func run(cmd *cobra.Command, args []string) (err error) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	return (&P2PVPN{
-		Config:       cfg,
-		RoutingTable: vpn.NewRoutingTable(),
+		Config: cfg,
 	}).Run(ctx)
 }
 
@@ -129,7 +130,7 @@ func createConfig(cmd *cobra.Command) (cfg Config, err error) {
 }
 
 type Config struct {
-	vpn.Config
+	iface.Config
 	DiscoPortScanCount             int
 	DiscoChallengesRetry           int
 	DiscoChallengesInitialInterval time.Duration
@@ -143,16 +144,22 @@ type Config struct {
 }
 
 type P2PVPN struct {
-	Config       Config
-	RoutingTable *vpn.SimpleRoutingTable
+	Config Config
+	iface  iface.Interface
 }
 
 func (v *P2PVPN) Run(ctx context.Context) error {
-	c, err := v.listenPacketConn(ctx)
+	iface, err := iface.Create(v.Config.TunName, v.Config.Config)
 	if err != nil {
 		return err
 	}
-	return vpn.New(v.RoutingTable, c, v.Config.Config).RunTun(ctx, v.Config.TunName)
+	v.iface = iface
+	c, err := v.listenPacketConn(ctx)
+	if err != nil {
+		err1 := iface.Close()
+		return errors.Join(err, err1)
+	}
+	return vpn.New(vpn.Config{MTU: v.Config.MTU}).Run(ctx, iface, c)
 }
 
 func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err error) {
@@ -170,7 +177,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 		p2p.ListenPeerUp(v.addPeer),
 	}
 	for _, ip := range v.Config.AllowedIPs {
-		p2p.PeerMeta("allowedIP", ip)
+		p2pOptions = append(p2pOptions, p2p.PeerMeta("allowedIP", ip))
 	}
 	if len(v.Config.Peers) > 0 {
 		p2pOptions = append(p2pOptions, p2p.PeerSilenceMode())
@@ -226,7 +233,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 func (v *P2PVPN) addPeer(pi peer.ID, m url.Values) {
 	alias1 := m.Get("alias1")
 	alias2 := m.Get("alias2")
-	v.RoutingTable.AddPeer(alias1, alias2, pi)
+	v.iface.AddPeer(alias1, alias2, pi)
 	allowedIPs := m["allowedIP"]
 	if allowedIPs == nil {
 		return
@@ -237,9 +244,9 @@ func (v *P2PVPN) addPeer(pi peer.ID, m url.Values) {
 			continue
 		}
 		if cidr.IP.To4() != nil {
-			v.RoutingTable.AddRoute4(cidr, alias1, v.Config.TunName)
+			v.iface.AddRoute(cidr, net.ParseIP(alias1))
 		} else {
-			v.RoutingTable.AddRoute6(cidr, alias2, v.Config.TunName)
+			v.iface.AddRoute(cidr, net.ParseIP(alias2))
 		}
 	}
 }
