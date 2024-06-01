@@ -96,16 +96,25 @@ func (r *TunInterface) AddPeer(ipv4, ipv6 string, peer net.Addr) {
 }
 
 func (r *TunInterface) AddRoute(cidr *net.IPNet, via net.IP) {
-	slog.Debug("AddRoute", "to", cidr, "via", via)
 	r.peersMutex.Lock()
 	defer r.peersMutex.Unlock()
 	var cidrs []*net.IPNet
 	if via.To4() != nil {
 		cidrs, _ = r.ipv4.Get(via.String())
+		for _, cmp := range cidrs {
+			if cmp.String() == cidr.String() {
+				return
+			}
+		}
 		cidrs = append(cidrs, cidr)
 		r.ipv4.Put(via.String(), cidrs)
 	} else {
 		cidrs, _ := r.ipv6.Get(via.String())
+		for _, cmp := range cidrs {
+			if cmp.String() == cidr.String() {
+				return
+			}
+		}
 		cidrs = append(cidrs, cidr)
 		r.ipv6.Put(via.String(), cidrs)
 	}
