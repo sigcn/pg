@@ -227,7 +227,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 		return
 	}
 
-	return p2p.ListenPacket(peermap, p2pOptions...)
+	return p2p.ListenPacketContext(ctx, peermap, p2pOptions...)
 }
 
 func (v *P2PVPN) addPeer(pi peer.ID, m url.Values) {

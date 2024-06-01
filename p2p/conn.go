@@ -248,8 +248,13 @@ func (c *PeerPacketConn) SharedKey(peerID peer.ID) ([]byte, error) {
 	return c.cfg.SymmAlgo.SecretKey()(peerID.String())
 }
 
-// ListenPacket listen the p2p network for read/write packets
+// ListenPacket same as ListenPacketContext, but no context required
 func ListenPacket(peermap *peermap.Peermap, opts ...Option) (*PeerPacketConn, error) {
+	return ListenPacketContext(context.Background(), peermap, opts...)
+}
+
+// ListenPacketContext listen the p2p network for read/write packets
+func ListenPacketContext(ctx context.Context, peermap *peermap.Peermap, opts ...Option) (*PeerPacketConn, error) {
 	id := make([]byte, 16)
 	rand.Read(id)
 	cfg := Config{
@@ -269,7 +274,7 @@ func ListenPacket(peermap *peermap.Peermap, opts ...Option) (*PeerPacketConn, er
 	}
 	udpConn.SetKeepAlivePeriod(cfg.KeepAlivePeriod)
 
-	wsConn, err := disco.DialPeermap(peermap, cfg.PeerID, cfg.Metadata)
+	wsConn, err := disco.DialPeermap(ctx, peermap, cfg.PeerID, cfg.Metadata)
 	if err != nil {
 		return nil, err
 	}

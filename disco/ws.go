@@ -130,7 +130,7 @@ func (c *WSConn) STUNs() []string {
 	return c.stuns
 }
 
-func (c *WSConn) dial(server string) error {
+func (c *WSConn) dial(ctx context.Context, server string) error {
 	networkSecret, err := c.peermap.SecretStore().NetworkSecret()
 	if err != nil {
 		return fmt.Errorf("get network secret failed: %w", err)
@@ -153,7 +153,7 @@ func (c *WSConn) dial(server string) error {
 		peermap.Scheme = "wss"
 	}
 	t1 := time.Now()
-	conn, httpResp, err := websocket.DefaultDialer.Dial(peermap.String(), handshake)
+	conn, httpResp, err := websocket.DefaultDialer.DialContext(ctx, peermap.String(), handshake)
 	if httpResp != nil && httpResp.StatusCode == http.StatusBadRequest {
 		return fmt.Errorf("address: %s is already in used", c.peerID)
 	}
@@ -166,7 +166,7 @@ func (c *WSConn) dial(server string) error {
 	}
 	if httpResp != nil && httpResp.StatusCode == http.StatusTemporaryRedirect {
 		slog.Info("RedirectPeermap", "location", httpResp.Header.Get("Location"))
-		return c.dial(httpResp.Header.Get("Location"))
+		return c.dial(ctx, httpResp.Header.Get("Location"))
 	}
 	if err != nil {
 		return fmt.Errorf("dial server %s: %w", server, err)
@@ -265,7 +265,7 @@ func (c *WSConn) runEventsReadLoop() {
 					return
 				default:
 				}
-				if err := c.dial(""); err != nil {
+				if err := c.dial(context.Background(), ""); err != nil {
 					slog.Error("PeermapConnectFailed", "err", err)
 					time.Sleep(5 * time.Second)
 					continue
@@ -351,7 +351,7 @@ func (c *WSConn) updateNetworkSecret(secret peer.NetworkSecret) {
 	slog.Error("NetworkSecretUpdate give up", "secret", secret)
 }
 
-func DialPeermap(peermap *peermap.Peermap, peerID peer.ID, metadata url.Values) (*WSConn, error) {
+func DialPeermap(ctx context.Context, peermap *peermap.Peermap, peerID peer.ID, metadata url.Values) (*WSConn, error) {
 	wsConn := &WSConn{
 		peermap:       peermap,
 		peerID:        peerID,
@@ -362,7 +362,7 @@ func DialPeermap(peermap *peermap.Peermap, peerID peer.ID, metadata url.Values) 
 		peersUDPAddrs: make(chan *PeerUDPAddrEvent, 20),
 		connData:      make(chan []byte, 128),
 	}
-	if err := wsConn.dial(""); err != nil {
+	if err := wsConn.dial(ctx, ""); err != nil {
 		return nil, err
 	}
 	go wsConn.runKeepaliveLoop()
