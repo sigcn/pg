@@ -171,7 +171,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 
 	if ctx, ok := c.FindPeer(peerID); (!ok || !ctx.Ready()) && addr.IP.To4() != nil && !addr.IP.IsPrivate() {
 		slog.Info("[UDP] PortScanning", "peer", peerID, "addr", addr)
-		for port := addr.Port + 1; port <= addr.Port+defaultDiscoConfig.PortScanCount; port++ {
+		for port := addr.Port + defaultDiscoConfig.PortScanOffset; port <= addr.Port+defaultDiscoConfig.PortScanCount; port++ {
 			select {
 			case <-c.closedSig:
 				return

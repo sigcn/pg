@@ -18,6 +18,7 @@ var (
 )
 
 var defaultDiscoConfig = DiscoConfig{
+	PortScanOffset:            -500,
 	PortScanCount:             2000,
 	ChallengesRetry:           5,
 	ChallengesInitialInterval: 200 * time.Millisecond,
@@ -25,6 +26,7 @@ var defaultDiscoConfig = DiscoConfig{
 }
 
 type DiscoConfig struct {
+	PortScanOffset            int
 	PortScanCount             int
 	ChallengesRetry           int
 	ChallengesInitialInterval time.Duration
