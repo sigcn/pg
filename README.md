@@ -17,7 +17,7 @@ Another p2p network library in Go
 #### 1. Run the pgmap daemon
 ```
 $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
-    --stun stun.qq.com:3478 --stun stun.miwifi.com:3478
+    --stun stun.miwifi.com:3478 --stun stunserver.stunprotocol.org:3478
 ```
 
 #### 2. Wrap pgmap as an https server
@@ -51,15 +51,13 @@ if err != nil {
     panic(err)
 }
 
-pmap, err := peermap.New(peermapURL, networkSecret)
+peermapServer, err := peermap.NewURL(peermapURL, networkSecret)
 if err != nil {
     panic(err)
 }
 
-packetConn, err := p2p.ListenPacket(
-    pmap,
-    p2p.ListenPeerID("uniqueString"), // any unique string (less than 256bytes)
-)
+// peerID is a unique string (less than 256bytes)
+packetConn, err := p2p.ListenPacket(peermapServer, p2p.ListenPeerID("uniqueString"))
 if err != nil {
     panic(err)
 }
@@ -83,7 +81,7 @@ for {
 ```go
 ...
 
-packetConn, err := p2p.ListenPacket(pmap)
+packetConn, err := p2p.ListenPacket(peermapServer)
 if err != nil {
     panic(err)
 }

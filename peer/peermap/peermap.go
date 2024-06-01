@@ -30,6 +30,14 @@ func New(server *url.URL, store peer.SecretStore) (*Peermap, error) {
 	}, nil
 }
 
+func NewURL(serverURL string, store peer.SecretStore) (*Peermap, error) {
+	sURL, err := url.Parse(serverURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid peermap url: %w", err)
+	}
+	return New(sURL, store)
+}
+
 func (s *Peermap) SecretStore() peer.SecretStore {
 	return s.store
 }
