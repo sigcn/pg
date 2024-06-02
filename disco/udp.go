@@ -169,8 +169,12 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 		}
 	}
 
-	if ctx, ok := c.FindPeer(peerID); (!ok || !ctx.Ready()) && addr.IP.To4() != nil && !addr.IP.IsPrivate() {
-		slog.Info("[UDP] PortScanning", "peer", peerID, "addr", addr)
+	if ctx, ok := c.FindPeer(peerID); (ok && ctx.Ready()) || (addr.IP.To4() == nil) || addr.IP.IsPrivate() {
+		return
+	}
+
+	slog.Info("[UDP] PortScanning", "peer", peerID, "addr", addr)
+	scan := func(round int) {
 		for port := addr.Port + defaultDiscoConfig.PortScanOffset; port <= addr.Port+defaultDiscoConfig.PortScanCount; port++ {
 			select {
 			case <-c.closedSig:
@@ -182,15 +186,17 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 				continue
 			}
 			if ctx, ok := c.FindPeer(peerID); ok && ctx.Ready() {
-				slog.Info("[UDP] PortScanHit", "peer", peerID, "cursor", p)
+				slog.Info("[UDP] PortScanHit", "peer", peerID, "round", round, "port", p)
 				return
 			}
-			dst := &net.UDPAddr{IP: addr.IP, Port: p}
-			c.UDPConn.WriteToUDP(c.disco.NewPing(c.id), dst)
-			time.Sleep(100 * time.Microsecond)
+			c.UDPConn.WriteToUDP(c.disco.NewPing(c.id), &net.UDPAddr{IP: addr.IP, Port: p})
+			time.Sleep(200 * time.Microsecond)
 		}
-		slog.Info("[UDP] PortScanExit", "peer", peerID, "addr", addr)
 	}
+	for i := range 2 {
+		scan(i + 1)
+	}
+	slog.Info("[UDP] PortScanExit", "peer", peerID, "addr", addr)
 }
 
 func (c *UDPConn) discoPing(peerID peer.ID, peerAddr *net.UDPAddr) {
