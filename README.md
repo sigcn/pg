@@ -1,6 +1,6 @@
 # PeerGuard
 
-Another p2p network library in Go 
+Another p2p network library in Go. Committed to direct communication between devices.  
 
 ## Features
 - Elegantly simple architecture (pgcli & pgmap & OpenID Connect)

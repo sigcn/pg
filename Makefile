@@ -11,7 +11,13 @@ linuxamd64:
 linuxarm64:
 	GOOS=linux GOARCH=arm64 ${GOBUILD} -o pgcli-${version}-linux-arm64 ./cmd/pgcli
 	GOOS=linux GOARCH=arm64 ${GOBUILD} -o pgmap-${version}-linux-arm64 ./cmd/pgmap
-linux: linuxamd64 linuxarm64
+linuxmips:
+	GOOS=linux GOARCH=mips ${GOBUILD} -o pgcli-${version}-linux-mips ./cmd/pgcli
+	GOOS=linux GOARCH=mipsle ${GOBUILD} -o pgcli-${version}-linux-mipsle ./cmd/pgcli
+linuxmips64:
+	GOOS=linux GOARCH=mips64 ${GOBUILD} -o pgcli-${version}-linux-mips64 ./cmd/pgcli
+	GOOS=linux GOARCH=mips64le ${GOBUILD} -o pgcli-${version}-linux-mips64le ./cmd/pgcli
+linux: linuxamd64 linuxarm64 linuxmips linuxmips64
 
 wintun:
 	curl -OL https://www.wintun.net/builds/wintun-0.14.1.zip
