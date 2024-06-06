@@ -91,13 +91,18 @@ func requestFile(ctx context.Context, pubnet pubnet.PublicNetwork, peerID string
 	if err != nil {
 		return fmt.Errorf("listen rdt: %w", err)
 	}
+	defer listener.Close()
 
 	conn, err := listener.OpenStream(peer.ID(peerID))
 	if err != nil {
 		return fmt.Errorf("dial server failed: %w", err)
 	}
 	defer conn.Close()
-
+	go func() { // watch exit program event
+		<-ctx.Done()
+		conn.Write(buildClose())
+		conn.Close()
+	}()
 	f, err := os.Create(filename)
 	if err != nil {
 		return err
@@ -137,11 +142,6 @@ func requestFile(ctx context.Context, pubnet pubnet.PublicNetwork, peerID string
 		progressbar.OptionSpinnerType(14),
 		progressbar.OptionSetRenderBlankState(true),
 	)
-	go func() { // watch exit program event
-		<-ctx.Done()
-		conn.Write(buildClose())
-		conn.Close()
-	}()
 	defer conn.Write(buildClose())
 
 	sha256Checksum := sha256.New()
