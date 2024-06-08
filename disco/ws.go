@@ -212,9 +212,17 @@ func (c *WSConn) configureRatelimiter(respHeader http.Header) error {
 	}
 	limit, err := strconv.ParseInt(limitArg, 10, 64)
 	if err != nil {
-		return fmt.Errorf("invalid pgmap server: parse ratelimiter: %w", err)
+		return fmt.Errorf("invalid pgmap server: parse ratelimiter limit: %w", err)
 	}
-	slog.Log(context.Background(), -2, "RealyRatelimiter", "limit", limit, "burst", limit)
+	burstArg := respHeader.Get("X-Limiter-Burst")
+	if burstArg == "" {
+		burstArg = limitArg
+	}
+	burst, err := strconv.ParseInt(burstArg, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid pgmap server: parse ratelimiter burst: %w", err)
+	}
+	slog.Log(context.Background(), -2, "RealyRatelimiter", "limit", limit, "burst", burst)
 	if limit > 0 {
 		c.rateLimiter = rate.NewLimiter(rate.Limit(limit), int(limit))
 	}
