@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -36,7 +37,7 @@ type WSConn struct {
 	peersUDPAddrs chan *PeerUDPAddrEvent
 	nonce         byte
 	stuns         []string
-	activeTime    time.Time
+	activeTime    atomic.Int64
 	writeMutex    sync.Mutex
 	rateLimiter   *rate.Limiter
 
@@ -183,7 +184,7 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 
 	c.Conn = conn
 	c.nonce = peer.MustParseNonce(httpResp.Header.Get("X-Nonce"))
-	c.activeTime = time.Now()
+	c.activeTime.Store(time.Now().Unix())
 	return nil
 }
 
@@ -228,7 +229,7 @@ func (c *WSConn) runKeepaliveLoop() {
 		default:
 		}
 		time.Sleep(12 * time.Second)
-		if time.Since(c.activeTime) > 25*time.Second {
+		if time.Now().Unix()-c.activeTime.Load() > 25 {
 			c.CloseConn()
 			continue
 		}
@@ -274,7 +275,7 @@ func (c *WSConn) runEventsReadLoop() {
 			}
 			continue
 		}
-		c.activeTime = time.Now()
+		c.activeTime.Store(time.Now().Unix())
 		switch mt {
 		case websocket.BinaryMessage:
 		default:

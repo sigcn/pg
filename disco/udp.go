@@ -21,31 +21,34 @@ import (
 )
 
 var (
-	networkDetectInterval = 5 * time.Second
-
 	_ net.PacketConn = (*UDPConn)(nil)
 	_ PeerStore      = (*UDPConn)(nil)
 )
 
-func SetNetwotkDetectInterval(interval time.Duration) {
-	networkDetectInterval = interval
+type UDPConfig struct {
+	Port                  int
+	DisableIPv4           bool
+	DisableIPv6           bool
+	ID                    peer.ID
+	NetworkDetectInterval time.Duration
+	PeerKeepaliveInterval time.Duration
+	DiscoMagic            func() []byte
 }
 
 type UDPConn struct {
 	*net.UDPConn
-	disco                 *Disco
-	closedSig             chan int
-	datagrams             chan *Datagram
-	stunResponse          chan []byte
-	udpAddrSends          chan *PeerUDPAddrEvent
-	networkChanged        chan struct{}
-	peerKeepaliveInterval time.Duration
-	udpPort               int
-	disableIPv4           bool
-	disableIPv6           bool
-	id                    peer.ID
-	peersIndex            map[peer.ID]*PeerContext
-	stunSessions          cmap.ConcurrentMap[string, STUNSession]
+	cfg            UDPConfig
+	disco          *Disco
+	closedSig      chan int
+	datagrams      chan *Datagram
+	stunResponse   chan []byte
+	udpAddrSends   chan *PeerUDPAddrEvent
+	networkChanged chan struct{}
+	udpPort        int
+	disableIPv4    bool
+	disableIPv6    bool
+	peersIndex     map[peer.ID]*PeerContext
+	stunSessions   cmap.ConcurrentMap[string, STUNSession]
 
 	localAddrs        []string
 	upnpDeleteMapping func()
@@ -141,7 +144,7 @@ func (c *UDPConn) tryPeerContext(peerID peer.ID) *PeerContext {
 	peerCtx := PeerContext{
 		exitSig:           make(chan struct{}),
 		ping:              c.discoPing,
-		keepaliveInterval: c.peerKeepaliveInterval,
+		keepaliveInterval: c.cfg.PeerKeepaliveInterval,
 		PeerID:            peerID,
 		States:            make(map[string]*PeerState),
 		CreateTime:        time.Now(),
@@ -189,7 +192,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 				slog.Info("[UDP] PortScanHit", "peer", peerID, "round", round, "port", p)
 				return
 			}
-			c.UDPConn.WriteToUDP(c.disco.NewPing(c.id), &net.UDPAddr{IP: addr.IP, Port: p})
+			c.UDPConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), &net.UDPAddr{IP: addr.IP, Port: p})
 			time.Sleep(200 * time.Microsecond)
 		}
 	}
@@ -201,7 +204,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 
 func (c *UDPConn) discoPing(peerID peer.ID, peerAddr *net.UDPAddr) {
 	slog.Debug("[UDP] DiscoPing", "peer", peerID, "addr", peerAddr)
-	c.UDPConn.WriteToUDP(c.disco.NewPing(c.id), peerAddr)
+	c.UDPConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), peerAddr)
 }
 
 func (c *UDPConn) updateLocalNetworkAddrs() []string {
@@ -240,7 +243,7 @@ func (c *UDPConn) updateLocalNetworkAddrs() []string {
 }
 
 func (c *UDPConn) runNetworkChangedDetector() {
-	detectTicker := time.NewTicker(max(networkDetectInterval, time.Second))
+	detectTicker := time.NewTicker(max(c.cfg.NetworkDetectInterval, time.Second))
 	for {
 		select {
 		case <-c.closedSig:
@@ -341,7 +344,7 @@ func (c *UDPConn) runSTUNEventLoop() {
 }
 
 func (c *UDPConn) runPeersHealthcheckLoop() {
-	ticker := time.NewTicker(c.peerKeepaliveInterval/2 + time.Second)
+	ticker := time.NewTicker(c.cfg.PeerKeepaliveInterval/2 + time.Second)
 	for {
 		select {
 		case <-c.closedSig:
@@ -396,7 +399,7 @@ peerSeek:
 			if !state.Addr.IP.Equal(udpAddr.IP) || state.Addr.Port != udpAddr.Port {
 				continue
 			}
-			if time.Since(state.LastActiveTime) > 2*c.peerKeepaliveInterval {
+			if time.Since(state.LastActiveTime) > 2*c.cfg.PeerKeepaliveInterval {
 				continue peerSeek
 			}
 			candidates = append(candidates, *state)
@@ -458,37 +461,36 @@ func (c *UDPConn) Broadcast(b []byte) (peerCount int, err error) {
 	return
 }
 
-// SetKeepAlivePeriod set udp keepalive period
-func (c *UDPConn) SetKeepAlivePeriod(period time.Duration) {
-	c.peerKeepaliveInterval = max(period, time.Second)
-}
+func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
+	if cfg.ID.Len() == 0 {
+		return nil, errors.New("peer id is required")
+	}
+	if cfg.NetworkDetectInterval < time.Second {
+		cfg.NetworkDetectInterval = 5 * time.Second
+	}
+	if cfg.PeerKeepaliveInterval < time.Second {
+		cfg.PeerKeepaliveInterval = 10 * time.Second
+	}
 
-// SetDiscoMagic set disco magic bytes provider function
-func (c *UDPConn) SetDiscoMagic(magic func() []byte) {
-	c.disco.Magic = magic
-}
-
-func ListenUDP(port int, disableIPv4, disableIPv6 bool, id peer.ID) (*UDPConn, error) {
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: port})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: cfg.Port})
 	if err != nil {
 		return nil, fmt.Errorf("listen udp error: %w", err)
 	}
 
 	udpConn := UDPConn{
-		id:                    id,
-		UDPConn:               conn,
-		disco:                 &Disco{},
-		closedSig:             make(chan int),
-		datagrams:             make(chan *Datagram),
-		udpAddrSends:          make(chan *PeerUDPAddrEvent, 10),
-		stunResponse:          make(chan []byte, 10),
-		networkChanged:        make(chan struct{}, 1),
-		peerKeepaliveInterval: 10 * time.Second,
-		udpPort:               port,
-		disableIPv4:           disableIPv4,
-		disableIPv6:           disableIPv6,
-		peersIndex:            make(map[peer.ID]*PeerContext),
-		stunSessions:          cmap.New[STUNSession](),
+		UDPConn:        conn,
+		cfg:            cfg,
+		disco:          &Disco{Magic: cfg.DiscoMagic},
+		closedSig:      make(chan int),
+		datagrams:      make(chan *Datagram),
+		udpAddrSends:   make(chan *PeerUDPAddrEvent, 10),
+		stunResponse:   make(chan []byte, 10),
+		networkChanged: make(chan struct{}, 1),
+		udpPort:        conn.LocalAddr().(*net.UDPAddr).Port,
+		disableIPv4:    cfg.DisableIPv4,
+		disableIPv6:    cfg.DisableIPv6,
+		peersIndex:     make(map[peer.ID]*PeerContext),
+		stunSessions:   cmap.New[STUNSession](),
 	}
 	udpConn.updateLocalNetworkAddrs()
 	go udpConn.runSTUNEventLoop()

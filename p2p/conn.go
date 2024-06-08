@@ -268,11 +268,16 @@ func ListenPacketContext(ctx context.Context, peermap *peermap.Peermap, opts ...
 		}
 	}
 
-	udpConn, err := disco.ListenUDP(cfg.UDPPort, cfg.DisableIPv4, cfg.DisableIPv6, cfg.PeerID)
+	udpConn, err := disco.ListenUDP(disco.UDPConfig{
+		Port:                  cfg.UDPPort,
+		DisableIPv4:           cfg.DisableIPv4,
+		DisableIPv6:           cfg.DisableIPv6,
+		ID:                    cfg.PeerID,
+		PeerKeepaliveInterval: cfg.KeepAlivePeriod,
+	})
 	if err != nil {
 		return nil, err
 	}
-	udpConn.SetKeepAlivePeriod(cfg.KeepAlivePeriod)
 
 	wsConn, err := disco.DialPeermap(ctx, peermap, cfg.PeerID, cfg.Metadata)
 	if err != nil {
