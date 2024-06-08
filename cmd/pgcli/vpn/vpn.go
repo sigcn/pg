@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"net/netip"
 	"net/url"
 	"os"
@@ -40,16 +42,15 @@ var (
 )
 
 func init() {
-	Cmd.Flags().StringP("ipv4", "4", "", "ipv4 address prefix (i.e. 100.99.0.1/24)")
-	Cmd.Flags().StringP("ipv6", "6", "", "ipv6 address prefix (i.e. fd00::1/64)")
-	Cmd.Flags().String("tun", "pg0", "tun name")
+	Cmd.Flags().StringP("ipv4", "4", "", "ipv4 address prefix (e.g. 100.99.0.1/24)")
+	Cmd.Flags().StringP("ipv6", "6", "", "ipv6 address prefix (e.g. fd00::1/64)")
+	Cmd.Flags().String("tun", "pg0", "tun device name")
 	Cmd.Flags().Int("mtu", 1428, "mtu")
 
 	Cmd.Flags().String("key", "", "curve25519 private key in base58 format (default generate a new one)")
 	Cmd.Flags().String("secret-file", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
-
-	Cmd.Flags().StringP("server", "s", "", "peermap server")
-	Cmd.Flags().StringSlice("allowed-ip", []string{}, "declare IPs that can be routed/NATed by this machine (i.e. 192.168.0.0/24)")
+	Cmd.Flags().StringP("server", "s", "", "peermap server url")
+	Cmd.Flags().StringSlice("allowed-ip", []string{}, "declare IPs that can be routed/NATed by this machine (e.g. 192.168.0.0/24)")
 	Cmd.Flags().StringSlice("peer", []string{}, "specify peers instead of auto-discovery (pg://<peerID>?alias1=<ipv4>&alias2=<ipv6>)")
 
 	Cmd.Flags().Int("disco-port-scan-offset", -1000, "scan ports offset when disco")
@@ -58,20 +59,33 @@ func init() {
 	Cmd.Flags().Duration("disco-challenges-initial-interval", 200*time.Millisecond, "ping challenges initial interval when disco")
 	Cmd.Flags().Float64("disco-challenges-backoff-rate", 1.65, "ping challenges backoff rate when disco")
 
+	Cmd.Flags().Bool("pprof", false, "enable http pprof server")
+
 	Cmd.MarkFlagRequired("server")
 	Cmd.MarkFlagsOneRequired("ipv4", "ipv6")
 }
 
 func run(cmd *cobra.Command, args []string) (err error) {
+	pprof, err := cmd.Flags().GetBool("pprof")
+	if err != nil {
+		return
+	}
+	if pprof {
+		l, err := net.Listen("tcp", ":29800")
+		if err != nil {
+			return fmt.Errorf("pprof: %w", err)
+		}
+		slog.Info("Serving pprof server", "addr", "http://0.0.0.0:29800")
+		defer l.Close()
+		go http.Serve(l, nil)
+	}
 	cfg, err := createConfig(cmd)
 	if err != nil {
 		return
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	return (&P2PVPN{
-		Config: cfg,
-	}).Run(ctx)
+	return (&P2PVPN{Config: cfg}).Run(ctx)
 }
 
 func createConfig(cmd *cobra.Command) (cfg Config, err error) {
