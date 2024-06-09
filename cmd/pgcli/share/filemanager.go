@@ -54,6 +54,7 @@ func (fm *FileManager) Open(index int) (*os.File, error) {
 }
 
 func (fm *FileManager) HandleRequest(peerID string, conn net.Conn) {
+	defer conn.Close()
 	header := make([]byte, 4)
 	_, err := io.ReadFull(conn, header)
 	if err != nil || !bytes.Equal(header[:2], []byte{0, 0}) {

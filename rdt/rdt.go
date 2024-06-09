@@ -253,6 +253,11 @@ func (c *rdtConn) buildFrame(cmd byte, no uint32, length uint16, data []byte) []
 }
 
 func (c *rdtConn) recv(pkt []byte) {
+	defer func() {
+		if err := recover(); err != nil {
+			slog.Debug("Recv", "recover", err)
+		}
+	}()
 	no := binary.BigEndian.Uint32(pkt[1:5])
 	l := binary.BigEndian.Uint16(pkt[5:7])
 	slog.Debug("RDTRecv", "cmd", pkt[0], "no", no, "peer", c.remoteAddr, "len", len(pkt))
@@ -348,6 +353,11 @@ func (c *rdtConn) sendNCK(no uint32) {
 func (c *rdtConn) sendFIN() error {
 	exit := make(chan struct{})
 	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				slog.Debug("SendFIN", "recover", err)
+			}
+		}()
 		for range 5 {
 			select {
 			case <-exit:
@@ -531,6 +541,9 @@ func (l *RDTListener) recvPacket(pkt []byte, addr net.Addr) {
 	conn, ok = l.acceptConnMap[addr.String()]
 	if ok && conn.state.Load() < CLOSED {
 		conn.recv(pkt)
+		return
+	}
+	if pkt[0] != 0 {
 		return
 	}
 	conn = l.newConn(addr)
