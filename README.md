@@ -12,94 +12,42 @@ Another p2p network library in Go. Committed to direct communication between dev
 - Cross-platform compatibility (linux/windows/macOS/iOS/android)
 
 ## Get Started
+### p2p vpn
+```
+# node1
+pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
+```
+```
+# node2
+pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.2/24 --ipv6 fd00::2/64
+```
+### p2p file sharing
+```
+# share
+pgcli share -s wss://synf.in/pg ~/my-show.pptx
+ShareURL: pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
+```
+```
+# download
+pgcli download -s wss://synf.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
+```
 
-### Deploy the peermap server
-#### 1. Run the pgmap daemon
+## Advanced
+### deploy the peermap server
+#### 1. run the pgmap daemon
 ```
 $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
     --stun stun.miwifi.com:3478 --stun stunserver.stunprotocol.org:3478
 ```
 
-#### 2. Wrap pgmap as an https server
+#### 2. wrap pgmap as an https server
 ```
 $ caddy reverse-proxy --from https://synf.in/pg --to 127.0.0.1:9987
 ```
+## License
+[GNU General Public License v3.0](https://github.com/rkonfj/peerguard/blob/main/LICENSE)
 
-### Follow the steps below to run VPN nodes in different physical networks
-#### 1. Generate a private network secret
-```
-$ pgcli secret --secret-key 5172554832d76672d1959a5ac63c5ab9 > ~/.peerguard_network_secret.json
-```
-#### 2. Run a VPN daemon
-```
-# pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
-```
+## Contributing
+Contributions welcome! Have an improvement? Submit a pull request. 
 > [!NOTE]
-> Since the default encryption algorithm has been changed from AES to ChaCha20, it is required that the local clocks of each VPN node do not differ by more than 5 seconds.
-## P2P programming example
-### Peer1 (act as echo server)
-```go
-peermapURL := "wss://synf.in/pg"
-
-intent, err := network.JoinOIDC(oidc.ProviderGoogle, peermapURL)
-if err != nil {
-    panic(err)
-}
-fmt.Println(intent.AuthURL()) // https://synf.in/oidc/google?state=5G68CtYnMRMdrtrRF
-networkSecret, err := intent.Wait(context.TODO())
-if err != nil {
-    panic(err)
-}
-
-peermapServer, err := peermap.NewURL(peermapURL, networkSecret)
-if err != nil {
-    panic(err)
-}
-
-// peerID is a unique string (less than 256bytes)
-packetConn, err := p2p.ListenPacket(peermapServer, p2p.ListenPeerID("uniqueString"))
-if err != nil {
-    panic(err)
-}
-
-// unreliability echo server
-buf := make([]byte, 1024) 
-for {
-    n, peerID, err := packetConn.ReadFrom(buf)
-    if err != nil {
-        panic(err)
-    }
-    fmt.Println("Echo packet to", peerID, string(buf[:n]))
-    _, err = packetConn.WriteTo(peerID, buf[:n])
-    if err != nil {
-        panic(err)
-    }
-}
-```
-
-### Peer2 
-```go
-...
-
-packetConn, err := p2p.ListenPacket(peermapServer)
-if err != nil {
-    panic(err)
-}
-
-defer packetConn.Close()
-
-// "uniqueString" is above echo server's address
-_, err := packetConn.WriteTo(peer.ID("uniqueString"), []byte("hello"))
-if err != nil {
-    panic(err)
-}
-
-packetConn.SetReadDeadline(time.Now().Add(time.Second))
-
-buf := make([]byte, 1024)
-n, peerID, err := packetConn.ReadFrom(buf)
-if err !=nil {
-    panic(err)
-}
-fmt.Println(peerID, ":", string(buf[:n])) // uniqueString : hello
-```
+> I also maintain a closed-source version, and contributions to the open-source project may be included in the closed-source version.
