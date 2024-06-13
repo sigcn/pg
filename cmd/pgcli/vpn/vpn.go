@@ -44,7 +44,7 @@ var (
 func init() {
 	Cmd.Flags().StringP("ipv4", "4", "", "ipv4 address prefix (e.g. 100.99.0.1/24)")
 	Cmd.Flags().StringP("ipv6", "6", "", "ipv6 address prefix (e.g. fd00::1/64)")
-	Cmd.Flags().String("tun", "pg0", "tun device name")
+	Cmd.Flags().String("tun", defaultTunName, "tun device name")
 	Cmd.Flags().Int("mtu", 1428, "mtu")
 
 	Cmd.Flags().String("key", "", "curve25519 private key in base58 format (default generate a new one)")

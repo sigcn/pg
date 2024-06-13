@@ -36,17 +36,21 @@ type TunInterface struct {
 func Create(tunName string, cfg Config) (*TunInterface, error) {
 	device, err := tun.CreateTUN(tunName, cfg.MTU)
 	if err != nil {
-		return nil, fmt.Errorf("create tun device (%s) failed: %w", tunName, err)
+		return nil, fmt.Errorf("create tun device (%s): %w", tunName, err)
+	}
+	deviceName, err := device.Name()
+	if err != nil {
+		return nil, fmt.Errorf("get tun device name: %w", err)
 	}
 	if cfg.IPv4 != "" {
-		link.SetupLink(tunName, cfg.IPv4)
+		link.SetupLink(deviceName, cfg.IPv4)
 	}
 	if cfg.IPv6 != "" {
-		link.SetupLink(tunName, cfg.IPv6)
+		link.SetupLink(deviceName, cfg.IPv6)
 	}
 	return &TunInterface{
 		dev:     device,
-		ifName:  tunName,
+		ifName:  deviceName,
 		routing: lru.New[string, []*net.IPNet](512),
 		peers:   lru.New[string, net.Addr](1024),
 	}, nil
