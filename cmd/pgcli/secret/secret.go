@@ -26,11 +26,18 @@ func init() {
 			if err != nil {
 				return err
 			}
+			alias, err := cmd.Flags().GetString("alias")
+			if err != nil {
+				return err
+			}
 			validDuration, err := cmd.Flags().GetDuration("duration")
 			if err != nil {
 				return err
 			}
-			secret, err := auth.NewAuthenticator(secretKey).GenerateSecret(network, validDuration)
+			secret, err := auth.NewAuthenticator(secretKey).GenerateSecret(auth.Net{
+				Alias: alias,
+				ID:    network,
+			}, validDuration)
 			if err != nil {
 				return err
 			}

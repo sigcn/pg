@@ -10,3 +10,7 @@ type Network struct {
 	ID    string   `json:"n"`
 	Peers []string `json:"p"`
 }
+
+type PutNetworkMetaRequest struct {
+	Alias string `json:"alias"`
+}

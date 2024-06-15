@@ -37,8 +37,11 @@ func (a *Authenticator) CheckToken(token string) (*Instruction, error) {
 	if err != nil {
 		return nil, err
 	}
+	if plain[0] != 1 {
+		return nil, errors.New("invalid token")
+	}
 	var ins Instruction
-	json.Unmarshal(plain, &ins)
+	json.Unmarshal(plain[1:], &ins)
 	if ins.ExpiredAt-time.Now().Unix() <= 0 {
 		return nil, errors.New("token expired")
 	}
@@ -50,7 +53,7 @@ func (a *Authenticator) GenerateToken(ins Instruction) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	chiper, err := a.algo.Encrypt(b, "")
+	chiper, err := a.algo.Encrypt(append([]byte{1}, b...), "")
 	if err != nil {
 		return "", err
 	}
