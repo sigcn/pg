@@ -62,10 +62,7 @@ func (p *Peer) writeWS(messageType int, b []byte) error {
 }
 
 func (p *Peer) close() error {
-	if ctx, ok := p.peerMap.getNetwork(p.networkSecret.Network); ok {
-		slog.Debug("PeerRemoved", "network", p.networkSecret.Network, "peer", p.id)
-		ctx.removePeer(p.id)
-	}
+	p.peerMap.removePeer(p.networkSecret.Network, p.id)
 	_ = p.conn.WriteControl(websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(2*time.Second))
 	return p.conn.Close()
@@ -202,7 +199,7 @@ func (p *Peer) readMessageLoop() {
 		}
 		tgtPeerID := peer.ID(b[2 : b[1]+2])
 		slog.Debug("PeerEvent", "op", b[0], "from", p.id, "to", tgtPeerID)
-		tgtPeer, err := p.peerMap.GetPeer(p.networkSecret.Network, tgtPeerID)
+		tgtPeer, err := p.peerMap.getPeer(p.networkSecret.Network, tgtPeerID)
 		if err != nil {
 			slog.Debug("FindPeer failed", "detail", err)
 			continue
@@ -251,8 +248,9 @@ func (p *Peer) keepalive() {
 
 func (p *Peer) updateSecret() error {
 	secret, err := p.peerMap.generateSecret(auth.Net{
-		ID:    p.networkSecret.Network,
-		Alias: p.networkContext.alias,
+		ID:        p.networkSecret.Network,
+		Alias:     p.networkContext.alias,
+		Neighbors: p.networkContext.neighbors,
 	})
 	if err != nil {
 		slog.Error("NetworkSecretRefresh", "err", err)
@@ -280,9 +278,12 @@ type networkContext struct {
 	ratelimiter     *rate.Limiter
 	disoRatelimiter *rate.Limiter
 	createTime      time.Time
-	aliasMutex      sync.Mutex
-	aliasUpdateTime time.Time
-	alias           string
+
+	id             string
+	metaMutex      sync.Mutex
+	metaUpdateTime time.Time
+	alias          string
+	neighbors      []string
 }
 
 func (ctx *networkContext) removePeer(id peer.ID) {
@@ -314,24 +315,26 @@ func (ctx *networkContext) SetIfAbsent(peerID string, p *Peer) bool {
 	return true
 }
 
-func (ctx *networkContext) initAlias(alias string, updateTime time.Time) {
-	ctx.aliasMutex.Lock()
-	defer ctx.aliasMutex.Unlock()
-	if ctx.aliasUpdateTime.After(updateTime) {
+func (ctx *networkContext) initAlias(n auth.Net, updateTime time.Time) {
+	ctx.metaMutex.Lock()
+	defer ctx.metaMutex.Unlock()
+	if ctx.metaUpdateTime.After(updateTime) {
 		return
 	}
-	ctx.aliasUpdateTime = updateTime
-	ctx.alias = alias
+	ctx.metaUpdateTime = updateTime
+	ctx.alias = n.Alias
+	ctx.neighbors = n.Neighbors
 }
 
-func (ctx *networkContext) updateAlias(alias string) error {
-	ctx.aliasMutex.Lock()
-	defer ctx.aliasMutex.Unlock()
-	if ctx.alias == alias {
+func (ctx *networkContext) updateAlias(n auth.Net) error {
+	ctx.metaMutex.Lock()
+	defer ctx.metaMutex.Unlock()
+	if ctx.alias == n.Alias && slices.Equal(ctx.neighbors, n.Neighbors) {
 		return nil
 	}
-	ctx.aliasUpdateTime = time.Now()
-	ctx.alias = alias
+	ctx.metaUpdateTime = time.Now()
+	ctx.neighbors = n.Neighbors
+	ctx.alias = n.Alias
 	ctx.peersMutex.RLock()
 	defer ctx.peersMutex.RUnlock()
 	for _, v := range ctx.peers {
@@ -345,9 +348,21 @@ type PeerMap struct {
 	wsUpgrader            *websocket.Upgrader
 	networkMapMutex       sync.RWMutex
 	networkMap            map[string]*networkContext
+	peerMapMutex          sync.RWMutex
+	peerMap               map[string]*networkContext
 	cfg                   Config
 	authenticator         *auth.Authenticator
 	exporterAuthenticator *exporterauth.Authenticator
+}
+
+func (pm *PeerMap) removePeer(network string, id peer.ID) {
+	if ctx, ok := pm.getNetwork(network); ok {
+		slog.Debug("PeerRemoved", "network", network, "peer", id)
+		ctx.removePeer(id)
+		pm.peerMapMutex.Lock()
+		delete(pm.peerMap, id.String())
+		pm.peerMapMutex.Unlock()
+	}
 }
 
 func (pm *PeerMap) getNetwork(network string) (*networkContext, bool) {
@@ -357,10 +372,18 @@ func (pm *PeerMap) getNetwork(network string) (*networkContext, bool) {
 	return ctx, ok
 }
 
-func (pm *PeerMap) GetPeer(network string, peerID peer.ID) (*Peer, error) {
+func (pm *PeerMap) getPeer(network string, peerID peer.ID) (*Peer, error) {
 	if ctx, ok := pm.getNetwork(network); ok {
 		if peer, ok := ctx.getPeer(peerID); ok {
 			return peer, nil
+		}
+		pm.peerMapMutex.RLock()
+		neighNet, ok := pm.peerMap[peerID.String()]
+		pm.peerMapMutex.RUnlock()
+		if ok && slices.Contains(ctx.neighbors, neighNet.id) {
+			if peer, ok := neighNet.getPeer(peerID); ok {
+				return peer, nil
+			}
 		}
 	}
 	return nil, fmt.Errorf("peer(%s/%s) not found", network, peerID)
@@ -455,7 +478,10 @@ func (pm *PeerMap) HandlePutNetworkMeta(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	if err := ctx.updateAlias(request.Alias); err != nil {
+	if err := ctx.updateAlias(auth.Net{
+		Alias:     request.Alias,
+		Neighbors: request.Neighbors,
+	}); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
@@ -479,7 +505,12 @@ func (pm *PeerMap) HandleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("odic: email is required"))
 		return
 	}
-	secret, err := pm.generateSecret(auth.Net{ID: email})
+	n := auth.Net{ID: email}
+	if ctx, ok := pm.getNetwork(email); ok {
+		n.Alias = ctx.alias
+		n.Neighbors = ctx.neighbors
+	}
+	secret, err := pm.generateSecret(n)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -525,6 +556,7 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 				}
 			}
 			networkCtx = &networkContext{
+				id:              jsonSecret.Network,
 				peers:           make(map[string]*Peer),
 				ratelimiter:     rateLimiter,
 				disoRatelimiter: rate.NewLimiter(rate.Limit(10*1024), 1024*1024),
@@ -535,7 +567,7 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		pm.networkMapMutex.Unlock()
 	}
 
-	networkCtx.initAlias(jsonSecret.Alias,
+	networkCtx.initAlias(auth.Net{Alias: jsonSecret.Alias, Neighbors: jsonSecret.Neighbors},
 		time.Unix(jsonSecret.Deadline, 0).Add(-pm.cfg.SecretValidityPeriod))
 
 	peer := Peer{
@@ -568,6 +600,9 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	pm.peerMapMutex.Lock()
+	pm.peerMap[peerID] = networkCtx
+	pm.peerMapMutex.Unlock()
 	upgradeHeader := http.Header{}
 	upgradeHeader.Set("X-Nonce", r.Header.Get("X-Nonce"))
 	stuns, _ := json.Marshal(pm.cfg.STUNs)
@@ -611,6 +646,7 @@ func New(server *http.Server, cfg Config) (*PeerMap, error) {
 	pm := PeerMap{
 		wsUpgrader:            &websocket.Upgrader{},
 		networkMap:            make(map[string]*networkContext),
+		peerMap:               make(map[string]*networkContext),
 		authenticator:         auth.NewAuthenticator(cfg.SecretKey),
 		exporterAuthenticator: exporterauth.New(cfg.SecretKey),
 		cfg:                   cfg,

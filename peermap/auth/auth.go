@@ -16,14 +16,16 @@ var (
 )
 
 type JSONSecret struct {
-	Network  string `json:"n"`
-	Alias    string `json:"n1"`
-	Deadline int64  `json:"t"`
+	Network   string   `json:"n"`
+	Alias     string   `json:"n1"`
+	Neighbors []string `json:"ns"`
+	Deadline  int64    `json:"t"`
 }
 
 type Net struct {
-	ID    string
-	Alias string
+	ID        string
+	Alias     string
+	Neighbors []string
 }
 
 type Authenticator struct {
@@ -37,9 +39,10 @@ func NewAuthenticator(key string) *Authenticator {
 
 func (auth *Authenticator) GenerateSecret(n Net, validDuration time.Duration) (string, error) {
 	b, err := json.Marshal(JSONSecret{
-		Network:  n.ID,
-		Alias:    n.Alias,
-		Deadline: time.Now().Add(validDuration).Unix(),
+		Network:   n.ID,
+		Alias:     n.Alias,
+		Neighbors: n.Neighbors,
+		Deadline:  time.Now().Add(validDuration).Unix(),
 	})
 	if err != nil {
 		return "", err

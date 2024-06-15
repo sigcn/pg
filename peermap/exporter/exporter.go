@@ -12,5 +12,6 @@ type Network struct {
 }
 
 type PutNetworkMetaRequest struct {
-	Alias string `json:"alias"`
+	Alias     string   `json:"alias"`
+	Neighbors []string `json:"neighbors"`
 }
