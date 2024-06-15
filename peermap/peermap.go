@@ -240,7 +240,8 @@ func (p *Peer) keepalive() {
 			break
 		}
 
-		if time.Until(time.Unix(p.networkSecret.Deadline, 0)) < 1*time.Hour {
+		if time.Until(time.Unix(p.networkSecret.Deadline, 0)) <
+			p.peerMap.cfg.SecretValidityPeriod-p.peerMap.cfg.SecretRotationPeriod {
 			secret, err := p.peerMap.generateSecret(p.networkSecret.Network)
 			if err != nil {
 				slog.Error("NetworkSecretRefresh", "err", err)
@@ -303,6 +304,7 @@ func (pm *PeerMap) FindPeer(network string, filter func(url.Values) bool) ([]*Pe
 }
 
 func (pm *PeerMap) Serve(ctx context.Context) error {
+	slog.Debug("ApplyConfig", "cfg", pm.cfg)
 	go func() {
 		<-ctx.Done()
 		fmt.Println("Graceful shutdown")
@@ -476,14 +478,14 @@ func (pm *PeerMap) close() {
 }
 
 func (pm *PeerMap) generateSecret(network string) (peer.NetworkSecret, error) {
-	secret, err := auth.NewAuthenticator(pm.cfg.SecretKey).GenerateSecret(network, 5*time.Hour)
+	secret, err := auth.NewAuthenticator(pm.cfg.SecretKey).GenerateSecret(network, pm.cfg.SecretValidityPeriod)
 	if err != nil {
 		return peer.NetworkSecret{}, err
 	}
 	return peer.NetworkSecret{
 		Network: network,
 		Secret:  secret,
-		Expire:  time.Now().Add(5*time.Hour - 10*time.Second),
+		Expire:  time.Now().Add(pm.cfg.SecretValidityPeriod - 10*time.Second),
 	}, nil
 }
 

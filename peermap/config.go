@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/rkonfj/peerguard/peermap/oidc"
 	"gopkg.in/yaml.v2"
@@ -17,12 +18,14 @@ type RateLimiter struct {
 }
 
 type Config struct {
-	Listen        string                    `yaml:"listen"`
-	SecretKey     string                    `yaml:"secret_key"`
-	STUNs         []string                  `yaml:"stuns"`
-	PublicNetwork string                    `yaml:"public_network"`
-	OIDCProviders []oidc.OIDCProviderConfig `yaml:"oidc_providers"`
-	RateLimiter   *RateLimiter              `yaml:"rate_limiter,omitempty"`
+	Listen               string                    `yaml:"listen"`
+	SecretKey            string                    `yaml:"secret_key"`
+	STUNs                []string                  `yaml:"stuns"`
+	PublicNetwork        string                    `yaml:"public_network"`
+	OIDCProviders        []oidc.OIDCProviderConfig `yaml:"oidc_providers"`
+	RateLimiter          *RateLimiter              `yaml:"rate_limiter,omitempty"`
+	SecretRotationPeriod time.Duration             `yaml:"secret_rotation_period"`
+	SecretValidityPeriod time.Duration             `yaml:"secret_validity_period"`
 }
 
 func (cfg *Config) applyDefaults() error {
@@ -45,6 +48,15 @@ func (cfg *Config) applyDefaults() error {
 		if cfg.RateLimiter.Limit < 0 {
 			return errors.New("limit must greater than 0")
 		}
+	}
+	if cfg.SecretValidityPeriod == 0 {
+		cfg.SecretValidityPeriod = 4 * time.Hour
+	}
+	if cfg.SecretRotationPeriod == 0 {
+		cfg.SecretRotationPeriod = max(cfg.SecretValidityPeriod-time.Hour, time.Minute)
+	}
+	if cfg.SecretRotationPeriod >= cfg.SecretValidityPeriod {
+		return errors.New("secret rotation period must less than validity period")
 	}
 	for _, provider := range cfg.OIDCProviders {
 		oidc.AddProvider(provider)
