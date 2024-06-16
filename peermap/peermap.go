@@ -4,15 +4,19 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
+	"os"
+	"os/signal"
 	"path"
 	"slices"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -278,12 +282,12 @@ type networkContext struct {
 	ratelimiter     *rate.Limiter
 	disoRatelimiter *rate.Limiter
 	createTime      time.Time
+	updateTime      time.Time
 
-	id             string
-	metaMutex      sync.Mutex
-	metaUpdateTime time.Time
-	alias          string
-	neighbors      []string
+	id        string
+	metaMutex sync.Mutex
+	alias     string
+	neighbors []string
 }
 
 func (ctx *networkContext) removePeer(id peer.ID) {
@@ -315,24 +319,24 @@ func (ctx *networkContext) SetIfAbsent(peerID string, p *Peer) bool {
 	return true
 }
 
-func (ctx *networkContext) initAlias(n auth.Net, updateTime time.Time) {
+func (ctx *networkContext) initMeta(n auth.Net, updateTime time.Time) {
 	ctx.metaMutex.Lock()
 	defer ctx.metaMutex.Unlock()
-	if ctx.metaUpdateTime.After(updateTime) {
+	if ctx.updateTime.After(updateTime) {
 		return
 	}
-	ctx.metaUpdateTime = updateTime
+	ctx.updateTime = updateTime
 	ctx.alias = n.Alias
 	ctx.neighbors = n.Neighbors
 }
 
-func (ctx *networkContext) updateAlias(n auth.Net) error {
+func (ctx *networkContext) updateMeta(n auth.Net) error {
 	ctx.metaMutex.Lock()
 	defer ctx.metaMutex.Unlock()
 	if ctx.alias == n.Alias && slices.Equal(ctx.neighbors, n.Neighbors) {
 		return nil
 	}
-	ctx.metaUpdateTime = time.Now()
+	ctx.updateTime = time.Now()
 	ctx.neighbors = n.Neighbors
 	ctx.alias = n.Alias
 	ctx.peersMutex.RLock()
@@ -341,6 +345,14 @@ func (ctx *networkContext) updateAlias(n auth.Net) error {
 		v.updateSecret()
 	}
 	return nil
+}
+
+type NetState struct {
+	ID         string    `json:"id"`
+	Alias      string    `json:"alias"`
+	Neighbors  []string  `json:"neighbors"`
+	CreateTime time.Time `json:"createTime"`
+	UpdateTime time.Time `json:"updateTime"`
 }
 
 type PeerMap struct {
@@ -406,13 +418,29 @@ func (pm *PeerMap) FindPeer(network string, filter func(url.Values) bool) ([]*Pe
 
 func (pm *PeerMap) Serve(ctx context.Context) error {
 	slog.Debug("ApplyConfig", "cfg", pm.cfg)
+	// watch sigterm for exit
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		<-ctx.Done()
-		fmt.Println("Graceful shutdown")
-		pm.close()
+		slog.Info("Graceful shutdown")
+		pm.httpServer.Shutdown(context.Background())
+		if err := pm.save(); err != nil {
+			slog.Error("Save networks", "err", err)
+		}
 	}()
+	// load networks
+	if err := pm.load(); err != nil {
+		slog.Error("Load networks", "err", err)
+	}
+	// watch sighup for save networks
+	go pm.watchSaveCycle(ctx)
+	// serving http
 	slog.Info("Serving for http now", "listen", pm.cfg.Listen)
-	return pm.httpServer.ListenAndServe()
+	err := pm.httpServer.ListenAndServe()
+	wg.Wait()
+	return err
 }
 
 func (pm *PeerMap) HandleQueryNetworks(w http.ResponseWriter, r *http.Request) {
@@ -478,7 +506,7 @@ func (pm *PeerMap) HandlePutNetworkMeta(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	if err := ctx.updateAlias(auth.Net{
+	if err := ctx.updateMeta(auth.Net{
 		Alias:     request.Alias,
 		Neighbors: request.Neighbors,
 	}); err != nil {
@@ -549,25 +577,17 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		pm.networkMapMutex.Lock()
 		networkCtx, ok = pm.networkMap[jsonSecret.Network]
 		if !ok {
-			var rateLimiter *rate.Limiter
-			if pm.cfg.RateLimiter != nil {
-				if pm.cfg.RateLimiter.Limit > 0 {
-					rateLimiter = rate.NewLimiter(rate.Limit(pm.cfg.RateLimiter.Limit), pm.cfg.RateLimiter.Burst)
-				}
-			}
-			networkCtx = &networkContext{
-				id:              jsonSecret.Network,
-				peers:           make(map[string]*Peer),
-				ratelimiter:     rateLimiter,
-				disoRatelimiter: rate.NewLimiter(rate.Limit(10*1024), 1024*1024),
-				createTime:      time.Now(),
-			}
+			networkCtx = pm.newNetworkContext(NetState{
+				ID:         jsonSecret.Network,
+				CreateTime: time.Now(),
+			})
 			pm.networkMap[jsonSecret.Network] = networkCtx
 		}
 		pm.networkMapMutex.Unlock()
 	}
 
-	networkCtx.initAlias(auth.Net{Alias: jsonSecret.Alias, Neighbors: jsonSecret.Neighbors},
+	networkCtx.initMeta(
+		auth.Net{Alias: jsonSecret.Alias, Neighbors: jsonSecret.Neighbors},
 		time.Unix(jsonSecret.Deadline, 0).Add(-pm.cfg.SecretValidityPeriod))
 
 	peer := Peer{
@@ -622,8 +642,91 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	slog.Debug("PeerConnected", "network", jsonSecret.Network, "peer", peerID)
 }
 
-func (pm *PeerMap) close() {
-	pm.httpServer.Shutdown(context.Background())
+func (pm *PeerMap) watchSaveCycle(ctx context.Context) {
+	for {
+		sig := make(chan os.Signal, 2)
+		signal.Notify(sig, syscall.SIGHUP)
+		select {
+		case <-ctx.Done():
+			close(sig)
+			return
+		case <-sig:
+			close(sig)
+			if err := pm.save(); err != nil {
+				slog.Error("Save networks", "err", err)
+			}
+		}
+	}
+}
+
+func (pm *PeerMap) newNetworkContext(state NetState) *networkContext {
+	var rateLimiter *rate.Limiter
+	if pm.cfg.RateLimiter != nil && pm.cfg.RateLimiter.Limit > 0 {
+		rateLimiter = rate.NewLimiter(
+			rate.Limit(pm.cfg.RateLimiter.Limit),
+			pm.cfg.RateLimiter.Burst)
+	}
+	return &networkContext{
+		id:              state.ID,
+		peers:           make(map[string]*Peer),
+		ratelimiter:     rateLimiter,
+		disoRatelimiter: rate.NewLimiter(rate.Limit(10*1024), 128*1024),
+		createTime:      state.CreateTime,
+		updateTime:      state.UpdateTime,
+		alias:           state.Alias,
+		neighbors:       state.Neighbors,
+	}
+}
+
+func (pm *PeerMap) load() error {
+	f, err := os.Open(pm.cfg.StateFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("load: open state file: %w", err)
+	}
+	defer f.Close()
+	var nets []NetState
+	if err := json.NewDecoder(f).Decode(&nets); err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("load: decode state: %w", err)
+	}
+	pm.networkMapMutex.Lock()
+	defer pm.networkMapMutex.Unlock()
+	for _, n := range nets {
+		pm.networkMap[n.ID] = pm.newNetworkContext(n)
+	}
+	slog.Info("Load networks", "count", len(nets))
+	return nil
+}
+
+func (pm *PeerMap) save() error {
+	var nets []NetState
+	pm.networkMapMutex.RLock()
+	for _, v := range pm.networkMap {
+		nets = append(nets, NetState{
+			ID:         v.id,
+			Alias:      v.alias,
+			Neighbors:  v.neighbors,
+			CreateTime: v.createTime,
+			UpdateTime: v.updateTime})
+	}
+	pm.networkMapMutex.RUnlock()
+	if nets == nil {
+		return nil
+	}
+	f, err := os.Create(pm.cfg.StateFile)
+	if err != nil {
+		return fmt.Errorf("save: open state file: %w", err)
+	}
+	if err := json.NewEncoder(f).Encode(nets); err != nil {
+		return fmt.Errorf("save: encode state: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("save: close state file: %w", err)
+	}
+	slog.Info("Save networks", "count", len(nets))
+	return nil
 }
 
 func (pm *PeerMap) generateSecret(n auth.Net) (peer.NetworkSecret, error) {

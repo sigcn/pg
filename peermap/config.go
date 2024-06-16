@@ -26,6 +26,7 @@ type Config struct {
 	RateLimiter          *RateLimiter              `yaml:"rate_limiter,omitempty"`
 	SecretRotationPeriod time.Duration             `yaml:"secret_rotation_period"`
 	SecretValidityPeriod time.Duration             `yaml:"secret_validity_period"`
+	StateFile            string                    `yaml:"state_file"`
 }
 
 func (cfg *Config) applyDefaults() error {
@@ -57,6 +58,9 @@ func (cfg *Config) applyDefaults() error {
 	}
 	if cfg.SecretRotationPeriod >= cfg.SecretValidityPeriod {
 		return errors.New("secret rotation period must less than validity period")
+	}
+	if cfg.StateFile == "" {
+		cfg.StateFile = "state.json"
 	}
 	for _, provider := range cfg.OIDCProviders {
 		oidc.AddProvider(provider)

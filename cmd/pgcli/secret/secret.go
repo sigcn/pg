@@ -48,6 +48,7 @@ func init() {
 			})
 		},
 	}
+	Cmd.Flags().String("alias", "", "network alias")
 	Cmd.Flags().String("network", "default", "network")
 	Cmd.Flags().String("secret-key", "", "key to generate network secret")
 	Cmd.Flags().Duration("duration", 365*24*time.Hour, "secret duration to expire")
