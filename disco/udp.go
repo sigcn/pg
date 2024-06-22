@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/upnp"
 	"tailscale.com/net/stun"
@@ -45,10 +44,9 @@ type UDPConn struct {
 	udpAddrSends   chan *PeerUDPAddrEvent
 	networkChanged chan struct{}
 	udpPort        int
-	disableIPv4    bool
-	disableIPv6    bool
 	peersIndex     map[peer.ID]*PeerContext
-	stunSessions   cmap.ConcurrentMap[string, STUNSession]
+
+	stunSessionManager stunSessionManager
 
 	localAddrs        []string
 	upnpDeleteMapping func()
@@ -217,11 +215,11 @@ func (c *UDPConn) updateLocalNetworkAddrs() []string {
 	for _, ip := range ips {
 		addr := net.JoinHostPort(ip.String(), fmt.Sprintf("%d", c.udpPort))
 		if ip.To4() != nil {
-			if c.disableIPv4 {
+			if c.cfg.DisableIPv4 {
 				continue
 			}
 		} else {
-			if c.disableIPv6 {
+			if c.cfg.DisableIPv6 {
 				continue
 			}
 		}
@@ -297,10 +295,7 @@ func (c *UDPConn) runPacketEventLoop() {
 		c.tryPeerContext(peerID).Heartbeat(peerAddr)
 		b := make([]byte, n)
 		copy(b, buf[:n])
-		c.datagrams <- &Datagram{
-			PeerID: peerID,
-			Data:   b,
-		}
+		c.datagrams <- &Datagram{PeerID: peerID, Data: b}
 	}
 }
 
@@ -321,7 +316,7 @@ func (c *UDPConn) runSTUNEventLoop() {
 			continue
 		}
 
-		tx, ok := c.stunSessions.Get(string(txid[:]))
+		tx, ok := c.stunSessionManager.Get(string(txid[:]))
 		if !ok {
 			slog.Debug("Skipped unknown stun response", "txid", hex.EncodeToString(txid[:]))
 			continue
@@ -336,10 +331,7 @@ func (c *UDPConn) runSTUNEventLoop() {
 			slog.Error("Skipped resolve udp addr error", "err", err)
 			continue
 		}
-		c.udpAddrSends <- &PeerUDPAddrEvent{
-			PeerID: tx.PeerID,
-			Addr:   addr,
-		}
+		c.udpAddrSends <- &PeerUDPAddrEvent{PeerID: tx.peerID, Addr: addr}
 	}
 }
 
@@ -366,7 +358,7 @@ func (c *UDPConn) runPeersHealthcheckLoop() {
 
 func (c *UDPConn) requestSTUN(peerID peer.ID, stunServers []string) {
 	txID := stun.NewTxID()
-	c.stunSessions.Set(string(txID[:]), STUNSession{PeerID: peerID, CTime: time.Now()})
+	c.stunSessionManager.Set(string(txID[:]), peerID)
 	for _, stunServer := range stunServers {
 		uaddr, err := net.ResolveUDPAddr("udp", stunServer)
 		if err != nil {
@@ -380,7 +372,7 @@ func (c *UDPConn) requestSTUN(peerID peer.ID, stunServers []string) {
 		}
 		time.Sleep(5 * time.Second)
 		if _, ok := c.FindPeer(peerID); ok {
-			c.stunSessions.Remove(string(txID[:]))
+			c.stunSessionManager.Remove(string(txID[:]))
 			break
 		}
 	}
@@ -478,19 +470,17 @@ func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 	}
 
 	udpConn := UDPConn{
-		UDPConn:        conn,
-		cfg:            cfg,
-		disco:          &Disco{Magic: cfg.DiscoMagic},
-		closedSig:      make(chan int),
-		datagrams:      make(chan *Datagram),
-		udpAddrSends:   make(chan *PeerUDPAddrEvent, 10),
-		stunResponse:   make(chan []byte, 10),
-		networkChanged: make(chan struct{}, 1),
-		udpPort:        conn.LocalAddr().(*net.UDPAddr).Port,
-		disableIPv4:    cfg.DisableIPv4,
-		disableIPv6:    cfg.DisableIPv6,
-		peersIndex:     make(map[peer.ID]*PeerContext),
-		stunSessions:   cmap.New[STUNSession](),
+		UDPConn:            conn,
+		cfg:                cfg,
+		disco:              &Disco{Magic: cfg.DiscoMagic},
+		closedSig:          make(chan int),
+		datagrams:          make(chan *Datagram),
+		udpAddrSends:       make(chan *PeerUDPAddrEvent, 10),
+		stunResponse:       make(chan []byte, 10),
+		networkChanged:     make(chan struct{}, 1),
+		udpPort:            conn.LocalAddr().(*net.UDPAddr).Port,
+		peersIndex:         make(map[peer.ID]*PeerContext),
+		stunSessionManager: stunSessionManager{sessions: make(map[string]stunSession)},
 	}
 	udpConn.updateLocalNetworkAddrs()
 	go udpConn.runSTUNEventLoop()

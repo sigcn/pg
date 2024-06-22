@@ -188,9 +188,33 @@ type PeerState struct {
 	LastActiveTime time.Time
 }
 
-type STUNSession struct {
-	PeerID peer.ID
-	CTime  time.Time
+type stunSession struct {
+	peerID peer.ID
+	cTime  time.Time
+}
+
+type stunSessionManager struct {
+	sync.RWMutex
+	sessions map[string]stunSession
+}
+
+func (m *stunSessionManager) Get(txid string) (stunSession, bool) {
+	m.RLock()
+	defer m.RUnlock()
+	s, ok := m.sessions[txid]
+	return s, ok
+}
+
+func (m *stunSessionManager) Set(txid string, peerID peer.ID) {
+	m.Lock()
+	defer m.Unlock()
+	m.sessions[txid] = stunSession{peerID: peerID, cTime: time.Now()}
+}
+
+func (m *stunSessionManager) Remove(txid string) {
+	m.Lock()
+	defer m.Unlock()
+	delete(m.sessions, txid)
 }
 
 type Datagram struct {
