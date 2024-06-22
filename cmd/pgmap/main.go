@@ -60,7 +60,7 @@ func run(cmd *cobra.Command, args []string) error {
 	cfg, _ := peermap.ReadConfig(configFile)
 	cfg.Overwrite(cfg1)
 
-	srv, err := peermap.New(nil, cfg)
+	srv, err := peermap.New(cfg)
 	if err != nil {
 		return err
 	}

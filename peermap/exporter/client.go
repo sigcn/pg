@@ -37,6 +37,12 @@ func NewClient(peermapURL, secretKey string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid peermap url: %w", err)
 	}
+	switch pURL.Scheme {
+	case "ws":
+		pURL.Scheme = "http"
+	case "wss":
+		pURL.Scheme = "https"
+	}
 	return &Client{
 		peermapURL: pURL,
 		c: &http.Client{
@@ -80,9 +86,25 @@ func (c *Client) Peers() ([]Network, error) {
 	return networks, nil
 }
 
-func (c *Client) PutNetworkMeta(network string, request PutNetworkMetaRequest) error {
+func (c *Client) NetworkMeta(network string) (*NetworkMeta, error) {
 	peermap := *c.peermapURL
-	peermap.Path = path.Join(peermap.Path, fmt.Sprintf("/network/%s/meta", network))
+	peermap.Path = path.Join(peermap.Path, fmt.Sprintf("/networks/%s/meta", network))
+	resp, err := c.c.Get(peermap.String())
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("got unexpected status: " + resp.Status)
+	}
+	defer resp.Body.Close()
+	var meta NetworkMeta
+	json.NewDecoder(resp.Body).Decode(&meta)
+	return &meta, nil
+}
+
+func (c *Client) PutNetworkMeta(network string, request NetworkMeta) error {
+	peermap := *c.peermapURL
+	peermap.Path = path.Join(peermap.Path, fmt.Sprintf("/networks/%s/meta", network))
 	b, err := json.Marshal(request)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path"
 	"sync"
 	"time"
 
@@ -51,11 +50,10 @@ func HandleNotifyToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func RedirectAuthURL(w http.ResponseWriter, r *http.Request) {
-	providerName := path.Base(r.URL.Path)
-	provider, ok := Provider(providerName)
+	provider, ok := Provider(r.PathValue("provider"))
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "provider %s not found", providerName)
+		fmt.Fprintf(w, "provider %s not found", r.PathValue("provider"))
 		return
 	}
 	authURL := provider.oAuthConfig.AuthCodeURL(r.URL.Query().Get("state"))

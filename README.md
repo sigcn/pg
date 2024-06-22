@@ -44,6 +44,11 @@ $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
 ```
 $ caddy reverse-proxy --from https://synf.in/pg --to 127.0.0.1:9987
 ```
+### pgcli uses pre-shared secret file instead of oidc auth 
+```
+PG_SECRET_KEY=5172554832d76672d1959a5ac63c5ab9 PG_SERVER=wss://synf.in/pg pgcli admin secret --network "<email>" --duration 24h > psns.json
+pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24 -f psns.json
+```
 ## License
 [GNU General Public License v3.0](https://github.com/rkonfj/peerguard/blob/main/LICENSE)
 

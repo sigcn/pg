@@ -1,4 +1,4 @@
-package secret
+package admin
 
 import (
 	"encoding/json"
@@ -10,15 +10,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var Cmd *cobra.Command
-
-func init() {
-	Cmd = &cobra.Command{
+func secretCmd() *cobra.Command {
+	secretCmd := &cobra.Command{
 		Use:   "secret",
 		Short: "Generate a pre-shared network secret",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			secretKey, err := cmd.Flags().GetString("secret-key")
+			secretKey, err := requiredArg(cmd.InheritedFlags(), "secret-key")
 			if err != nil {
 				return err
 			}
@@ -48,10 +46,9 @@ func init() {
 			})
 		},
 	}
-	Cmd.Flags().String("alias", "", "network alias")
-	Cmd.Flags().String("network", "default", "network")
-	Cmd.Flags().String("secret-key", "", "key to generate network secret")
-	Cmd.Flags().Duration("duration", 365*24*time.Hour, "secret duration to expire")
+	secretCmd.Flags().String("alias", "", "network alias")
+	secretCmd.Flags().String("network", "default", "network")
+	secretCmd.Flags().Duration("duration", 365*24*time.Hour, "secret duration to expire")
 
-	Cmd.MarkFlagRequired("secret-key")
+	return secretCmd
 }

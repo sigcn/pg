@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"path"
 	"slices"
 	"sync"
 	"syscall"
@@ -426,12 +425,12 @@ func (pm *PeerMap) Serve(ctx context.Context) error {
 		<-ctx.Done()
 		slog.Info("Graceful shutdown")
 		pm.httpServer.Shutdown(context.Background())
-		if err := pm.save(); err != nil {
+		if err := pm.Save(); err != nil {
 			slog.Error("Save networks", "err", err)
 		}
 	}()
 	// load networks
-	if err := pm.load(); err != nil {
+	if err := pm.Load(); err != nil {
 		slog.Error("Load networks", "err", err)
 	}
 	// watch sighup for save networks
@@ -443,12 +442,61 @@ func (pm *PeerMap) Serve(ctx context.Context) error {
 	return err
 }
 
-func (pm *PeerMap) HandleQueryNetworks(w http.ResponseWriter, r *http.Request) {
-	exporterToken := r.Header.Get("X-Token")
-	_, err := pm.exporterAuthenticator.CheckToken(exporterToken)
+// Load networks state
+func (pm *PeerMap) Load() error {
+	f, err := os.Open(pm.cfg.StateFile)
 	if err != nil {
-		slog.Debug("ExporterAuthFailed", "details", err)
-		w.WriteHeader(http.StatusUnauthorized)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("load: open state file: %w", err)
+	}
+	defer f.Close()
+	var nets []NetState
+	if err := json.NewDecoder(f).Decode(&nets); err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("load: decode state: %w", err)
+	}
+	pm.networkMapMutex.Lock()
+	defer pm.networkMapMutex.Unlock()
+	for _, n := range nets {
+		pm.networkMap[n.ID] = pm.newNetworkContext(n)
+	}
+	slog.Info("Load networks", "count", len(nets))
+	return nil
+}
+
+// Save networks state
+func (pm *PeerMap) Save() error {
+	var nets []NetState
+	pm.networkMapMutex.RLock()
+	for _, v := range pm.networkMap {
+		nets = append(nets, NetState{
+			ID:         v.id,
+			Alias:      v.alias,
+			Neighbors:  v.neighbors,
+			CreateTime: v.createTime,
+			UpdateTime: v.updateTime})
+	}
+	pm.networkMapMutex.RUnlock()
+	if nets == nil {
+		return nil
+	}
+	f, err := os.Create(pm.cfg.StateFile)
+	if err != nil {
+		return fmt.Errorf("save: open state file: %w", err)
+	}
+	if err := json.NewEncoder(f).Encode(nets); err != nil {
+		return fmt.Errorf("save: encode state: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("save: close state file: %w", err)
+	}
+	slog.Info("Save networks", "count", len(nets))
+	return nil
+}
+
+func (pm *PeerMap) HandleQueryNetworks(w http.ResponseWriter, r *http.Request) {
+	if err := pm.checkAdminToken(w, r); err != nil {
 		return
 	}
 	var networks []exporter.NetworkHead
@@ -456,6 +504,7 @@ func (pm *PeerMap) HandleQueryNetworks(w http.ResponseWriter, r *http.Request) {
 	for k, v := range pm.networkMap {
 		networks = append(networks, exporter.NetworkHead{
 			ID:         k,
+			Alias:      v.alias,
 			PeersCount: v.peerCount(),
 			CreateTime: fmt.Sprintf("%d", v.createTime.UnixNano()),
 		})
@@ -465,11 +514,7 @@ func (pm *PeerMap) HandleQueryNetworks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (pm *PeerMap) HandleQueryNetworkPeers(w http.ResponseWriter, r *http.Request) {
-	exporterToken := r.Header.Get("X-Token")
-	_, err := pm.exporterAuthenticator.CheckToken(exporterToken)
-	if err != nil {
-		slog.Debug("ExporterAuthFailed", "details", err)
-		w.WriteHeader(http.StatusUnauthorized)
+	if err := pm.checkAdminToken(w, r); err != nil {
 		return
 	}
 	var networks []exporter.Network
@@ -481,22 +526,30 @@ func (pm *PeerMap) HandleQueryNetworkPeers(w http.ResponseWriter, r *http.Reques
 			peers = append(peers, peer.String())
 		}
 		v.peersMutex.RUnlock()
-		networks = append(networks, exporter.Network{ID: k, Peers: peers})
+		networks = append(networks, exporter.Network{ID: k, Alias: v.alias, Peers: peers})
 	}
 	pm.networkMapMutex.RUnlock()
 	json.NewEncoder(w).Encode(networks)
 }
 
+func (pm *PeerMap) HandleGetNetworkMeta(w http.ResponseWriter, r *http.Request) {
+	if err := pm.checkAdminToken(w, r); err != nil {
+		return
+	}
+	ctx, ok := pm.getNetwork(r.PathValue("network"))
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	json.NewEncoder(w).Encode(exporter.NetworkMeta{Alias: ctx.alias, Neighbors: ctx.neighbors})
+}
+
 func (pm *PeerMap) HandlePutNetworkMeta(w http.ResponseWriter, r *http.Request) {
-	exporterToken := r.Header.Get("X-Token")
-	_, err := pm.exporterAuthenticator.CheckToken(exporterToken)
-	if err != nil {
-		slog.Debug("ExporterAuthFailed", "details", err)
-		w.WriteHeader(http.StatusUnauthorized)
+	if err := pm.checkAdminToken(w, r); err != nil {
 		return
 	}
 	network := r.PathValue("network")
-	var request exporter.PutNetworkMetaRequest
+	var request exporter.NetworkMeta
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -515,8 +568,7 @@ func (pm *PeerMap) HandlePutNetworkMeta(w http.ResponseWriter, r *http.Request) 
 }
 
 func (pm *PeerMap) HandleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
-	providerName := path.Base(r.URL.Path)
-	provider, ok := oidc.Provider(providerName)
+	provider, ok := oidc.Provider(r.PathValue("provider"))
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -652,7 +704,7 @@ func (pm *PeerMap) watchSaveCycle(ctx context.Context) {
 			return
 		case <-sig:
 			close(sig)
-			if err := pm.save(); err != nil {
+			if err := pm.Save(); err != nil {
 				slog.Error("Save networks", "err", err)
 			}
 		}
@@ -678,57 +730,6 @@ func (pm *PeerMap) newNetworkContext(state NetState) *networkContext {
 	}
 }
 
-func (pm *PeerMap) load() error {
-	f, err := os.Open(pm.cfg.StateFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("load: open state file: %w", err)
-	}
-	defer f.Close()
-	var nets []NetState
-	if err := json.NewDecoder(f).Decode(&nets); err != nil && !errors.Is(err, io.EOF) {
-		return fmt.Errorf("load: decode state: %w", err)
-	}
-	pm.networkMapMutex.Lock()
-	defer pm.networkMapMutex.Unlock()
-	for _, n := range nets {
-		pm.networkMap[n.ID] = pm.newNetworkContext(n)
-	}
-	slog.Info("Load networks", "count", len(nets))
-	return nil
-}
-
-func (pm *PeerMap) save() error {
-	var nets []NetState
-	pm.networkMapMutex.RLock()
-	for _, v := range pm.networkMap {
-		nets = append(nets, NetState{
-			ID:         v.id,
-			Alias:      v.alias,
-			Neighbors:  v.neighbors,
-			CreateTime: v.createTime,
-			UpdateTime: v.updateTime})
-	}
-	pm.networkMapMutex.RUnlock()
-	if nets == nil {
-		return nil
-	}
-	f, err := os.Create(pm.cfg.StateFile)
-	if err != nil {
-		return fmt.Errorf("save: open state file: %w", err)
-	}
-	if err := json.NewEncoder(f).Encode(nets); err != nil {
-		return fmt.Errorf("save: encode state: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("save: close state file: %w", err)
-	}
-	slog.Info("Save networks", "count", len(nets))
-	return nil
-}
-
 func (pm *PeerMap) generateSecret(n auth.Net) (peer.NetworkSecret, error) {
 	secret, err := auth.NewAuthenticator(pm.cfg.SecretKey).GenerateSecret(n, pm.cfg.SecretValidityPeriod)
 	if err != nil {
@@ -741,7 +742,19 @@ func (pm *PeerMap) generateSecret(n auth.Net) (peer.NetworkSecret, error) {
 	}, nil
 }
 
-func New(server *http.Server, cfg Config) (*PeerMap, error) {
+func (pm *PeerMap) checkAdminToken(w http.ResponseWriter, r *http.Request) error {
+	exporterToken := r.Header.Get("X-Token")
+	_, err := pm.exporterAuthenticator.CheckToken(exporterToken)
+	if err != nil {
+		err = fmt.Errorf("exporter auth: %w", err)
+		slog.Debug("ExporterAuthFailed", "err", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		return err
+	}
+	return nil
+}
+
+func New(cfg Config) (*PeerMap, error) {
 	if err := cfg.applyDefaults(); err != nil {
 		return nil, err
 	}
@@ -755,18 +768,16 @@ func New(server *http.Server, cfg Config) (*PeerMap, error) {
 		cfg:                   cfg,
 	}
 
-	if server == nil {
-		mux := http.NewServeMux()
-		server = &http.Server{Handler: mux, Addr: cfg.Listen}
-		mux.HandleFunc("/", pm.HandlePeerPacketConnect)
-		mux.HandleFunc("/networks", pm.HandleQueryNetworks)
-		mux.HandleFunc("/peers", pm.HandleQueryNetworkPeers)
-		mux.HandleFunc("PUT /network/{network}/meta", pm.HandlePutNetworkMeta)
+	mux := http.NewServeMux()
+	pm.httpServer = &http.Server{Handler: mux, Addr: cfg.Listen}
+	mux.HandleFunc("GET /pg", pm.HandlePeerPacketConnect)
+	mux.HandleFunc("GET /pg/networks", pm.HandleQueryNetworks)
+	mux.HandleFunc("GET /pg/peers", pm.HandleQueryNetworkPeers)
+	mux.HandleFunc("GET /pg/networks/{network}/meta", pm.HandleGetNetworkMeta)
+	mux.HandleFunc("PUT /pg/networks/{network}/meta", pm.HandlePutNetworkMeta)
 
-		mux.HandleFunc("/network/token", oidc.HandleNotifyToken)
-		mux.HandleFunc("/oidc/", oidc.RedirectAuthURL)
-		mux.HandleFunc("/oidc/authorize/", pm.HandleOIDCAuthorize)
-	}
-	pm.httpServer = server
+	mux.HandleFunc("GET /network/token", oidc.HandleNotifyToken)
+	mux.HandleFunc("GET /oidc/{provider}", oidc.RedirectAuthURL)
+	mux.HandleFunc("GET /oidc/authorize/{provider}", pm.HandleOIDCAuthorize)
 	return &pm, nil
 }
