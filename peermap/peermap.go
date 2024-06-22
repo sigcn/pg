@@ -32,9 +32,10 @@ var (
 )
 
 type Peer struct {
-	conn    *websocket.Conn
-	exitSig chan struct{}
-	peerMap *PeerMap
+	conn      *websocket.Conn
+	exitSig   chan struct{}
+	closeOnce sync.Once
+	peerMap   *PeerMap
 
 	networkSecret  auth.JSONSecret
 	networkContext *networkContext
@@ -110,8 +111,10 @@ func (p *Peer) Write(b []byte) (n int, err error) {
 }
 
 func (p *Peer) Close() error {
-	close(p.exitSig)
-	close(p.connData)
+	p.closeOnce.Do(func() {
+		close(p.exitSig)
+		close(p.connData)
+	})
 	return p.close()
 }
 
@@ -200,6 +203,10 @@ func (p *Peer) readMessageLoop() {
 		} else if p.networkContext.ratelimiter != nil {
 			p.networkContext.ratelimiter.WaitN(context.Background(), len(b))
 		}
+		if b[0] == peer.CONTROL_CONN {
+			p.connData <- b[1:]
+			continue
+		}
 		tgtPeerID := peer.ID(b[2 : b[1]+2])
 		slog.Debug("PeerEvent", "op", b[0], "from", p.id, "to", tgtPeerID)
 		tgtPeer, err := p.peerMap.getPeer(p.networkSecret.Network, tgtPeerID)
@@ -207,20 +214,17 @@ func (p *Peer) readMessageLoop() {
 			slog.Debug("FindPeer failed", "detail", err)
 			continue
 		}
-		switch b[0] {
-		case peer.CONTROL_LEAD_DISCO:
+		if b[0] == peer.CONTROL_LEAD_DISCO {
 			p.leadDisco(tgtPeer)
-		case peer.CONTROL_CONN:
-			p.connData <- b[1:]
-		default:
-			data := b[b[1]+2:]
-			bb := make([]byte, 2+len(p.id)+len(data))
-			bb[0] = b[0]
-			bb[1] = p.id.Len()
-			copy(bb[2:p.id.Len()+2], p.id.Bytes())
-			copy(bb[p.id.Len()+2:], data)
-			_ = tgtPeer.write(bb)
+			continue
 		}
+		data := b[b[1]+2:]
+		bb := make([]byte, 2+len(p.id)+len(data))
+		bb[0] = b[0]
+		bb[1] = p.id.Len()
+		copy(bb[2:p.id.Len()+2], p.id.Bytes())
+		copy(bb[p.id.Len()+2:], data)
+		_ = tgtPeer.write(bb)
 	}
 }
 
