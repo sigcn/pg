@@ -9,7 +9,7 @@ if err != nil {
     panic(err)
 }
 
-session := connmux.Mux(c, connmux.DefaultGenerateSeq)
+session := connmux.Mux(c, connmux.SeqOdd)
 defer session.Close()
 for {
     muxC, err := session.Accept()
@@ -29,7 +29,7 @@ c, err := l.Accept()
 if err != nil {
     panic(err)
 }
-session := connmux.Mux(c, nil)
+session := connmux.Mux(c, connmux.SeqEven)
 defer session.Close()
 
 muxConn, err := session.OpenStream()

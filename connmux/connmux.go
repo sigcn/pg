@@ -15,9 +15,13 @@ import (
 type GenerateSeq func() uint32
 
 var (
-	defaultSeq         atomic.Uint32
-	DefaultGenerateSeq = func() uint32 {
-		return defaultSeq.Add(1)
+	seq, seqOdd, seqEven atomic.Uint32
+	seqOddInit           sync.Once
+	Seq                  = func() uint32 { return seq.Add(1) }
+	SeqEven              = func() uint32 { return seqEven.Add(2) }
+	SeqOdd               = func() uint32 {
+		seqOddInit.Do(func() { seqOdd.Store(1) })
+		return seqOdd.Add(2)
 	}
 )
 
@@ -254,7 +258,7 @@ func (l *MuxSession) run() {
 
 func (d *MuxSession) OpenStream() (net.Conn, error) {
 	if d.generateSeq == nil {
-		return nil, errors.New("seq generator is nil")
+		return nil, errors.New("seq generator must not nil")
 	}
 	c := &muxConn{
 		exit:    make(chan struct{}),
