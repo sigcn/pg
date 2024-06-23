@@ -15,21 +15,21 @@ Another p2p network library in Go. Committed to direct communication between dev
 ### p2p vpn
 ```
 # node1
-pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
+sudo pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
 ```
 ```
 # node2
-pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.2/24 --ipv6 fd00::2/64
+sudo pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.2/24 --ipv6 fd00::2/64
 ```
 ### p2p file sharing
 ```
 # share
-pgcli share -s wss://synf.in/pg ~/my-show.pptx
+$ PG_SERVER=wss://synf.in/pg pgcli share ~/my-show.pptx
 ShareURL: pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
 ```
 ```
 # download
-pgcli download -s wss://synf.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
+$ PG_SERVER=wss://synf.in/pg pgcli download pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
 ```
 
 ## Advanced
@@ -44,10 +44,16 @@ $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
 ```
 $ caddy reverse-proxy --from https://synf.in/pg --to 127.0.0.1:9987
 ```
-### pgcli uses pre-shared secret file instead of oidc auth 
+### uses pre-shared secret file instead of OIDC auth 
+**first**
 ```
-PG_SECRET_KEY=5172554832d76672d1959a5ac63c5ab9 PG_SERVER=wss://synf.in/pg pgcli admin secret --network "<email>" --duration 24h > psns.json
-pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24 -f psns.json
+$ export PG_SECRET_KEY=5172554832d76672d1959a5ac63c5ab9
+$ export PG_SERVER=wss://synf.in/pg
+$ pgcli admin secret --network "<email>" --duration 24h > psns.json
+```
+**then**
+```
+sudo pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24 -f psns.json
 ```
 ## License
 [GNU General Public License v3.0](https://github.com/rkonfj/peerguard/blob/main/LICENSE)

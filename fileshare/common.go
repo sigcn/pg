@@ -1,7 +1,8 @@
-package pubnet
+package fileshare
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 
@@ -39,3 +40,18 @@ func (pn *PublicNetwork) secureOption() p2p.Option {
 	}
 	return p2p.ListenPeerSecure()
 }
+
+type ProgressBar interface {
+	io.Writer
+	Add(progress int) error
+}
+
+type NopProgress struct {
+}
+
+func (w NopProgress) Write(p []byte) (n int, err error) {
+	n = len(p)
+	return
+}
+
+func (w NopProgress) Add(int) error { return nil }

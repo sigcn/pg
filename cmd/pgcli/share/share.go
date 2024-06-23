@@ -5,14 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
+	"time"
 
-	"github.com/rkonfj/peerguard/cmd/pgcli/share/pubnet"
-	"github.com/rkonfj/peerguard/rdt"
+	"github.com/rkonfj/peerguard/fileshare"
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
 
@@ -23,38 +22,7 @@ func init() {
 		Use:   "share",
 		Short: "Share files to peers",
 		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			verbose, err := cmd.Flags().GetInt("verbose")
-			if err != nil {
-				return err
-			}
-			slog.SetLogLoggerLevel(slog.Level(verbose))
-
-			var pubnet pubnet.PublicNetwork
-
-			if pubnet.Server, err = cmd.Flags().GetString("server"); err != nil {
-				return err
-			}
-			if len(pubnet.Server) == 0 {
-				pubnet.Server = os.Getenv("PEERMAP_SERVER")
-				if len(pubnet.Server) == 0 {
-					return errors.New("unknown peermap server")
-				}
-			}
-
-			pubnet.PrivateKey, err = cmd.Flags().GetString("key")
-			if err != nil {
-				return err
-			}
-
-			if pubnet.Name, err = cmd.Flags().GetString("pubnet"); err != nil {
-				return err
-			}
-
-			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			defer cancel()
-			return serve(ctx, pubnet, args)
-		},
+		RunE:  execute,
 	}
 	Cmd.Flags().StringP("server", "s", "", "peermap server")
 	Cmd.Flags().StringP("pubnet", "n", "public", "peermap public network")
@@ -62,45 +30,76 @@ func init() {
 	Cmd.Flags().IntP("verbose", "V", int(slog.LevelError), "log level")
 }
 
-func serve(ctx context.Context, pubnet pubnet.PublicNetwork, files []string) error {
-	packetConn, err := pubnet.ListenPacket(29878)
+func execute(cmd *cobra.Command, args []string) error {
+	verbose, err := cmd.Flags().GetInt("verbose")
 	if err != nil {
-		return fmt.Errorf("listen p2p packet failed: %w", err)
+		return err
+	}
+	slog.SetLogLoggerLevel(slog.Level(verbose))
+
+	fileManager := fileshare.FileManager{UDPPort: 29878, ProgressBar: createBar}
+
+	if fileManager.Server, err = cmd.Flags().GetString("server"); err != nil {
+		return err
+	}
+	if len(fileManager.Server) == 0 {
+		fileManager.Server = os.Getenv("PG_SERVER")
+		if len(fileManager.Server) == 0 {
+			return errors.New("unknown peermap server")
+		}
 	}
 
-	fm := FileManager{files: map[int]string{}}
-	for _, file := range files {
-		if index, err := fm.Add(file); err != nil {
+	fileManager.PrivateKey, err = cmd.Flags().GetString("key")
+	if err != nil {
+		return err
+	}
+
+	if fileManager.Network, err = cmd.Flags().GetString("pubnet"); err != nil {
+		return err
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	for _, file := range args {
+		if _, err := fileManager.Add(file); err != nil {
 			slog.Warn("AddFile", "path", file, "err", err)
-		} else {
-			fmt.Printf("ShareURL: pg://%s/%d/%s\n", packetConn.LocalAddr(), index, url.QueryEscape(filepath.Base(file)))
 		}
 	}
 
-	listener, err := rdt.Listen(packetConn, rdt.EnableStatsServer(":29879"))
+	listener, err := fileManager.ListenNetwork()
 	if err != nil {
-		return fmt.Errorf("listen rdt: %w", err)
+		return err
 	}
 
-	go func() {
-		<-ctx.Done()
-		listener.Close()
-	}()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-		}
-		conn, err := listener.Accept()
-		if err != nil {
-			slog.Debug("Accept failed", "err", err)
-			continue
-		}
-		go func() {
-			<-ctx.Done()
-			conn.Close()
-		}()
-		fm.HandleRequest(conn.RemoteAddr().String(), conn)
+	for _, url := range fileManager.SharedURLs() {
+		fmt.Println("ShareURL:", url)
 	}
+	return fileManager.Serve(ctx, listener)
+}
+
+func createBar(total int64, desc string) fileshare.ProgressBar {
+	return progressbar.NewOptions64(
+		total,
+		progressbar.OptionSetDescription(desc),
+		progressbar.OptionSetWriter(os.Stderr),
+		progressbar.OptionShowBytes(true),
+		progressbar.OptionSetWidth(10),
+		progressbar.OptionThrottle(200*time.Millisecond),
+		progressbar.OptionShowCount(),
+		progressbar.OptionShowElapsedTimeOnFinish(),
+		progressbar.OptionOnCompletion(func() {
+			fmt.Fprint(os.Stderr, "\n")
+		}),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "=",
+			SaucerHead:    ">",
+			SaucerPadding: " ",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+		progressbar.OptionSpinnerType(14),
+		progressbar.OptionFullWidth(),
+		progressbar.OptionSetRenderBlankState(true),
+	)
 }
