@@ -1,17 +1,13 @@
 package fileshare
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/url"
-	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -20,22 +16,79 @@ import (
 	"github.com/rkonfj/peerguard/rdt"
 )
 
-type Downloader struct {
-	Network     string
-	Server      string
-	PrivateKey  string
-	UDPPort     int
-	ProgressBar func(total int64, desc string) ProgressBar
+type FileHandle struct {
+	Filename string
+
+	c     net.Conn
+	index uint16
+	fSize uint32
+	f     io.Reader
 }
 
-func (d *Downloader) Download(ctx context.Context, shareURL string) error {
+func (h *FileHandle) Handshake(offset uint32, sha256Checksum []byte) error {
+	_, err := h.c.Write(buildGet(h.index, offset, sha256Checksum))
+	if err != nil {
+		return err
+	}
+	header := make([]byte, 5)
+	_, err = io.ReadFull(h.c, header)
+	if err != nil {
+		return err
+	}
+	switch header[0] {
+	case 0:
+	case 20:
+	case 1:
+		return errors.New("bad request. maybe the version is lower than peer")
+	case 2:
+		return errors.New("file not found")
+	case 4:
+		return errors.New("download file size is less than local file")
+	case 5:
+		return errors.New("local file is not part of the file to be downloaded")
+	default:
+		return errors.New("invalid protocol header")
+	}
+	if offset > 0 && header[0] != 20 {
+		return errors.New("sha256 checksum non matched for [0, offset)")
+	}
+	h.fSize = binary.BigEndian.Uint32(header[1:])
+	h.f = io.LimitReader(h.c, int64(h.fSize-offset))
+	return nil
+}
+
+func (h *FileHandle) File() (io.Reader, uint32, error) {
+	if h.f == nil {
+		return nil, 0, errors.New("handshake first")
+	}
+	return h.f, h.fSize, nil
+}
+
+func (h *FileHandle) Sha256() ([]byte, error) {
+	checksum := make([]byte, 32)
+	if _, err := io.ReadFull(h.c, checksum); err != nil {
+		return nil, fmt.Errorf("read checksum failed: %w", err)
+	}
+	return checksum, nil
+}
+
+type Read func(f *FileHandle) error
+
+type Downloader struct {
+	Network       string
+	Server        string
+	PrivateKey    string
+	ListenUDPPort int
+}
+
+func (d *Downloader) Request(ctx context.Context, shareURL string, read Read) error {
 	pnet := PublicNetwork{Name: d.Network, Server: d.Server, PrivateKey: d.PrivateKey}
-	packetConn, err := pnet.ListenPacket(d.UDPPort)
+	packetConn, err := pnet.ListenPacket(d.ListenUDPPort)
 	if err != nil {
 		return fmt.Errorf("listen p2p packet failed: %w", err)
 	}
 
-	listener, err := rdt.Listen(packetConn, rdt.EnableStatsServer(fmt.Sprintf(":%d", d.UDPPort+100)))
+	listener, err := rdt.Listen(packetConn, rdt.EnableStatsServer(fmt.Sprintf(":%d", d.ListenUDPPort+100)))
 	if err != nil {
 		return fmt.Errorf("listen rdt: %w", err)
 	}
@@ -66,77 +119,12 @@ func (d *Downloader) Download(ctx context.Context, shareURL string) error {
 		conn.Write(buildClose())
 		conn.Close()
 	}()
-	return d.download(conn, uint16(index), fn)
-}
-
-func (d *Downloader) download(conn net.Conn, index uint16, filename string) error {
-	f, err := os.OpenFile(filename, os.O_RDWR, 0666)
-	if err != nil {
-		f, err = os.Create(filename)
-		if err != nil {
-			return err
-		}
-	}
-	defer f.Close()
-	stat, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	partSize := stat.Size()
-
-	sha256Checksum := sha256.New()
-	if partSize > 0 {
-		fmt.Println("download resuming")
-	}
-
-	if _, err = io.CopyN(sha256Checksum, f, partSize); err != nil {
-		return err
-	}
-	_, err = conn.Write(buildGet(uint16(index), uint32(stat.Size()), sha256Checksum.Sum(nil)))
-	if err != nil {
-		return err
-	}
-	header := make([]byte, 5)
-	_, err = io.ReadFull(conn, header)
-	if err != nil {
-		return err
-	}
-	switch header[0] {
-	case 0:
-	case 20:
-	case 1:
-		return errors.New("bad request. maybe the version is lower than peer")
-	case 2:
-		return errors.New("file not found")
-	case 4:
-		return errors.New("download file size is less than local file")
-	default:
-		return errors.New("invalid protocol header")
-	}
-
-	fileSize := binary.BigEndian.Uint32(header[1:])
-	var bar ProgressBar = NopProgress{}
-	if d.ProgressBar != nil {
-		bar = d.ProgressBar(int64(fileSize), filename)
-	}
-	bar.Add(int(stat.Size()))
 	defer conn.Write(buildClose())
-
-	_, err = io.CopyN(io.MultiWriter(f, bar, sha256Checksum), conn, int64(fileSize-uint32(partSize)))
-	if err != nil && !errors.Is(err, io.EOF) {
-		return fmt.Errorf("download file falied: %w", err)
-	}
-	checksum := make([]byte, 32)
-	if _, err = io.ReadFull(conn, checksum); err != nil {
-		return fmt.Errorf("read checksum failed: %w", err)
-	}
-	recvSum := sha256Checksum.Sum(nil)
-	slog.Debug("Checksum", "recv", recvSum, "send", checksum)
-	if !bytes.Equal(checksum, recvSum) {
-		return fmt.Errorf("download file failed: checksum mismatched")
-	}
-	fmt.Printf("sha256: %x\n", checksum)
-	return nil
+	return read(&FileHandle{
+		Filename: fn,
+		c:        conn,
+		index:    uint16(index),
+	})
 }
 
 func buildGet(index uint16, partSize uint32, checksum []byte) []byte {

@@ -37,7 +37,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	}
 	slog.SetLogLoggerLevel(slog.Level(verbose))
 
-	fileManager := fileshare.FileManager{UDPPort: 29878, ProgressBar: createBar}
+	fileManager := fileshare.FileManager{ListenUDPPort: 29878, ProgressBar: createBar}
 
 	if fileManager.Server, err = cmd.Flags().GetString("server"); err != nil {
 		return err

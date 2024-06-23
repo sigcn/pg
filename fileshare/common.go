@@ -1,6 +1,7 @@
 package fileshare
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"net"
@@ -22,15 +23,11 @@ func (pn *PublicNetwork) ListenPacket(udpPort int) (net.PacketConn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid peermap URL: %w", err)
 	}
-
-	pmap, err := peermap.New(pmapURL, &peer.NetworkSecret{
-		Network: pn.Name,
-		Secret:  pn.Name,
-	})
+	network := cmp.Or(pn.Name, "pubnet")
+	pmap, err := peermap.New(pmapURL, &peer.NetworkSecret{Network: network, Secret: network})
 	if err != nil {
 		return nil, fmt.Errorf("create peermap failed: %w", err)
 	}
-
 	return p2p.ListenPacket(pmap, pn.secureOption(), p2p.ListenUDPPort(udpPort))
 }
 

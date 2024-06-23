@@ -21,11 +21,11 @@ import (
 )
 
 type FileManager struct {
-	Network     string
-	Server      string
-	PrivateKey  string
-	UDPPort     int
-	ProgressBar func(total int64, desc string) ProgressBar
+	Network       string
+	Server        string
+	PrivateKey    string
+	ListenUDPPort int
+	ProgressBar   func(total int64, desc string) ProgressBar
 
 	mutex     sync.RWMutex
 	index     int
@@ -36,12 +36,12 @@ type FileManager struct {
 
 func (m *FileManager) ListenNetwork() (net.Listener, error) {
 	pnet := PublicNetwork{Name: m.Network, Server: m.Server, PrivateKey: m.PrivateKey}
-	packetConn, err := pnet.ListenPacket(m.UDPPort)
+	packetConn, err := pnet.ListenPacket(m.ListenUDPPort)
 	if err != nil {
 		return nil, fmt.Errorf("listen p2p packet failed: %w", err)
 	}
 
-	listener, err := rdt.Listen(packetConn, rdt.EnableStatsServer(fmt.Sprintf(":%d", m.UDPPort+100)))
+	listener, err := rdt.Listen(packetConn, rdt.EnableStatsServer(fmt.Sprintf(":%d", m.ListenUDPPort+100)))
 	if err != nil {
 		return nil, fmt.Errorf("listen rdt: %w", err)
 	}
@@ -154,12 +154,9 @@ func (m *FileManager) handleRequest(peerID string, conn net.Conn) {
 		}
 		io.CopyN(sha256Checksum, f, int64(partSize))
 		if !bytes.Equal(sha256Checksum.Sum(nil), partChecksum) {
-			if _, err = f.Seek(0, io.SeekStart); err != nil {
-				conn.Write(buildErr(10))
-				slog.Error("SeekToStart", "err", err)
-				return
-			}
-			sha256Checksum = sha256.New()
+			conn.Write(buildErr(5)) // not part of file
+			slog.Error("Request not part of file", "file", f.Name())
+			return
 		}
 	}
 
