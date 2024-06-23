@@ -56,7 +56,7 @@ type rdtConn struct {
 
 	closeOnce sync.Once
 
-	rClosed, wClosed *net.OpError
+	wClosed *net.OpError
 }
 
 // Read reads data from the connection.
@@ -66,11 +66,11 @@ func (c *rdtConn) Read(b []byte) (n int, err error) {
 	if c.inboundBuf == nil {
 		select {
 		case <-c.exit:
-			err = c.rClosed
+			err = io.EOF
 			return
 		case pkt, ok := <-c.inbound:
 			if !ok {
-				return 0, c.rClosed
+				return 0, io.EOF
 			}
 			c.inboundBuf = pkt
 		}
@@ -281,8 +281,9 @@ func (c *rdtConn) recv(pkt []byte) {
 			c.sendNCK(no)
 			return
 		}
-		c.send(c.buildFrame(22, no, 0, nil))
+		c.send(c.buildFrame(22, no, 0, nil)) // send FINACK
 		c.fin <- no
+		c.Close()
 	case 22: // FINACK
 		c.finack <- no
 	}
@@ -570,13 +571,6 @@ func (l *RDTListener) newConn(remoteAddr net.Addr) *rdtConn {
 		sendEvent:  make(chan struct{}),
 		recvPool:   map[uint32][]byte{},
 		sendPool:   map[uint32][]byte{},
-		rClosed: &net.OpError{
-			Op:     "read",
-			Net:    l.c.LocalAddr().Network(),
-			Source: l.c.LocalAddr(),
-			Addr:   remoteAddr,
-			Err:    errors.New("closed"),
-		},
 		wClosed: &net.OpError{
 			Op:     "write",
 			Net:    l.c.LocalAddr().Network(),
