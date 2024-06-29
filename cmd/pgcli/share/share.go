@@ -19,7 +19,7 @@ var Cmd *cobra.Command
 
 func init() {
 	Cmd = &cobra.Command{
-		Use:   "share",
+		Use:   "share <path> ...",
 		Short: "Share files to peers",
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  execute,
@@ -62,7 +62,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	for _, file := range args {
-		if _, err := fileManager.Add(file); err != nil {
+		if err := fileManager.Add(file); err != nil {
 			slog.Warn("AddFile", "path", file, "err", err)
 		}
 	}
@@ -72,9 +72,14 @@ func execute(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	for _, url := range fileManager.SharedURLs() {
+	sharedURLs, err := fileManager.SharedURLs()
+	if err != nil {
+		return err
+	}
+	for _, url := range sharedURLs {
 		fmt.Println("ShareURL:", url)
 	}
+
 	return fileManager.Serve(ctx, listener)
 }
 

@@ -22,7 +22,7 @@ var Cmd *cobra.Command
 
 func init() {
 	Cmd = &cobra.Command{
-		Use:   "download",
+		Use:   "download <url>",
 		Short: "Download shared file from peer",
 		Args:  cobra.ExactArgs(1),
 		RunE:  execute,

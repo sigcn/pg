@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -49,12 +50,15 @@ func (m *FileManager) ListenNetwork() (net.Listener, error) {
 	return listener, nil
 }
 
-func (m *FileManager) SharedURLs() []string {
+func (m *FileManager) SharedURLs() ([]string, error) {
 	var ret []string
 	for k, v := range m.files {
 		ret = append(ret, fmt.Sprintf("pg://%s/%d/%s", m.peerID, k, url.QueryEscape(filepath.Base(v))))
 	}
-	return ret
+	if ret == nil {
+		return nil, errors.New("no file to share")
+	}
+	return ret, nil
 }
 
 func (m *FileManager) Serve(ctx context.Context, listener net.Listener) error {
@@ -81,24 +85,45 @@ func (m *FileManager) Serve(ctx context.Context, listener net.Listener) error {
 	}
 }
 
-func (fm *FileManager) Add(file string) (int, error) {
-	fm.mutex.Lock()
-	defer fm.mutex.Unlock()
-	absPath, err := filepath.Abs(file)
+func (fm *FileManager) addAbs(absPath string) error {
+	fileStat, err := os.Lstat(absPath)
 	if err != nil {
-		return -1, err
+		return fmt.Errorf("fileinfo: %w", err)
 	}
-	if relPath, ok := strings.CutPrefix(file, "~"); ok {
-		curUser, err := user.Current()
+	if fileStat.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+	if fileStat.IsDir() {
+		files, err := os.ReadDir(absPath)
 		if err != nil {
-			return -1, err
+			return fmt.Errorf("readdir: %s: %w", absPath, err)
 		}
-		absPath = filepath.Join(curUser.HomeDir, relPath)
+		for _, f := range files {
+			fm.addAbs(filepath.Join(absPath, f.Name()))
+		}
+		return nil
 	}
 	fm.filesInit.Do(func() { fm.files = make(map[int]string) })
 	fm.files[fm.index] = absPath
 	fm.index++
-	return fm.index - 1, nil
+	return nil
+}
+
+func (fm *FileManager) Add(file string) error {
+	fm.mutex.Lock()
+	defer fm.mutex.Unlock()
+	absPath, err := filepath.Abs(file)
+	if err != nil {
+		return err
+	}
+	if relPath, ok := strings.CutPrefix(file, "~"); ok {
+		curUser, err := user.Current()
+		if err != nil {
+			return err
+		}
+		absPath = filepath.Join(curUser.HomeDir, relPath)
+	}
+	return fm.addAbs(absPath)
 }
 
 func (fm *FileManager) openFile(index uint16) (*os.File, error) {
