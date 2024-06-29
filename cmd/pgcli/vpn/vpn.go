@@ -49,7 +49,7 @@ func init() {
 
 	Cmd.Flags().String("key", "", "curve25519 private key in base58 format (default generate a new one)")
 	Cmd.Flags().StringP("secret-file", "f", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
-	Cmd.Flags().StringP("server", "s", "", "peermap server url")
+	Cmd.Flags().StringP("server", "s", os.Getenv("PG_SERVER"), "peermap server url")
 	Cmd.Flags().StringSlice("allowed-ip", []string{}, "declare IPs that can be routed/NATed by this machine (e.g. 192.168.0.0/24)")
 	Cmd.Flags().StringSlice("peer", []string{}, "specify peers instead of auto-discovery (pg://<peerID>?alias1=<ipv4>&alias2=<ipv6>)")
 
@@ -61,7 +61,6 @@ func init() {
 
 	Cmd.Flags().Bool("pprof", false, "enable http pprof server")
 
-	Cmd.MarkFlagRequired("server")
 	Cmd.MarkFlagsOneRequired("ipv4", "ipv6")
 }
 
@@ -143,6 +142,10 @@ func createConfig(cmd *cobra.Command) (cfg Config, err error) {
 	}
 	cfg.Server, err = cmd.Flags().GetString("server")
 	if err != nil {
+		return
+	}
+	if cfg.Server == "" {
+		err = errors.New("flag \"server\" not set")
 		return
 	}
 	return
