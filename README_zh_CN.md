@@ -18,9 +18,11 @@
 sudo pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
 ```
 ```sh
-# 节点1
+# 节点2
 sudo pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.2/24 --ipv6 fd00::2/64
 ```
+>[!NOTE]
+>使用`github`认证时要求帐号绑定已验证的邮箱 (https://github.com/settings/emails)
 ### p2p 文件分享
 ```sh
 # 分享
@@ -40,6 +42,8 @@ $ PG_SERVER=wss://synf.in/pg pgcli download pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFj
 $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
     --stun stun.miwifi.com:3478 --stun stunserver.stunprotocol.org:3478
 ```
+>[!NOTE]
+>`pgmap`支持配置文件（[查看所有配置项](https://github.com/rkonfj/peerguard/blob/main/peermap/config.go#L20)）。另外，命令行参数会覆盖配置文件参数
 
 #### 2. 上 https 更安全
 ```sh
