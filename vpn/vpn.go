@@ -55,10 +55,10 @@ func (vpn *VPN) Run(ctx context.Context, iface iface.Interface, packetConn net.P
 	go vpn.runPacketConnWriteEventLoop(&wg, packetConn)
 
 	<-ctx.Done()
+	packetConn.Close()
+	iface.Close()
 	close(vpn.inbound)
 	close(vpn.outbound)
-	iface.Close()
-	packetConn.Close()
 	wg.Wait()
 	return nil
 }
