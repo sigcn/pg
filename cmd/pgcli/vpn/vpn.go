@@ -17,14 +17,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/manifoldco/promptui"
 	"github.com/mdp/qrterminal/v3"
 	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/p2p"
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peer/peermap"
 	"github.com/rkonfj/peerguard/peermap/network"
-	"github.com/rkonfj/peerguard/peermap/oidc"
 	"github.com/rkonfj/peerguard/vpn"
 	"github.com/rkonfj/peerguard/vpn/iface"
 	"github.com/spf13/cobra"
@@ -60,6 +58,7 @@ func init() {
 	Cmd.Flags().Float64("disco-challenges-backoff-rate", 1.65, "ping challenges backoff rate when disco")
 
 	Cmd.Flags().Bool("pprof", false, "enable http pprof server")
+	Cmd.Flags().Bool("auth-qr", false, "display the QR code when authentication is required")
 
 	Cmd.MarkFlagsOneRequired("ipv4", "ipv6")
 }
@@ -140,6 +139,10 @@ func createConfig(cmd *cobra.Command) (cfg Config, err error) {
 	if err != nil {
 		return
 	}
+	cfg.AuthQR, err = cmd.Flags().GetBool("auth-qr")
+	if err != nil {
+		return
+	}
 	cfg.Server, err = cmd.Flags().GetString("server")
 	if err != nil {
 		return
@@ -164,6 +167,7 @@ type Config struct {
 	PrivateKey                     string
 	SecretFile                     string
 	Server                         string
+	AuthQR                         bool
 }
 
 type P2PVPN struct {
@@ -307,33 +311,22 @@ func (v *P2PVPN) loginIfNecessary(ctx context.Context) (peer.SecretStore, error)
 }
 
 func (v *P2PVPN) requestNetworkSecret(ctx context.Context) (peer.NetworkSecret, error) {
-	prompt := promptui.Select{
-		Label:    "Select OpenID Connect Provider",
-		Items:    []string{oidc.ProviderGoogle, oidc.ProviderGithub},
-		HideHelp: true,
-		Templates: &promptui.SelectTemplates{
-			Label:    "🔑 {{.}}",
-			Active:   "> {{.}}",
-			Selected: "{{green `✔`}} {{green .}} {{cyan `use the browser to open the following URL for authentication`}}",
-		},
-	}
-	_, provider, err := prompt.Run()
-	if err != nil {
-		return peer.NetworkSecret{}, err
-	}
-	join, err := network.JoinOIDC(provider, v.Config.Server)
+	join, err := network.JoinOIDC("", v.Config.Server)
 	if err != nil {
 		slog.Error("JoinNetwork failed", "err", err)
 		return peer.NetworkSecret{}, err
 	}
-	fmt.Println("AuthURL:", join.AuthURL())
-	qrterminal.GenerateWithConfig(join.AuthURL(), qrterminal.Config{
-		Level:     qrterminal.L,
-		Writer:    os.Stdout,
-		BlackChar: qrterminal.WHITE,
-		WhiteChar: qrterminal.BLACK,
-		QuietZone: 1,
-	})
+	fmt.Println("Open the following link to authenticate")
+	fmt.Println(join.AuthURL())
+	if v.Config.AuthQR {
+		qrterminal.GenerateWithConfig(join.AuthURL(), qrterminal.Config{
+			Level:     qrterminal.L,
+			Writer:    os.Stdout,
+			BlackChar: qrterminal.WHITE,
+			WhiteChar: qrterminal.BLACK,
+			QuietZone: 1,
+		})
+	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	return join.Wait(ctx)

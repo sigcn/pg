@@ -5,7 +5,6 @@ go 1.22
 require (
 	github.com/coreos/go-oidc/v3 v3.9.0
 	github.com/gorilla/websocket v1.5.1
-	github.com/manifoldco/promptui v0.9.0
 	github.com/mdp/qrterminal/v3 v3.2.0
 	github.com/schollz/progressbar/v3 v3.14.2
 	github.com/spf13/cobra v1.8.0
@@ -23,7 +22,6 @@ require (
 )
 
 require (
-	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e // indirect
 	github.com/go-jose/go-jose/v3 v3.0.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect

@@ -1,11 +1,13 @@
 package oidc
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"path"
 	"sync"
 	"time"
 
@@ -58,4 +60,20 @@ func RedirectAuthURL(w http.ResponseWriter, r *http.Request) {
 	}
 	authURL := provider.oAuthConfig.AuthCodeURL(r.URL.Query().Get("state"))
 	http.Redirect(w, r, authURL, http.StatusFound)
+}
+
+func OIDCSelector(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<meta name="viewport" content="width=device-width, initial-scale=1.0">`)
+	fmt.Fprintf(w, `<style>body{font-size: 18px;line-height: 26px;margin: 0;padding: 10px}</style>`)
+	if len(providers) == 0 {
+		fmt.Fprintf(w, `OIDC not configured yet`)
+		return
+	}
+	fmt.Fprintf(w, `<b>Select an account to authenticate: </b><br />`)
+	for provider := range providers {
+		fmt.Fprintf(w, `<a href="//%s%s?state=%s">%s</a><br />`,
+			cmp.Or(r.Header.Get("host"), r.Host), path.Join(r.URL.Path, provider), state, provider)
+	}
 }

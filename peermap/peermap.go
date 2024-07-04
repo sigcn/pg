@@ -781,6 +781,8 @@ func New(cfg Config) (*PeerMap, error) {
 	mux.HandleFunc("PUT /pg/networks/{network}/meta", pm.HandlePutNetworkMeta)
 
 	mux.HandleFunc("GET /network/token", oidc.HandleNotifyToken)
+	mux.HandleFunc("GET /oidc", oidc.OIDCSelector)
+	mux.HandleFunc("GET /oidc/secret", oidc.HandleNotifyToken)
 	mux.HandleFunc("GET /oidc/{provider}", oidc.RedirectAuthURL)
 	mux.HandleFunc("GET /oidc/authorize/{provider}", pm.HandleOIDCAuthorize)
 	return &pm, nil
