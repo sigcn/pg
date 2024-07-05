@@ -58,11 +58,12 @@ func (c *UDPConn) Close() error {
 	if c.upnpDeleteMapping != nil {
 		c.upnpDeleteMapping()
 	}
+	err := c.UDPConn.Close()
 	close(c.closedSig)
 	close(c.datagrams)
 	close(c.stunResponse)
 	close(c.udpAddrSends)
-	return c.UDPConn.Close()
+	return err
 }
 
 func (c *UDPConn) Datagrams() <-chan *Datagram {
@@ -449,6 +450,19 @@ func (c *UDPConn) Broadcast(b []byte) (peerCount int, err error) {
 
 	if len(errs) > 0 {
 		err = errors.Join(errs...)
+	}
+	return
+}
+
+func (c *UDPConn) Peers() (peers []PeerState) {
+	c.peersIndexMutex.RLock()
+	defer c.peersIndexMutex.RUnlock()
+	for _, v := range c.peersIndex {
+		v.statesMutex.RLock()
+		for _, state := range v.States {
+			peers = append(peers, *state)
+		}
+		v.statesMutex.RUnlock()
 	}
 	return
 }

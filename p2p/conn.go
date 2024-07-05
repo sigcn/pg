@@ -196,6 +196,11 @@ func (c *PeerPacketConn) ServerStream() io.ReadWriter {
 	return c.wsConn
 }
 
+// Peers return the found peers
+func (c *PeerPacketConn) Peers() []disco.PeerState {
+	return c.udpConn.Peers()
+}
+
 // runControlEventLoop events control loop
 func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disco.UDPConn) {
 	for {

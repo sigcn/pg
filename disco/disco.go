@@ -79,7 +79,7 @@ type PeerStore interface {
 
 type PeerContext struct {
 	PeerID     peer.ID
-	States     map[string]*PeerState
+	States     map[string]*PeerState // key is udp addr
 	CreateTime time.Time
 
 	exitSig           chan struct{}
