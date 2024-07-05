@@ -29,9 +29,12 @@ func NotifyToken(state string, secret peer.NetworkSecret) error {
 	return errors.New("state not found")
 }
 
-func HandleNotifyToken(w http.ResponseWriter, r *http.Request) {
-	ch := make(chan peer.NetworkSecret)
+func OIDCSecret(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
+	if state == "" {
+		return
+	}
+	ch := make(chan peer.NetworkSecret)
 	notifyContextMut.Lock()
 	notifyContext[state] = ch
 	notifyContextMut.Unlock()
@@ -51,7 +54,7 @@ func HandleNotifyToken(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func RedirectAuthURL(w http.ResponseWriter, r *http.Request) {
+func OIDCAuthURL(w http.ResponseWriter, r *http.Request) {
 	provider, ok := Provider(r.PathValue("provider"))
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
