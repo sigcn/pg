@@ -12,6 +12,8 @@ Another p2p network library in Go. Committed to direct communication between dev
 - Cross-platform compatibility (linux/windows/macOS/iOS/android)
 
 ## Get Started
+> [!NOTE]
+> Time synchronization between nodes is crucial; the difference should not exceed 5 seconds
 ### p2p vpn
 ```sh
 # node1
