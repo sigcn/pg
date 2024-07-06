@@ -28,8 +28,8 @@ var _ RoutingTable = (*TunInterface)(nil)
 type TunInterface struct {
 	dev        tun.Device
 	ifName     string
-	routing    *lru.Cache[string, []*net.IPNet]
-	peers      *lru.Cache[string, net.Addr]
+	routing    *lru.Cache[string, net.Addr] // cidr as key
+	peers      *lru.Cache[string, net.Addr] // ip as key
 	peersMutex sync.RWMutex
 }
 
@@ -51,7 +51,7 @@ func Create(tunName string, cfg Config) (*TunInterface, error) {
 	return &TunInterface{
 		dev:     device,
 		ifName:  deviceName,
-		routing: lru.New[string, []*net.IPNet](512),
+		routing: lru.New[string, net.Addr](512),
 		peers:   lru.New[string, net.Addr](1024),
 	}, nil
 }
@@ -64,18 +64,17 @@ func (r *TunInterface) GetPeer(ip string) (net.Addr, bool) {
 		return peerID, true
 	}
 	dstIP := net.ParseIP(ip)
-	k, _, _ := r.routing.Find(func(k string, v []*net.IPNet) bool {
-		for _, cidr := range v {
-			if cidr.Contains(dstIP) {
-				return true
-			}
+	_, v, ok := r.routing.Find(func(k string, v net.Addr) bool {
+		_, cidr, err := net.ParseCIDR(k)
+		if err != nil {
+			return false
 		}
-		return false
+		return cidr.Contains(dstIP)
 	})
-	return r.peers.Get(k)
+	return v, ok && v != nil
 }
 
-func (r *TunInterface) AddPeer(ipv4, ipv6 string, peer net.Addr) {
+func (r *TunInterface) AddPeer(peer net.Addr, ipv4, ipv6 string) {
 	r.peersMutex.Lock()
 	defer r.peersMutex.Unlock()
 	if ipv4 != "" {
@@ -86,45 +85,26 @@ func (r *TunInterface) AddPeer(ipv4, ipv6 string, peer net.Addr) {
 	}
 }
 
-func (r *TunInterface) AddRoute(cidr *net.IPNet, via net.IP) {
-	r.peersMutex.Lock()
-	defer r.peersMutex.Unlock()
-	cidrs, _ := r.routing.Get(via.String())
-	for _, cmp := range cidrs {
-		if cmp.String() == cidr.String() {
-			return
-		}
-	}
-	cidrs = append(cidrs, cidr)
-	r.routing.Put(via.String(), cidrs)
-	r.updateRoute(via, cidrs[:len(cidrs)-1], cidrs)
-}
-
-func (r *TunInterface) DelRoute(cidr *net.IPNet, viaIP string) {
-	link.DelRoute(r.ifName, cidr, net.ParseIP(viaIP))
-}
-
-func (r *TunInterface) updateRoute(viaIP net.IP, oldTo []*net.IPNet, cidrs []*net.IPNet) {
-	if r.ifName == "" {
-		slog.Debug("Ignore os routing")
+func (r *TunInterface) AddRoute(dst *net.IPNet, via net.IP) {
+	addr, ok := r.GetPeer(via.String())
+	if !ok {
 		return
 	}
-	for _, cidr := range oldTo {
-		err := link.DelRoute(r.ifName, cidr, viaIP)
-		if err != nil {
-			slog.Error("DelRoute error", "detail", err, "to", cidr, "via", viaIP)
-		} else {
-			slog.Info("DelRoute", "to", cidr, "via", viaIP)
-		}
+	r.peersMutex.Lock()
+	defer r.peersMutex.Unlock()
+	slog.Info("AddRoute", "dst", dst, "via", via)
+	r.routing.Put(dst.String(), addr)
+}
+
+func (r *TunInterface) DelRoute(dst *net.IPNet, via net.IP) {
+	_, ok := r.GetPeer(via.String())
+	if !ok {
+		return
 	}
-	for _, cidr := range cidrs {
-		err := link.AddRoute(r.ifName, cidr, viaIP)
-		if err != nil {
-			slog.Error("AddRoute error", "detail", err, "to", cidr, "via", viaIP)
-		} else {
-			slog.Info("AddRoute", "to", cidr, "via", viaIP)
-		}
-	}
+	r.peersMutex.Lock()
+	defer r.peersMutex.Unlock()
+	slog.Info("DelRoute", "dst", dst, "via", via)
+	r.routing.Put(dst.String(), nil)
 }
 
 func (r *TunInterface) Device() tun.Device {

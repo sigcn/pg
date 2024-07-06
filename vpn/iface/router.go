@@ -6,6 +6,7 @@ import (
 
 type RoutingTable interface {
 	GetPeer(ip string) (net.Addr, bool)
-	AddPeer(ipv4, ipv6 string, peer net.Addr)
-	AddRoute(cidr *net.IPNet, via net.IP)
+	AddPeer(peer net.Addr, ipv4, ipv6 string)
+	AddRoute(dst *net.IPNet, via net.IP)
+	DelRoute(dst *net.IPNet, via net.IP)
 }

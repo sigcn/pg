@@ -48,7 +48,6 @@ func init() {
 	Cmd.Flags().String("key", "", "curve25519 private key in base58 format (default generate a new one)")
 	Cmd.Flags().StringP("secret-file", "f", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
 	Cmd.Flags().StringP("server", "s", os.Getenv("PG_SERVER"), "peermap server url")
-	Cmd.Flags().StringSlice("allowed-ip", []string{}, "declare IPs that can be routed/NATed by this machine (e.g. 192.168.0.0/24)")
 	Cmd.Flags().StringSlice("peer", []string{}, "specify peers instead of auto-discovery (pg://<peerID>?alias1=<ipv4>&alias2=<ipv6>)")
 
 	Cmd.Flags().Int("disco-port-scan-offset", -1000, "scan ports offset when disco")
@@ -123,10 +122,6 @@ func createConfig(cmd *cobra.Command) (cfg Config, err error) {
 	if err != nil {
 		return
 	}
-	cfg.AllowedIPs, err = cmd.Flags().GetStringSlice("allowed-ip")
-	if err != nil {
-		return
-	}
 	cfg.Peers, err = cmd.Flags().GetStringSlice("peer")
 	if err != nil {
 		return
@@ -162,7 +157,6 @@ type Config struct {
 	DiscoChallengesInitialInterval time.Duration
 	DiscoChallengesBackoffRate     float64
 	TunName                        string
-	AllowedIPs                     []string
 	Peers                          []string
 	PrivateKey                     string
 	SecretFile                     string
@@ -198,14 +192,10 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 		cfg.ChallengesBackoffRate = v.Config.DiscoChallengesBackoffRate
 	})
 	disco.SetIgnoredLocalInterfaceNamePrefixs("pg", "wg", "veth", "docker", "nerdctl", "tailscale")
-	disco.AddIgnoredLocalCIDRs(v.Config.AllowedIPs...)
 
 	p2pOptions := []p2p.Option{
 		p2p.PeerMeta("version", fmt.Sprintf("%s-%s", Version, Commit)),
 		p2p.ListenPeerUp(v.addPeer),
-	}
-	for _, ip := range v.Config.AllowedIPs {
-		p2pOptions = append(p2pOptions, p2p.PeerMeta("allowedIP", ip))
 	}
 	if len(v.Config.Peers) > 0 {
 		p2pOptions = append(p2pOptions, p2p.PeerSilenceMode())
@@ -259,24 +249,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 }
 
 func (v *P2PVPN) addPeer(pi peer.ID, m url.Values) {
-	alias1 := m.Get("alias1")
-	alias2 := m.Get("alias2")
-	v.iface.AddPeer(alias1, alias2, pi)
-	allowedIPs := m["allowedIP"]
-	if allowedIPs == nil {
-		return
-	}
-	for _, allowIP := range allowedIPs {
-		_, cidr, err := net.ParseCIDR(allowIP)
-		if err != nil {
-			continue
-		}
-		if cidr.IP.To4() != nil {
-			v.iface.AddRoute(cidr, net.ParseIP(alias1))
-		} else {
-			v.iface.AddRoute(cidr, net.ParseIP(alias2))
-		}
-	}
+	v.iface.AddPeer(pi, m.Get("alias1"), m.Get("alias2"))
 }
 
 func (v *P2PVPN) loginIfNecessary(ctx context.Context) (peer.SecretStore, error) {

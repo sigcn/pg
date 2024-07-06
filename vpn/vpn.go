@@ -48,7 +48,8 @@ func New(cfg Config) *VPN {
 func (vpn *VPN) Run(ctx context.Context, iface iface.Interface, packetConn net.PacketConn) error {
 	vpn.rt = iface
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
+	go vpn.runRoutingTableUpdateEventLoop(ctx, &wg)
 	go vpn.runTunReadEventLoop(&wg, iface.Device())
 	go vpn.runTunWriteEventLoop(&wg, iface.Device())
 	go vpn.runPacketConnReadEventLoop(&wg, packetConn)
@@ -61,6 +62,24 @@ func (vpn *VPN) Run(ctx context.Context, iface iface.Interface, packetConn net.P
 	close(vpn.outbound)
 	wg.Wait()
 	return nil
+}
+
+func (vpn *VPN) runRoutingTableUpdateEventLoop(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+	ch := make(chan link.RouteUpdate)
+	if err := link.RouteSubscribe(ctx, ch); err != nil {
+		slog.Debug("RouteSubscribe", "err", err)
+		return
+	}
+	for r := range ch {
+		switch r.Type {
+		case 1:
+			disco.AddIgnoredLocalCIDRs(r.Dst.String())
+			vpn.rt.AddRoute(r.Dst, r.Via)
+		case 2:
+			vpn.rt.DelRoute(r.Dst, r.Via)
+		}
+	}
 }
 
 func (vpn *VPN) runTunReadEventLoop(wg *sync.WaitGroup, device tun.Device) {

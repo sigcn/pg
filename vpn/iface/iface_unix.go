@@ -23,7 +23,7 @@ func CreateFD(tunFD int, cfg Config) (*TunInterface, error) {
 	}
 	return &TunInterface{
 		dev:     device,
-		routing: lru.New[string, []*net.IPNet](512),
+		routing: lru.New[string, net.Addr](512),
 		peers:   lru.New[string, net.Addr](1024),
 	}, nil
 }
