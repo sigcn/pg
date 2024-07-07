@@ -16,6 +16,7 @@ require (
 	golang.org/x/sys v0.19.0
 	golang.org/x/time v0.5.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
+	golang.zx2c4.com/wireguard/windows v0.5.3
 	gopkg.in/yaml.v2 v2.4.0
 	storj.io/common v0.0.0-20240425113201-9815a85cbc32
 	tailscale.com v1.56.1
