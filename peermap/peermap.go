@@ -9,12 +9,14 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -41,7 +43,7 @@ type Peer struct {
 	networkContext *networkContext
 
 	metadata   url.Values
-	activeTime time.Time
+	activeTime atomic.Int64
 	id         peer.ID
 	nonce      byte
 	wMut       sync.Mutex
@@ -127,7 +129,6 @@ func (p *Peer) String() string {
 }
 
 func (p *Peer) Start() {
-	p.activeTime = time.Now()
 	go p.readMessageLoop()
 	go p.keepalive()
 	if p.metadata.Has("silenceMode") {
@@ -189,7 +190,7 @@ func (p *Peer) readMessageLoop() {
 			p.Close()
 			return
 		}
-		p.activeTime = time.Now()
+		p.activeTime.Store(time.Now().Unix())
 		switch mt {
 		case websocket.BinaryMessage:
 		default:
@@ -229,6 +230,17 @@ func (p *Peer) readMessageLoop() {
 }
 
 func (p *Peer) keepalive() {
+	p.activeTime.Store(time.Now().Unix())
+	p.conn.SetPingHandler(func(appData string) error {
+		p.activeTime.Store(time.Now().Unix())
+		err := p.conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+		if err == websocket.ErrCloseSent {
+			return nil
+		} else if _, ok := err.(net.Error); ok {
+			return nil
+		}
+		return err
+	})
 	ticker := time.NewTicker(12 * time.Second)
 	for {
 		select {
@@ -237,14 +249,10 @@ func (p *Peer) keepalive() {
 			return
 		case <-ticker.C:
 		}
-		if err := p.writeWS(websocket.TextMessage, nil); err != nil {
-			break
-		}
-		if time.Since(p.activeTime) > 25*time.Second {
+		if time.Now().Unix()-p.activeTime.Load() > 25 {
 			slog.Debug("Closing inactive connection", "peer", p.id)
 			break
 		}
-
 		if time.Until(time.Unix(p.networkSecret.Deadline, 0)) <
 			p.peerMap.cfg.SecretValidityPeriod-p.peerMap.cfg.SecretRotationPeriod {
 			p.updateSecret()

@@ -230,6 +230,10 @@ func (c *WSConn) configureRatelimiter(respHeader http.Header) error {
 }
 
 func (c *WSConn) runKeepaliveLoop() {
+	c.SetPongHandler(func(appData string) error {
+		c.activeTime.Store(time.Now().Unix())
+		return nil
+	})
 	for {
 		select {
 		case <-c.closedSig:
@@ -241,7 +245,7 @@ func (c *WSConn) runKeepaliveLoop() {
 			c.CloseConn()
 			continue
 		}
-		c.writeWS(websocket.TextMessage, nil)
+		c.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
 	}
 }
 
