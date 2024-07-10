@@ -15,13 +15,13 @@ if err != nil {
     panic(err)
 }
 
-peermapServer, err := peermap.NewURL(peermapURL, networkSecret)
+pmServer, err := peer.NewPeermapURL(peermapURL, networkSecret)
 if err != nil {
     panic(err)
 }
 
 // peerID is a unique string (less than 256bytes)
-packetConn, err := p2p.ListenPacket(peermapServer, p2p.ListenPeerID("uniqueString"))
+packetConn, err := p2p.ListenPacket(pmServer, p2p.ListenPeerID("uniqueString"))
 if err != nil {
     panic(err)
 }
@@ -45,7 +45,7 @@ for {
 ```go
 ...
 
-packetConn, err := p2p.ListenPacket(peermapServer)
+packetConn, err := p2p.ListenPacket(pmServer)
 if err != nil {
     panic(err)
 }

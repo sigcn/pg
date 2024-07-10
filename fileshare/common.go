@@ -9,7 +9,6 @@ import (
 
 	"github.com/rkonfj/peerguard/p2p"
 	"github.com/rkonfj/peerguard/peer"
-	"github.com/rkonfj/peerguard/peer/peermap"
 )
 
 type PublicNetwork struct {
@@ -24,7 +23,7 @@ func (pn *PublicNetwork) ListenPacket(udpPort int) (net.PacketConn, error) {
 		return nil, fmt.Errorf("invalid peermap URL: %w", err)
 	}
 	network := cmp.Or(pn.Name, "pubnet")
-	pmap, err := peermap.New(pmapURL, &peer.NetworkSecret{Network: network, Secret: network})
+	pmap, err := peer.NewPeermap(pmapURL, &peer.NetworkSecret{Network: network, Secret: network})
 	if err != nil {
 		return nil, fmt.Errorf("create peermap failed: %w", err)
 	}

@@ -15,7 +15,6 @@ import (
 	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/lru"
 	"github.com/rkonfj/peerguard/peer"
-	"github.com/rkonfj/peerguard/peer/peermap"
 	"storj.io/common/base58"
 )
 
@@ -254,12 +253,12 @@ func (c *PeerPacketConn) SharedKey(peerID peer.ID) ([]byte, error) {
 }
 
 // ListenPacket same as ListenPacketContext, but no context required
-func ListenPacket(peermap *peermap.Peermap, opts ...Option) (*PeerPacketConn, error) {
+func ListenPacket(peermap *peer.Peermap, opts ...Option) (*PeerPacketConn, error) {
 	return ListenPacketContext(context.Background(), peermap, opts...)
 }
 
 // ListenPacketContext listen the p2p network for read/write packets
-func ListenPacketContext(ctx context.Context, peermap *peermap.Peermap, opts ...Option) (*PeerPacketConn, error) {
+func ListenPacketContext(ctx context.Context, peermap *peer.Peermap, opts ...Option) (*PeerPacketConn, error) {
 	id := make([]byte, 16)
 	rand.Read(id)
 	cfg := Config{

@@ -21,7 +21,6 @@ import (
 	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/p2p"
 	"github.com/rkonfj/peerguard/peer"
-	"github.com/rkonfj/peerguard/peer/peermap"
 	"github.com/rkonfj/peerguard/peermap/network"
 	"github.com/rkonfj/peerguard/vpn"
 	"github.com/rkonfj/peerguard/vpn/iface"
@@ -240,7 +239,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 	if err != nil {
 		return
 	}
-	peermap, err := peermap.New(peermapURL, secretStore)
+	peermap, err := peer.NewPeermap(peermapURL, secretStore)
 	if err != nil {
 		return
 	}

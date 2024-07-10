@@ -18,7 +18,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/rkonfj/peerguard/peer"
-	"github.com/rkonfj/peerguard/peer/peermap"
 	"golang.org/x/time/rate"
 )
 
@@ -28,7 +27,7 @@ var (
 
 type WSConn struct {
 	*websocket.Conn
-	peermap       *peermap.Peermap
+	peermap       *peer.Peermap
 	peerID        peer.ID
 	metadata      url.Values
 	closedSig     chan int
@@ -364,7 +363,7 @@ func (c *WSConn) updateNetworkSecret(secret peer.NetworkSecret) {
 	slog.Error("NetworkSecretUpdate give up", "secret", secret)
 }
 
-func DialPeermap(ctx context.Context, peermap *peermap.Peermap, peerID peer.ID, metadata url.Values) (*WSConn, error) {
+func DialPeermap(ctx context.Context, peermap *peer.Peermap, peerID peer.ID, metadata url.Values) (*WSConn, error) {
 	wsConn := &WSConn{
 		peermap:       peermap,
 		peerID:        peerID,

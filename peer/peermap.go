@@ -1,20 +1,18 @@
-package peermap
+package peer
 
 import (
 	"errors"
 	"fmt"
 	"net/url"
 	"slices"
-
-	"github.com/rkonfj/peerguard/peer"
 )
 
 type Peermap struct {
-	store  peer.SecretStore
+	store  SecretStore
 	server *url.URL
 }
 
-func New(server *url.URL, store peer.SecretStore) (*Peermap, error) {
+func NewPeermap(server *url.URL, store SecretStore) (*Peermap, error) {
 	if store == nil {
 		return nil, errors.New("secret store is required")
 	}
@@ -30,15 +28,15 @@ func New(server *url.URL, store peer.SecretStore) (*Peermap, error) {
 	}, nil
 }
 
-func NewURL(serverURL string, store peer.SecretStore) (*Peermap, error) {
+func NewPeermapURL(serverURL string, store SecretStore) (*Peermap, error) {
 	sURL, err := url.Parse(serverURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid peermap url: %w", err)
 	}
-	return New(sURL, store)
+	return NewPeermap(sURL, store)
 }
 
-func (s *Peermap) SecretStore() peer.SecretStore {
+func (s *Peermap) SecretStore() SecretStore {
 	return s.store
 }
 
