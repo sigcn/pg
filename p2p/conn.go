@@ -195,6 +195,11 @@ func (c *PeerPacketConn) ServerStream() io.ReadWriter {
 	return c.wsConn
 }
 
+// ServerURL is the connected peermap server url
+func (c *PeerPacketConn) ServerURL() string {
+	return c.wsConn.ServerURL()
+}
+
 // Peers return the found peers
 func (c *PeerPacketConn) Peers() []disco.PeerState {
 	return c.udpConn.Peers()

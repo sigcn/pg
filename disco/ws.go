@@ -27,18 +27,19 @@ var (
 
 type WSConn struct {
 	*websocket.Conn
-	peermap       *peer.Peermap
-	peerID        peer.ID
-	metadata      url.Values
-	closedSig     chan int
-	datagrams     chan *Datagram
-	peers         chan *PeerFindEvent
-	peersUDPAddrs chan *PeerUDPAddrEvent
-	nonce         byte
-	stuns         []string
-	activeTime    atomic.Int64
-	writeMutex    sync.Mutex
-	rateLimiter   *rate.Limiter
+	server          *peer.Peermap
+	connectedServer string
+	peerID          peer.ID
+	metadata        url.Values
+	closedSig       chan int
+	datagrams       chan *Datagram
+	peers           chan *PeerFindEvent
+	peersUDPAddrs   chan *PeerUDPAddrEvent
+	nonce           byte
+	stuns           []string
+	activeTime      atomic.Int64
+	writeMutex      sync.Mutex
+	rateLimiter     *rate.Limiter
 
 	connData chan []byte
 	connBuf  []byte
@@ -130,8 +131,12 @@ func (c *WSConn) STUNs() []string {
 	return c.stuns
 }
 
+func (c *WSConn) ServerURL() string {
+	return c.connectedServer
+}
+
 func (c *WSConn) dial(ctx context.Context, server string) error {
-	networkSecret, err := c.peermap.SecretStore().NetworkSecret()
+	networkSecret, err := c.server.SecretStore().NetworkSecret()
 	if err != nil {
 		return fmt.Errorf("get network secret failed: %w", err)
 	}
@@ -141,7 +146,7 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 	handshake.Set("X-Nonce", peer.NewNonce())
 	handshake.Set("X-Metadata", c.metadata.Encode())
 	if server == "" {
-		server = c.peermap.String()
+		server = c.server.String()
 	}
 	peermap, err := url.Parse(server)
 	if err != nil {
@@ -183,7 +188,7 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 
 	c.Conn = conn
 	c.nonce = peer.MustParseNonce(httpResp.Header.Get("X-Nonce"))
-	c.activeTime.Store(time.Now().Unix())
+	c.connectedServer = server
 	return nil
 }
 
@@ -229,6 +234,7 @@ func (c *WSConn) configureRatelimiter(respHeader http.Header) error {
 }
 
 func (c *WSConn) runKeepaliveLoop() {
+	c.activeTime.Store(time.Now().Unix())
 	c.SetPongHandler(func(appData string) error {
 		c.activeTime.Store(time.Now().Unix())
 		return nil
@@ -353,7 +359,7 @@ func (c *WSConn) writeWS(messageType int, data []byte) error {
 
 func (c *WSConn) updateNetworkSecret(secret peer.NetworkSecret) {
 	for i := 0; i < 5; i++ {
-		if err := c.peermap.SecretStore().UpdateNetworkSecret(secret); err != nil {
+		if err := c.server.SecretStore().UpdateNetworkSecret(secret); err != nil {
 			slog.Error("NetworkSecretUpdate", "err", err)
 			time.Sleep(time.Second)
 			continue
@@ -363,9 +369,9 @@ func (c *WSConn) updateNetworkSecret(secret peer.NetworkSecret) {
 	slog.Error("NetworkSecretUpdate give up", "secret", secret)
 }
 
-func DialPeermap(ctx context.Context, peermap *peer.Peermap, peerID peer.ID, metadata url.Values) (*WSConn, error) {
+func DialPeermap(ctx context.Context, server *peer.Peermap, peerID peer.ID, metadata url.Values) (*WSConn, error) {
 	wsConn := &WSConn{
-		peermap:       peermap,
+		server:        server,
 		peerID:        peerID,
 		metadata:      metadata,
 		closedSig:     make(chan int),
