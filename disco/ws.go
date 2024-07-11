@@ -163,11 +163,10 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 		return fmt.Errorf("address: %s is already in used", c.peerID)
 	}
 	if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
-		msg, _ := io.ReadAll(httpResp.Body)
-		if len(msg) > 0 {
-			return fmt.Errorf("join network denied: %s: %s", networkSecret.Network, string(msg))
-		}
-		return fmt.Errorf("join network denied: %s", networkSecret.Network)
+		var err peer.Error
+		json.NewDecoder(httpResp.Body).Decode(&err)
+		defer httpResp.Body.Close()
+		return err
 	}
 	if httpResp != nil && httpResp.StatusCode == http.StatusTemporaryRedirect {
 		slog.Info("RedirectPeermap", "location", httpResp.Header.Get("Location"))

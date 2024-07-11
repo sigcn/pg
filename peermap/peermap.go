@@ -29,6 +29,8 @@ import (
 )
 
 var (
+	ErrAddressAlreadyInuse = peer.Error{Code: 4000, Msg: "the network address is already in use"}
+
 	_ io.ReadWriter = (*Peer)(nil)
 )
 
@@ -688,7 +690,8 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 
 	if ok := networkCtx.SetIfAbsent(peerID, &peer); !ok {
 		slog.Debug("Address is already in used", "addr", peerID)
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(http.StatusForbidden)
+		ErrAddressAlreadyInuse.MarshalTo(w)
 		return
 	}
 	pm.peerMapMutex.Lock()
