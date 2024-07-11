@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"math"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -231,15 +230,9 @@ func (p *Peer) readMessageLoop() {
 
 func (p *Peer) keepalive() {
 	p.activeTime.Store(time.Now().Unix())
-	p.conn.SetPingHandler(func(appData string) error {
+	p.conn.SetPongHandler(func(appData string) error {
 		p.activeTime.Store(time.Now().Unix())
-		err := p.conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
-		if err == websocket.ErrCloseSent {
-			return nil
-		} else if _, ok := err.(net.Error); ok {
-			return nil
-		}
-		return err
+		return nil
 	})
 	ticker := time.NewTicker(12 * time.Second)
 	for {
@@ -253,6 +246,7 @@ func (p *Peer) keepalive() {
 			slog.Debug("Closing inactive connection", "peer", p.id)
 			break
 		}
+		p.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
 		if time.Until(time.Unix(p.networkSecret.Deadline, 0)) <
 			p.peerMap.cfg.SecretValidityPeriod-p.peerMap.cfg.SecretRotationPeriod {
 			p.updateSecret()
@@ -285,6 +279,19 @@ func (p *Peer) updateSecret() error {
 	}
 	p.networkSecret, _ = p.peerMap.authenticator.ParseSecret(secret.Secret)
 	return nil
+}
+
+func (p *Peer) checkAlive() bool {
+	seconds := time.Now().Unix()
+	for range 3 {
+		if seconds-p.activeTime.Load() <= 2 {
+			return true
+		}
+		p.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
+		time.Sleep(time.Second)
+	}
+	p.close()
+	return false
 }
 
 type networkContext struct {
@@ -323,7 +330,7 @@ func (ctx *networkContext) peerCount() int {
 func (ctx *networkContext) SetIfAbsent(peerID string, p *Peer) bool {
 	ctx.peersMutex.Lock()
 	defer ctx.peersMutex.Unlock()
-	if _, ok := ctx.peers[peerID]; ok {
+	if _, ok := ctx.peers[peerID]; ok && p.checkAlive() {
 		return false
 	}
 	ctx.peers[peerID] = p

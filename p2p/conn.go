@@ -172,14 +172,14 @@ func (c *PeerPacketConn) Broadcast(b []byte) (int, error) {
 }
 
 // TryLeadDisco try lead a peer discovery
-// disco as soon as every 5 minutes
+// disco as soon as every minute
 func (c *PeerPacketConn) TryLeadDisco(peerID peer.ID) {
 	if !c.discoCoolingMutex.TryLock() {
 		return
 	}
 	defer c.discoCoolingMutex.Unlock()
 	lastTime, ok := c.discoCooling.Get(peerID)
-	if !ok || time.Since(lastTime) > 5*time.Minute {
+	if !ok || time.Since(lastTime) > time.Minute {
 		c.wsConn.LeadDisco(peerID)
 		c.discoCooling.Put(peerID, time.Now())
 	}

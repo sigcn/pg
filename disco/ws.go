@@ -235,9 +235,16 @@ func (c *WSConn) configureRatelimiter(respHeader http.Header) error {
 
 func (c *WSConn) runKeepaliveLoop() {
 	c.activeTime.Store(time.Now().Unix())
-	c.SetPongHandler(func(appData string) error {
+	c.SetPingHandler(func(appData string) error {
+		slog.Debug("WebsocketRecvPing")
 		c.activeTime.Store(time.Now().Unix())
-		return nil
+		err := c.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+		if err == websocket.ErrCloseSent {
+			return nil
+		} else if _, ok := err.(net.Error); ok {
+			return nil
+		}
+		return err
 	})
 	for {
 		select {
@@ -245,12 +252,10 @@ func (c *WSConn) runKeepaliveLoop() {
 			return
 		default:
 		}
-		time.Sleep(12 * time.Second)
+		time.Sleep(5 * time.Second)
 		if time.Now().Unix()-c.activeTime.Load() > 25 {
 			c.CloseConn()
-			continue
 		}
-		c.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
 	}
 }
 
@@ -283,9 +288,10 @@ func (c *WSConn) runEventsReadLoop() {
 					return
 				default:
 				}
+				time.Sleep(2 * time.Second)
 				if err := c.dial(context.Background(), ""); err != nil {
 					slog.Error("PeermapConnectFailed", "err", err)
-					time.Sleep(5 * time.Second)
+					time.Sleep(time.Second)
 					continue
 				}
 				break
