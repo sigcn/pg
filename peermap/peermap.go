@@ -798,7 +798,7 @@ func New(cfg Config) (*PeerMap, error) {
 	mux.HandleFunc("GET /pg/networks/{network}/meta", pm.HandleGetNetworkMeta)
 	mux.HandleFunc("PUT /pg/networks/{network}/meta", pm.HandlePutNetworkMeta)
 
-	mux.HandleFunc("GET /network/token", oidc.OIDCSecret) // deprecated: removed at v0.6
+	mux.HandleFunc("GET /network/token", oidc.OIDCSecret) // deprecated: will be removed in 0.7
 	mux.HandleFunc("GET /oidc", oidc.OIDCSelector)
 	mux.HandleFunc("GET /oidc/secret", oidc.OIDCSecret)
 	mux.HandleFunc("GET /oidc/{provider}", oidc.OIDCAuthURL)
