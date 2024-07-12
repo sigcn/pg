@@ -1,6 +1,7 @@
 package netlink
 
 import (
+	"errors"
 	"net"
 	"os/exec"
 )
@@ -36,4 +37,8 @@ func DelRoute(_ string, to *net.IPNet, _ net.IP) error {
 		return exec.Command("route", "-qn", "delete", "-inet6", to.String()).Run()
 	}
 	return exec.Command("route", "-qn", "delete", "-inet", to.String()).Run()
+}
+
+func LinkByIndex(index int) (*Link, error) {
+	return nil, errors.ErrUnsupported
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+
+	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 )
 
 func SetupLink(ifName, cidr string) error {
@@ -37,4 +39,16 @@ func DelRoute(ifName string, to *net.IPNet, via net.IP) error {
 		return exec.Command("netsh", "interface", "ipv6", "delete", "route", to.String(), ifName, via.String()).Run()
 	}
 	return exec.Command("route", "delete", to.IP.String()).Run()
+}
+
+func LinkByIndex(index int) (*Link, error) {
+	luid, err := winipcfg.LUIDFromIndex(uint32(index))
+	if err != nil {
+		return nil, err
+	}
+	ifInfo, err := luid.Interface()
+	if err != nil {
+		return nil, err
+	}
+	return &Link{Name: ifInfo.Alias(), Type: uint32(ifInfo.Type), Index: index}, nil
 }

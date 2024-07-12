@@ -3,6 +3,7 @@
 package netlink
 
 import (
+	"errors"
 	"net"
 
 	"github.com/vishvananda/netlink"
@@ -46,4 +47,17 @@ func DelRoute(_ string, to *net.IPNet, via net.IP) error {
 		Dst: to,
 		Gw:  via,
 	})
+}
+
+func LinkByIndex(index int) (*Link, error) {
+	l, err := netlink.LinkByIndex(index)
+	if err != nil {
+		return nil, err
+	}
+	switch l.Type() {
+	case "device":
+		device := l.(*netlink.Device)
+		return &Link{Name: device.Name, Index: index, Type: 1}, nil
+	}
+	return nil, errors.New("unknown device")
 }

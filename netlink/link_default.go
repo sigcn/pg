@@ -3,6 +3,7 @@
 package netlink
 
 import (
+	"errors"
 	"net"
 )
 
@@ -19,4 +20,8 @@ func AddRoute(string, *net.IPNet, net.IP) error {
 func DelRoute(string, *net.IPNet, net.IP) error {
 	// noop
 	return nil
+}
+
+func LinkByIndex(index int) (*Link, error) {
+	return nil, errors.ErrUnsupported
 }

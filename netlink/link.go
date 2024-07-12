@@ -10,3 +10,9 @@ type Info struct {
 func Show() Info {
 	return info
 }
+
+type Link struct {
+	Name  string
+	Index int
+	Type  uint32
+}
