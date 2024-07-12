@@ -77,6 +77,7 @@ func (vpn *VPN) runRoutingTableUpdateEventLoop(ctx context.Context, wg *sync.Wai
 			disco.AddIgnoredLocalCIDRs(r.Dst.String())
 			vpn.rt.AddRoute(r.Dst, r.Via)
 		case 2:
+			disco.RemoveIgnoredLocalCIDRs(r.Dst.String())
 			vpn.rt.DelRoute(r.Dst, r.Via)
 		}
 	}

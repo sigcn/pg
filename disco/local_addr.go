@@ -3,6 +3,7 @@ package disco
 import (
 	"log/slog"
 	"net"
+	"slices"
 	"strings"
 )
 
@@ -49,6 +50,16 @@ func AddIgnoredLocalCIDRs(cidrs ...string) {
 		slog.Debug("IgnoreLocalCIDR " + cidr)
 		ignoredLocalCIDRs = append(ignoredLocalCIDRs, _cidr)
 	}
+}
+
+func RemoveIgnoredLocalCIDRs(cidrs ...string) {
+	var filterd []*net.IPNet
+	for _, cidr := range ignoredLocalCIDRs {
+		if !slices.Contains(cidrs, cidr.String()) {
+			filterd = append(filterd, cidr)
+		}
+	}
+	ignoredLocalCIDRs = filterd
 }
 
 func SetIgnoredLocalInterfaceNamePrefixs(prefixs ...string) {
