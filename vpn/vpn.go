@@ -11,8 +11,8 @@ import (
 	"sync"
 
 	"github.com/rkonfj/peerguard/disco"
+	"github.com/rkonfj/peerguard/netlink"
 	"github.com/rkonfj/peerguard/vpn/iface"
-	"github.com/rkonfj/peerguard/vpn/link"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	"golang.zx2c4.com/wireguard/tun"
@@ -66,8 +66,8 @@ func (vpn *VPN) Run(ctx context.Context, iface iface.Interface, packetConn net.P
 
 func (vpn *VPN) runRoutingTableUpdateEventLoop(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
-	ch := make(chan link.RouteUpdate)
-	if err := link.RouteSubscribe(ctx, ch); err != nil {
+	ch := make(chan netlink.RouteUpdate)
+	if err := netlink.RouteSubscribe(ctx, ch); err != nil {
 		slog.Debug("RouteSubscribe", "err", err)
 		return
 	}
@@ -190,7 +190,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			if err != nil {
 				panic(err)
 			}
-			if header.Dst.String() == link.Show().IPv4 {
+			if header.Dst.String() == netlink.Show().IPv4 {
 				vpn.inbound <- packet
 				continue
 			}
@@ -202,7 +202,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			if err != nil {
 				panic(err)
 			}
-			if header.Dst.String() == link.Show().IPv6 {
+			if header.Dst.String() == netlink.Show().IPv6 {
 				vpn.inbound <- packet
 				continue
 			}

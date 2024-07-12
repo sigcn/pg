@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/rkonfj/peerguard/lru"
-	"github.com/rkonfj/peerguard/vpn/link"
+	"github.com/rkonfj/peerguard/netlink"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -43,10 +43,10 @@ func Create(tunName string, cfg Config) (*TunInterface, error) {
 		return nil, fmt.Errorf("get tun device name: %w", err)
 	}
 	if cfg.IPv4 != "" {
-		link.SetupLink(deviceName, cfg.IPv4)
+		netlink.SetupLink(deviceName, cfg.IPv4)
 	}
 	if cfg.IPv6 != "" {
-		link.SetupLink(deviceName, cfg.IPv6)
+		netlink.SetupLink(deviceName, cfg.IPv6)
 	}
 	return &TunInterface{
 		dev:     device,

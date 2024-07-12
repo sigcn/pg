@@ -1,6 +1,6 @@
 //go:build linux
 
-package link
+package netlink
 
 import (
 	"net"

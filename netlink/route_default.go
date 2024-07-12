@@ -1,6 +1,6 @@
 //go:build !linux && !windows && !darwin
 
-package link
+package netlink
 
 import (
 	"context"
