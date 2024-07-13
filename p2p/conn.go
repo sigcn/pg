@@ -185,11 +185,6 @@ func (c *PeerPacketConn) TryLeadDisco(peerID peer.ID) {
 	}
 }
 
-// UDPConn return the os udp socket
-func (c *PeerPacketConn) UDPConn() net.PacketConn {
-	return c.udpConn
-}
-
 // ServerStream is the connection stream to the peermap server
 func (c *PeerPacketConn) ServerStream() io.ReadWriter {
 	return c.wsConn
@@ -200,9 +195,14 @@ func (c *PeerPacketConn) ServerURL() string {
 	return c.wsConn.ServerURL()
 }
 
-// Peers return the found peers
-func (c *PeerPacketConn) Peers() []disco.PeerState {
-	return c.udpConn.Peers()
+// ControllerManager makes changes attempting to move the current state towards the desired state
+func (c *PeerPacketConn) ControllerManager() disco.ControllerManager {
+	return c.wsConn
+}
+
+// PeerStore stores the found peers
+func (c *PeerPacketConn) PeerStore() disco.PeerStore {
+	return c.udpConn
 }
 
 // runControlEventLoop events control loop

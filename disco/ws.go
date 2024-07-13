@@ -22,24 +22,27 @@ import (
 )
 
 var (
-	_ io.ReadWriter = (*WSConn)(nil)
+	_ io.ReadWriter     = (*WSConn)(nil)
+	_ ControllerManager = (*WSConn)(nil)
 )
 
 type WSConn struct {
 	*websocket.Conn
-	server          *peer.Peermap
-	connectedServer string
-	peerID          peer.ID
-	metadata        url.Values
-	closedSig       chan int
-	datagrams       chan *Datagram
-	peers           chan *PeerFindEvent
-	peersUDPAddrs   chan *PeerUDPAddrEvent
-	nonce           byte
-	stuns           []string
-	activeTime      atomic.Int64
-	writeMutex      sync.Mutex
-	rateLimiter     *rate.Limiter
+	server           *peer.Peermap
+	connectedServer  string
+	peerID           peer.ID
+	metadata         url.Values
+	closedSig        chan int
+	datagrams        chan *Datagram
+	peers            chan *PeerFindEvent
+	peersUDPAddrs    chan *PeerUDPAddrEvent
+	nonce            byte
+	stuns            []string
+	activeTime       atomic.Int64
+	writeMutex       sync.Mutex
+	rateLimiter      *rate.Limiter
+	controllersMutex sync.RWMutex
+	controllers      map[uint8][]Controller
 
 	connData chan []byte
 	connBuf  []byte
@@ -133,6 +136,24 @@ func (c *WSConn) STUNs() []string {
 
 func (c *WSConn) ServerURL() string {
 	return c.connectedServer
+}
+
+func (c *WSConn) Register(ctr Controller) {
+	c.controllersMutex.Lock()
+	defer c.controllersMutex.Unlock()
+	c.controllers[ctr.Type()] = append(c.controllers[ctr.Type()], ctr)
+}
+
+func (c *WSConn) Unregister(ctr Controller) {
+	c.controllersMutex.Lock()
+	defer c.controllersMutex.Unlock()
+	var filterd []Controller
+	for _, ct := range c.controllers[ctr.Type()] {
+		if ct.Name() != ctr.Name() {
+			filterd = append(filterd, ct)
+		}
+	}
+	c.controllers[ctr.Type()] = filterd
 }
 
 func (c *WSConn) dial(ctx context.Context, server string) error {
@@ -343,6 +364,13 @@ func (c *WSConn) handleEvents(b []byte) {
 		go c.updateNetworkSecret(secret)
 	case peer.CONTROL_CONN:
 		c.connData <- b[1:]
+	default:
+		c.controllersMutex.RLock()
+		ctrs := c.controllers[b[0]]
+		c.controllersMutex.RUnlock()
+		for _, ctr := range ctrs {
+			ctr.Handle(b)
+		}
 	}
 }
 
@@ -384,6 +412,7 @@ func DialPeermap(ctx context.Context, server *peer.Peermap, peerID peer.ID, meta
 		peers:         make(chan *PeerFindEvent, 20),
 		peersUDPAddrs: make(chan *PeerUDPAddrEvent, 20),
 		connData:      make(chan []byte, 128),
+		controllers:   make(map[uint8][]Controller),
 	}
 	if err := wsConn.dial(ctx, ""); err != nil {
 		return nil, err

@@ -75,6 +75,7 @@ func (d *Disco) magic() []byte {
 
 type PeerStore interface {
 	FindPeer(peer.ID) (*PeerContext, bool)
+	Peers() []PeerState
 }
 
 type PeerContext struct {
