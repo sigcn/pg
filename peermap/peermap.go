@@ -182,12 +182,7 @@ func (p *Peer) readMessageLoop() {
 		}
 		mt, b, err := p.conn.ReadMessage()
 		if err != nil {
-			if !websocket.IsCloseError(err,
-				websocket.CloseGoingAway,
-				websocket.CloseNoStatusReceived,
-				websocket.CloseNormalClosure) {
-				slog.Debug("ReadLoopExited", "details", err.Error())
-			}
+			slog.Debug("ReadLoopExited", "err", err.Error())
 			p.Close()
 			return
 		}
@@ -248,7 +243,12 @@ func (p *Peer) keepalive() {
 			slog.Debug("Closing inactive connection", "peer", p.id)
 			break
 		}
-		p.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
+		err := p.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
+		if err != nil {
+			slog.Warn("Ping", "err", err)
+		} else {
+			slog.Debug("Ping", "peer", p.id)
+		}
 		if time.Until(time.Unix(p.networkSecret.Deadline, 0)) <
 			p.peerMap.cfg.SecretValidityPeriod-p.peerMap.cfg.SecretRotationPeriod {
 			p.updateSecret()
@@ -286,11 +286,12 @@ func (p *Peer) updateSecret() error {
 func (p *Peer) checkAlive() bool {
 	seconds := time.Now().Unix()
 	for range 3 {
+		slog.Debug("CheckAlive", "sec", seconds, "active", p.activeTime.Load(), "peer", p.id)
 		if seconds-p.activeTime.Load() <= 2 {
 			return true
 		}
 		p.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
-		time.Sleep(time.Second)
+		time.Sleep(200 * time.Millisecond)
 	}
 	p.close()
 	return false

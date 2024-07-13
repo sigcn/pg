@@ -209,6 +209,18 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 	c.Conn = conn
 	c.nonce = peer.MustParseNonce(httpResp.Header.Get("X-Nonce"))
 	c.connectedServer = server
+	c.activeTime.Store(time.Now().Unix())
+	c.SetPingHandler(func(appData string) error {
+		slog.Debug("WebsocketRecvPing")
+		c.activeTime.Store(time.Now().Unix())
+		err := c.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+		if err == websocket.ErrCloseSent {
+			return nil
+		} else if _, ok := err.(net.Error); ok {
+			return nil
+		}
+		return err
+	})
 	return nil
 }
 
@@ -253,27 +265,17 @@ func (c *WSConn) configureRatelimiter(respHeader http.Header) error {
 	return nil
 }
 
-func (c *WSConn) runKeepaliveLoop() {
-	c.activeTime.Store(time.Now().Unix())
-	c.SetPingHandler(func(appData string) error {
-		slog.Debug("WebsocketRecvPing")
-		c.activeTime.Store(time.Now().Unix())
-		err := c.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
-		if err == websocket.ErrCloseSent {
-			return nil
-		} else if _, ok := err.(net.Error); ok {
-			return nil
-		}
-		return err
-	})
+func (c *WSConn) runConnAliveDetector() {
 	for {
 		select {
 		case <-c.closedSig:
 			return
 		default:
 		}
-		time.Sleep(5 * time.Second)
-		if time.Now().Unix()-c.activeTime.Load() > 25 {
+		time.Sleep(time.Second)
+		sec := time.Now().Unix()
+		slog.Debug("CheckAlive", "sec", sec, "active", c.activeTime.Load())
+		if sec-c.activeTime.Load() > 25 {
 			c.CloseConn()
 		}
 	}
@@ -417,7 +419,7 @@ func DialPeermap(ctx context.Context, server *peer.Peermap, peerID peer.ID, meta
 	if err := wsConn.dial(ctx, ""); err != nil {
 		return nil, err
 	}
-	go wsConn.runKeepaliveLoop()
 	go wsConn.runEventsReadLoop()
+	go wsConn.runConnAliveDetector()
 	return wsConn, nil
 }
