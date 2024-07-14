@@ -332,11 +332,15 @@ func (ctx *networkContext) peerCount() int {
 
 func (ctx *networkContext) SetIfAbsent(peerID string, p *Peer) bool {
 	ctx.peersMutex.Lock()
-	defer ctx.peersMutex.Unlock()
-	if _, ok := ctx.peers[peerID]; ok && p.checkAlive() {
-		return false
+	if p1, ok := ctx.peers[peerID]; ok {
+		ctx.peersMutex.Unlock()
+		if p1.checkAlive() {
+			return false
+		}
+		ctx.peersMutex.Lock()
 	}
 	ctx.peers[peerID] = p
+	ctx.peersMutex.Unlock()
 	return true
 }
 
