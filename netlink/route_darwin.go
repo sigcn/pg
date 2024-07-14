@@ -2,6 +2,7 @@ package netlink
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net"
@@ -33,15 +34,20 @@ func RouteSubscribe(ctx context.Context, ch chan<- RouteUpdate) error {
 func runReadLoop(fd int, ch chan<- RouteUpdate) error {
 	buf := make([]byte, os.Getpagesize())
 	for {
-		_, err := syscall.Read(fd, buf)
+		n, err := syscall.Read(fd, buf)
 		if err != nil {
 			return fmt.Errorf("syscall read: %w", err)
+		}
+		if n < 176 {
+			slog.Warn("Ignore msg with length less than 176", "len", n)
+			continue
 		}
 		msg := buf[:176]
 		msg[0] = 176
 		msgs, err := route.ParseRIB(route.RIBTypeRoute, msg)
 		if err != nil {
-			return fmt.Errorf("route parseRIB: %w", err)
+			slog.Warn("RouteParseRIB", "err", err, "msglen", n, "msg", hex.EncodeToString(msg[:n]))
+			continue
 		}
 		for _, msg := range msgs {
 			m, ok := msg.(*route.RouteMessage)
