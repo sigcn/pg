@@ -290,6 +290,7 @@ func ListenPacketContext(ctx context.Context, peermap *peer.Peermap, opts ...Opt
 
 	wsConn, err := disco.DialPeermap(ctx, peermap, cfg.PeerID, cfg.Metadata)
 	if err != nil {
+		udpConn.Close()
 		return nil, err
 	}
 
