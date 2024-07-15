@@ -71,7 +71,7 @@ func (c *WSConn) Read(p []byte) (n int, err error) {
 }
 
 func (c *WSConn) Write(p []byte) (n int, err error) {
-	err = c.write(append(append([]byte(nil), peer.CONTROL_CONN), p...))
+	err = c.write(append(append([]byte(nil), peer.CONTROL_CONN.Byte()), p...))
 	if err != nil {
 		return
 	}
@@ -101,12 +101,12 @@ func (c *WSConn) CloseConn() error {
 	return nil
 }
 
-func (c *WSConn) WriteTo(p []byte, peerID peer.ID, op byte) error {
+func (c *WSConn) WriteTo(p []byte, peerID peer.ID, op peer.ControlCode) error {
 	if op == peer.CONTROL_RELAY && c.rateLimiter != nil {
 		c.rateLimiter.WaitN(context.Background(), len(p))
 	}
 	b := make([]byte, 0, 2+len(peerID)+len(p))
-	b = append(b, op)                // relay
+	b = append(b, op.Byte())         // relay
 	b = append(b, peerID.Len())      // addr length
 	b = append(b, peerID.Bytes()...) // addr
 	b = append(b, p...)              // data
@@ -334,7 +334,7 @@ func (c *WSConn) runEventsReadLoop() {
 }
 
 func (c *WSConn) handleEvents(b []byte) {
-	switch b[0] {
+	switch peer.ControlCode(b[0]) {
 	case peer.CONTROL_RELAY:
 		c.datagrams <- &Datagram{
 			PeerID: peer.ID(b[2 : b[1]+2]),

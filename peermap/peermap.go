@@ -106,7 +106,7 @@ func (p *Peer) Write(b []byte) (n int, err error) {
 	if p.connWRL != nil && len(b) > 0 {
 		p.connWRL.WaitN(context.Background(), len(b))
 	}
-	err = p.write(append(append([]byte(nil), peer.CONTROL_CONN), b...))
+	err = p.write(append(append([]byte(nil), peer.CONTROL_CONN.Byte()), b...))
 	if err != nil {
 		return
 	}
@@ -158,7 +158,7 @@ func (p *Peer) Start() {
 func (p *Peer) leadDisco(target *Peer) {
 	myMeta := []byte(p.metadata.Encode())
 	b := make([]byte, 2+len(p.id)+len(myMeta))
-	b[0] = peer.CONTROL_NEW_PEER
+	b[0] = peer.CONTROL_NEW_PEER.Byte()
 	b[1] = p.id.Len()
 	copy(b[2:], p.id.Bytes())
 	copy(b[len(p.id)+2:], myMeta)
@@ -166,7 +166,7 @@ func (p *Peer) leadDisco(target *Peer) {
 
 	peerMeta := []byte(target.metadata.Encode())
 	b1 := make([]byte, 2+len(target.id)+len(peerMeta))
-	b1[0] = peer.CONTROL_NEW_PEER
+	b1[0] = peer.CONTROL_NEW_PEER.Byte()
 	b1[1] = target.id.Len()
 	copy(b1[2:], target.id.Bytes())
 	copy(b1[len(target.id)+2:], peerMeta)
@@ -195,23 +195,23 @@ func (p *Peer) readMessageLoop() {
 		for i, v := range b {
 			b[i] = v ^ p.nonce
 		}
-		if slices.Contains([]byte{peer.CONTROL_LEAD_DISCO, peer.CONTROL_NEW_PEER_UDP_ADDR}, b[0]) {
+		if slices.Contains([]peer.ControlCode{peer.CONTROL_LEAD_DISCO, peer.CONTROL_NEW_PEER_UDP_ADDR}, peer.ControlCode(b[0])) {
 			p.networkContext.disoRatelimiter.WaitN(context.Background(), len(b))
 		} else if p.networkContext.ratelimiter != nil {
 			p.networkContext.ratelimiter.WaitN(context.Background(), len(b))
 		}
-		if b[0] == peer.CONTROL_CONN {
+		if b[0] == peer.CONTROL_CONN.Byte() {
 			p.connData <- b[1:]
 			continue
 		}
 		tgtPeerID := peer.ID(b[2 : b[1]+2])
-		slog.Debug("PeerEvent", "op", b[0], "from", p.id, "to", tgtPeerID)
+		slog.Debug("PeerEvent", "op", peer.ControlCode(b[0]), "from", p.id, "to", tgtPeerID)
 		tgtPeer, err := p.peerMap.getPeer(p.networkSecret.Network, tgtPeerID)
 		if err != nil {
 			slog.Debug("FindPeer failed", "detail", err)
 			continue
 		}
-		if b[0] == peer.CONTROL_LEAD_DISCO {
+		if peer.ControlCode(b[0]) == peer.CONTROL_LEAD_DISCO {
 			p.leadDisco(tgtPeer)
 			continue
 		}
@@ -273,7 +273,7 @@ func (p *Peer) updateSecret() error {
 		return err
 	}
 	data := make([]byte, 1+len(b))
-	data[0] = peer.CONTROL_UPDATE_NETWORK_SECRET
+	data[0] = peer.CONTROL_UPDATE_NETWORK_SECRET.Byte()
 	copy(data[1:], b)
 	if err = p.write(data); err != nil {
 		slog.Error("NetworkSecretRefresh", "err", err)

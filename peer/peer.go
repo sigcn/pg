@@ -6,13 +6,38 @@ import (
 	"io"
 )
 
+type ControlCode uint8
+
+func (code ControlCode) String() string {
+	switch code {
+	case CONTROL_RELAY:
+		return "RELAY"
+	case CONTROL_NEW_PEER:
+		return "NEW_PEER"
+	case CONTROL_NEW_PEER_UDP_ADDR:
+		return "NEW_PEER_UDP_ADDR"
+	case CONTROL_LEAD_DISCO:
+		return "LEAD_DISCO"
+	case CONTROL_UPDATE_NETWORK_SECRET:
+		return "UPDATE_NETWORK_SECRET"
+	case CONTROL_CONN:
+		return "CONTROL_CONN"
+	default:
+		return "UNDEFINED"
+	}
+}
+
+func (code ControlCode) Byte() byte {
+	return byte(code)
+}
+
 const (
-	CONTROL_RELAY                 = 0
-	CONTROL_NEW_PEER              = 1
-	CONTROL_NEW_PEER_UDP_ADDR     = 2
-	CONTROL_LEAD_DISCO            = 3
-	CONTROL_UPDATE_NETWORK_SECRET = 20
-	CONTROL_CONN                  = 30
+	CONTROL_RELAY                 ControlCode = 0
+	CONTROL_NEW_PEER              ControlCode = 1
+	CONTROL_NEW_PEER_UDP_ADDR     ControlCode = 2
+	CONTROL_LEAD_DISCO            ControlCode = 3
+	CONTROL_UPDATE_NETWORK_SECRET ControlCode = 20
+	CONTROL_CONN                  ControlCode = 30
 )
 
 type ID string
