@@ -26,6 +26,8 @@ type Config struct {
 	MTU              int
 	InboundHandlers  []InboundHandler
 	OutboundHandlers []OutboundHandler
+	OnRouteAdd       func(net.IPNet, net.IP)
+	OnRouteRemove    func(net.IPNet, net.IP)
 }
 
 type VPN struct {
@@ -74,11 +76,13 @@ func (vpn *VPN) runRoutingTableUpdateEventLoop(ctx context.Context, wg *sync.Wai
 	for r := range ch {
 		switch r.Type {
 		case 1:
-			disco.AddIgnoredLocalCIDRs(r.Dst.String())
-			vpn.rt.AddRoute(r.Dst, r.Via)
+			if vpn.rt.AddRoute(r.Dst, r.Via) && vpn.cfg.OnRouteAdd != nil {
+				vpn.cfg.OnRouteAdd(*r.Dst, r.Via)
+			}
 		case 2:
-			disco.RemoveIgnoredLocalCIDRs(r.Dst.String())
-			vpn.rt.DelRoute(r.Dst, r.Via)
+			if vpn.rt.DelRoute(r.Dst, r.Via) && vpn.cfg.OnRouteRemove != nil {
+				vpn.cfg.OnRouteRemove(*r.Dst, r.Via)
+			}
 		}
 	}
 }

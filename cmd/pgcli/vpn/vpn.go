@@ -179,7 +179,11 @@ func (v *P2PVPN) Run(ctx context.Context) error {
 		err1 := iface.Close()
 		return errors.Join(err, err1)
 	}
-	return vpn.New(vpn.Config{MTU: v.Config.MTU}).Run(ctx, iface, c)
+	return vpn.New(vpn.Config{
+		MTU:           v.Config.MTU,
+		OnRouteAdd:    func(dst net.IPNet, _ net.IP) { disco.AddIgnoredLocalCIDRs(dst.String()) },
+		OnRouteRemove: func(dst net.IPNet, _ net.IP) { disco.RemoveIgnoredLocalCIDRs(dst.String()) },
+	}).Run(ctx, iface, c)
 }
 
 func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err error) {

@@ -85,26 +85,28 @@ func (r *TunInterface) AddPeer(peer net.Addr, ipv4, ipv6 string) {
 	}
 }
 
-func (r *TunInterface) AddRoute(dst *net.IPNet, via net.IP) {
+func (r *TunInterface) AddRoute(dst *net.IPNet, via net.IP) bool {
 	addr, ok := r.GetPeer(via.String())
 	if !ok {
-		return
+		return false
 	}
 	r.peersMutex.Lock()
 	defer r.peersMutex.Unlock()
 	slog.Info("AddRoute", "dst", dst, "via", via)
 	r.routing.Put(dst.String(), addr)
+	return true
 }
 
-func (r *TunInterface) DelRoute(dst *net.IPNet, via net.IP) {
+func (r *TunInterface) DelRoute(dst *net.IPNet, via net.IP) bool {
 	_, ok := r.GetPeer(via.String())
 	if !ok {
-		return
+		return false
 	}
 	r.peersMutex.Lock()
 	defer r.peersMutex.Unlock()
 	slog.Info("DelRoute", "dst", dst, "via", via)
 	r.routing.Put(dst.String(), nil)
+	return true
 }
 
 func (r *TunInterface) Device() tun.Device {
