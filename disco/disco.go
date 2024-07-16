@@ -1,6 +1,7 @@
 package disco
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net"
@@ -95,7 +96,7 @@ func (peer *PeerContext) Heartbeat(addr *net.UDPAddr) {
 		return
 	}
 	defer peer.statesMutex.Unlock()
-	slog.Debug("[UDP] Heartbeat", "peer", peer.PeerID, "addr", addr)
+	slog.Log(context.Background(), -5, "[UDP] Heartbeat", "peer", peer.PeerID, "addr", addr)
 	for _, state := range peer.States {
 		if state.Addr.IP.Equal(addr.IP) && state.Addr.Port == addr.Port {
 			state.LastActiveTime = time.Now()

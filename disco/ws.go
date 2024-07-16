@@ -274,7 +274,7 @@ func (c *WSConn) runConnAliveDetector() {
 		}
 		time.Sleep(time.Second)
 		sec := time.Now().Unix()
-		slog.Debug("CheckAlive", "sec", sec, "active", c.activeTime.Load())
+		slog.Log(context.Background(), -6, "CheckAlive", "sec", sec, "active", c.activeTime.Load())
 		if sec-c.activeTime.Load() > 25 {
 			c.CloseConn()
 		}
