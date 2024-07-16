@@ -38,10 +38,6 @@ func runReadLoop(fd int, ch chan<- RouteUpdate) error {
 		if err != nil {
 			return fmt.Errorf("syscall read: %w", err)
 		}
-		if n < 176 {
-			slog.Warn("Ignore msg with length less than 176", "len", n)
-			continue
-		}
 		msg := buf[:176]
 		msg[0] = 176
 		msgs, err := route.ParseRIB(route.RIBTypeRoute, msg)
