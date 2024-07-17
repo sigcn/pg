@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-type cidrs []*net.IPNet
+type cidrs []net.IPNet
 
 func (cs *cidrs) Contains(ip net.IP) bool {
 	for _, cidr := range *cs {
@@ -48,12 +48,12 @@ func AddIgnoredLocalCIDRs(cidrs ...string) {
 			continue
 		}
 		slog.Debug("IgnoreLocalCIDR " + cidr)
-		ignoredLocalCIDRs = append(ignoredLocalCIDRs, _cidr)
+		ignoredLocalCIDRs = append(ignoredLocalCIDRs, *_cidr)
 	}
 }
 
 func RemoveIgnoredLocalCIDRs(cidrs ...string) {
-	var filterd []*net.IPNet
+	var filterd []net.IPNet
 	for _, cidr := range ignoredLocalCIDRs {
 		if !slices.Contains(cidrs, cidr.String()) {
 			filterd = append(filterd, cidr)
@@ -62,12 +62,20 @@ func RemoveIgnoredLocalCIDRs(cidrs ...string) {
 	ignoredLocalCIDRs = filterd
 }
 
+func GetIgnoredLocalCIDRs() []net.IPNet {
+	return append([]net.IPNet{}, ignoredLocalCIDRs...)
+}
+
 func SetIgnoredLocalInterfaceNamePrefixs(prefixs ...string) {
 	ignoredLocalInterfaceNamePrefixs = prefixs
 }
 
 func SetLocalIPs(ips ...net.IP) {
 	localIPs = ips
+}
+
+func GetIgnoredLocalInterfaceNamePrefixs() []string {
+	return append([]string{}, ignoredLocalInterfaceNamePrefixs...)
 }
 
 func ListLocalIPs() ([]net.IP, error) {
