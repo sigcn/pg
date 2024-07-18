@@ -74,15 +74,14 @@ func (vpn *VPN) runRoutingTableUpdateEventLoop(ctx context.Context, wg *sync.Wai
 		return
 	}
 	for r := range ch {
-		switch r.Type {
-		case 1:
+		if r.New {
 			if vpn.rt.AddRoute(r.Dst, r.Via) && vpn.cfg.OnRouteAdd != nil {
 				vpn.cfg.OnRouteAdd(*r.Dst, r.Via)
 			}
-		case 2:
-			if vpn.rt.DelRoute(r.Dst, r.Via) && vpn.cfg.OnRouteRemove != nil {
-				vpn.cfg.OnRouteRemove(*r.Dst, r.Via)
-			}
+			continue
+		}
+		if vpn.rt.DelRoute(r.Dst, r.Via) && vpn.cfg.OnRouteRemove != nil {
+			vpn.cfg.OnRouteRemove(*r.Dst, r.Via)
 		}
 	}
 }

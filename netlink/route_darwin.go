@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"slices"
 	"syscall"
 
 	"golang.org/x/net/route"
@@ -18,9 +19,9 @@ func RouteSubscribe(ctx context.Context, ch chan<- RouteUpdate) error {
 		return fmt.Errorf("syscall socket: %w", err)
 	}
 	go func() {
-		err := runReadLoop(fd, ch)
+		err := runRouteMsgReadLoop(fd, ch)
 		if err != nil {
-			slog.Error("SyscallReadExited", "err", err)
+			slog.Error("RouteSubscribe", "err", fmt.Errorf("msg read loop exited: %w", err))
 		}
 	}()
 	go func() {
@@ -31,18 +32,17 @@ func RouteSubscribe(ctx context.Context, ch chan<- RouteUpdate) error {
 	return nil
 }
 
-func runReadLoop(fd int, ch chan<- RouteUpdate) error {
+func runRouteMsgReadLoop(fd int, ch chan<- RouteUpdate) error {
 	buf := make([]byte, os.Getpagesize())
 	for {
 		n, err := syscall.Read(fd, buf)
 		if err != nil {
 			return fmt.Errorf("syscall read: %w", err)
 		}
-		msg := buf[:176]
-		msg[0] = 176
-		msgs, err := route.ParseRIB(route.RIBTypeRoute, msg)
+		buf[0] = 254
+		msgs, err := route.ParseRIB(route.RIBTypeRoute, buf[:254])
 		if err != nil {
-			slog.Warn("RouteParseRIB", "err", err, "msglen", n, "msg", hex.EncodeToString(msg[:n]))
+			slog.Warn("RouteParseRIB", "err", err, "msglen1", n, "msglen2", buf[0], "msg", hex.EncodeToString(buf[:n]))
 			continue
 		}
 		for _, msg := range msgs {
@@ -50,46 +50,39 @@ func runReadLoop(fd int, ch chan<- RouteUpdate) error {
 			if !ok {
 				continue
 			}
-			addrs := m.Addrs
-			if len(addrs) < 3 {
+			if !slices.Contains([]int{syscall.RTM_ADD, syscall.RTM_DELETE}, m.Type) {
 				continue
 			}
-
-			var dst, via, mask []byte
-
-			if ip, ok := addrs[0].(*route.Inet4Addr); ok {
-				dst = ip.IP[:]
-				addr, ok := addrs[1].(*route.Inet4Addr)
-				if !ok {
+			var dst net.IPNet
+			var via []byte
+			for _, addr := range m.Addrs {
+				var ip []byte
+				switch v := addr.(type) {
+				case *route.Inet4Addr:
+					ip = v.IP[:]
+				case *route.Inet6Addr:
+					ip = v.IP[:]
+				case *route.LinkAddr:
+					ip = net.IPv6loopback
+				default:
 					continue
 				}
-				via = addr.IP[:]
-				addr, ok = addrs[2].(*route.Inet4Addr)
-				if !ok {
+				if dst.IP == nil {
+					dst.IP = ip
 					continue
 				}
-				mask = addr.IP[:]
-			} else if ip, ok := addrs[0].(*route.Inet6Addr); ok {
-				dst = ip.IP[:]
-				addr, ok := addrs[1].(*route.Inet6Addr)
-				if !ok {
+				if via == nil {
+					via = ip
 					continue
 				}
-				via = addr.IP[:]
-				addr, ok = addrs[2].(*route.Inet6Addr)
-				if !ok {
-					continue
+				if dst.Mask == nil {
+					dst.Mask = ip
+					break
 				}
-				mask = addr.IP[:]
-			} else {
-				continue
 			}
 			ch <- RouteUpdate{
-				Type: uint16(buf[3]),
-				Dst: &net.IPNet{
-					IP:   dst,
-					Mask: mask[:],
-				},
+				New: buf[3] == 1,
+				Dst: &dst,
 				Via: via,
 			}
 		}
