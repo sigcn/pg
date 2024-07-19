@@ -3,6 +3,7 @@ package netlink
 import (
 	"context"
 	"log/slog"
+	"slices"
 
 	"github.com/vishvananda/netlink"
 )
@@ -29,13 +30,12 @@ func RouteSubscribe(ctx context.Context, ch chan<- RouteUpdate) error {
 					Dst: e.Dst,
 					Via: e.Gw,
 				}
-				if e.Type == 24 {
-					ru.Type = 1
-				} else if e.Type == 25 {
-					ru.Type = 2
-				} else {
+				if !slices.Contains([]uint16{24, 25}, e.Type) {
 					slog.Debug("DropUnsupportRouteEvent")
 					continue
+				}
+				if e.Type == 24 {
+					ru.New = true
 				}
 				ch <- ru
 			}
