@@ -230,6 +230,9 @@ func (c *PeerPacketConn) runAddrUpdateEventLoop() {
 	}()
 
 	for e := range ch {
+		if e.Addr.IP.IsLinkLocalUnicast() {
+			continue
+		}
 		if !e.New || disco.IPIgnored(e.Addr.IP) {
 			continue
 		}
