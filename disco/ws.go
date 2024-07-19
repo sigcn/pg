@@ -27,7 +27,7 @@ var (
 )
 
 type WSConn struct {
-	*websocket.Conn
+	rawConn          atomic.Pointer[websocket.Conn]
 	server           *peer.Peermap
 	connectedServer  string
 	peerID           peer.ID
@@ -84,19 +84,19 @@ func (c *WSConn) Close() error {
 	close(c.peers)
 	close(c.peersUDPAddrs)
 	close(c.connData)
-	if conn := c.Conn; conn != nil {
-		_ = c.Conn.WriteControl(websocket.CloseMessage,
+	if conn := c.rawConn.Load(); conn != nil {
+		_ = conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
-		_ = c.Conn.Close()
+		_ = conn.Close()
 	}
 	return nil
 }
 
-func (c *WSConn) CloseConn() error {
-	if conn := c.Conn; conn != nil {
-		_ = c.Conn.WriteControl(websocket.CloseMessage,
+func (c *WSConn) RestartListener() error {
+	if conn := c.rawConn.Load(); conn != nil {
+		_ = conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNoStatusReceived, ""), time.Now().Add(time.Second))
-		_ = c.Conn.Close()
+		_ = conn.Close()
 	}
 	return nil
 }
@@ -206,14 +206,14 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 		return err
 	}
 
-	c.Conn = conn
+	c.rawConn.Store(conn)
 	c.nonce = peer.MustParseNonce(httpResp.Header.Get("X-Nonce"))
 	c.connectedServer = server
 	c.activeTime.Store(time.Now().Unix())
-	c.SetPingHandler(func(appData string) error {
+	conn.SetPingHandler(func(appData string) error {
 		slog.Debug("WebsocketRecvPing")
 		c.activeTime.Store(time.Now().Unix())
-		err := c.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+		err := conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
 		if err == websocket.ErrCloseSent {
 			return nil
 		} else if _, ok := err.(net.Error); ok {
@@ -276,7 +276,7 @@ func (c *WSConn) runConnAliveDetector() {
 		sec := time.Now().Unix()
 		slog.Log(context.Background(), -6, "CheckAlive", "sec", sec, "active", c.activeTime.Load())
 		if sec-c.activeTime.Load() > 25 {
-			c.CloseConn()
+			c.RestartListener()
 		}
 	}
 }
@@ -288,7 +288,7 @@ func (c *WSConn) runEventsReadLoop() {
 			return
 		default:
 		}
-		conn := c.Conn
+		conn := c.rawConn.Load()
 		if conn == nil {
 			continue
 		}
@@ -386,7 +386,7 @@ func (c *WSConn) write(b []byte) error {
 func (c *WSConn) writeWS(messageType int, data []byte) error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
-	if wsConn := c.Conn; wsConn != nil {
+	if wsConn := c.rawConn.Load(); wsConn != nil {
 		return wsConn.WriteMessage(messageType, data)
 	}
 	return ErrUseOfClosedConnection

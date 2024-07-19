@@ -14,6 +14,7 @@ import (
 
 	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/lru"
+	"github.com/rkonfj/peerguard/netlink"
 	"github.com/rkonfj/peerguard/peer"
 	"storj.io/common/base58"
 )
@@ -205,6 +206,46 @@ func (c *PeerPacketConn) PeerStore() disco.PeerStore {
 	return c.udpConn
 }
 
+// SharedKey get the key shared with the peer
+func (c *PeerPacketConn) SharedKey(peerID peer.ID) ([]byte, error) {
+	if c.cfg.SymmAlgo == nil {
+		return nil, errors.New("get shared key from plain conn")
+	}
+	return c.cfg.SymmAlgo.SecretKey()(peerID.String())
+}
+
+func (c *PeerPacketConn) runAddrUpdateEventLoop() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch := make(chan netlink.AddrUpdate)
+	if err := netlink.AddrSubscribe(ctx, ch); err != nil {
+		close(ch)
+		slog.Error("AddrUpdateEventLoop", "err", err)
+		return
+	}
+
+	go func() {
+		<-c.closedSig
+		cancel()
+	}()
+
+	for e := range ch {
+		if !e.New || disco.IPIgnored(e.Addr.IP) {
+			continue
+		}
+		slog.Log(context.Background(), -2, "NewAddr", "addr", e.Addr.String(), "link", e.LinkIndex)
+		if err := c.udpConn.RestartListener(); err != nil {
+			slog.Error("RestartUDPListener", "err", err)
+		}
+		if err := c.wsConn.RestartListener(); err != nil {
+			slog.Error("RestartWebsocketListener", "err", err)
+		}
+		c.discoCoolingMutex.Lock()
+		c.discoCooling.Clear()
+		c.discoCoolingMutex.Unlock()
+	}
+}
+
 // runControlEventLoop events control loop
 func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disco.UDPConn) {
 	for {
@@ -236,25 +277,8 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disc
 					time.Sleep(200 * time.Millisecond)
 				}
 			}()
-		case _, ok := <-udpConn.NetworkChangedEvents():
-			if !ok {
-				return
-			}
-			go func() {
-				c.discoCoolingMutex.Lock()
-				defer c.discoCoolingMutex.Unlock()
-				c.wsConn.CloseConn()
-			}()
 		}
 	}
-}
-
-// SharedKey get the key shared with the peer
-func (c *PeerPacketConn) SharedKey(peerID peer.ID) ([]byte, error) {
-	if c.cfg.SymmAlgo == nil {
-		return nil, errors.New("get shared key from plain conn")
-	}
-	return c.cfg.SymmAlgo.SecretKey()(peerID.String())
 }
 
 // ListenPacket same as ListenPacketContext, but no context required
@@ -303,6 +327,7 @@ func ListenPacketContext(ctx context.Context, peermap *peer.Peermap, opts ...Opt
 		wsConn:       wsConn,
 		discoCooling: lru.New[peer.ID, time.Time](1024),
 	}
+	go packetConn.runAddrUpdateEventLoop()
 	go packetConn.runControlEventLoop(wsConn, udpConn)
 	return &packetConn, nil
 }
