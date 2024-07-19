@@ -29,7 +29,8 @@ import (
 )
 
 var (
-	ErrAddressAlreadyInuse = peer.Error{Code: 4000, Msg: "the network address is already in use"}
+	ErrAddressAlreadyInuse  = peer.Error{Code: 4000, Msg: "the network address is already in use"}
+	ErrNetworkSecretExpired = peer.Error{Code: 4030, Msg: "network secret is expired"}
 
 	_ io.ReadWriter = (*Peer)(nil)
 )
@@ -640,6 +641,7 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		if err != nil {
 			slog.Debug("Authenticate failed", "err", err, "network", jsonSecret.Network, "secret", r.Header.Get("X-Network"))
 			w.WriteHeader(http.StatusForbidden)
+			ErrNetworkSecretExpired.MarshalTo(w)
 			return
 		}
 		jsonSecret = secret
