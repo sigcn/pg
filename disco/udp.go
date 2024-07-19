@@ -180,6 +180,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 	if udpConn == nil {
 		return
 	}
+	slog.Log(context.Background(), -2, "RecvPeerAddr", "peer", peerID, "udp", addr)
 	defer slog.Debug("[UDP] DiscoExit", "peer", peerID, "addr", addr)
 	c.discoPing(peerID, addr)
 	interval := defaultDiscoConfig.ChallengesInitialInterval + time.Duration(rand.Intn(50)*int(time.Millisecond))
