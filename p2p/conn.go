@@ -99,10 +99,7 @@ func (c *PeerPacketConn) Close() error {
 	if err := c.udpConn.Close(); err != nil {
 		errs = append(errs, err)
 	}
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // LocalAddr returns the local network address, if known.
@@ -214,6 +211,7 @@ func (c *PeerPacketConn) SharedKey(peerID peer.ID) ([]byte, error) {
 	return c.cfg.SymmAlgo.SecretKey()(peerID.String())
 }
 
+// runAddrUpdateEventLoop listen network change and restart udp and websocket listener
 func (c *PeerPacketConn) runAddrUpdateEventLoop() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

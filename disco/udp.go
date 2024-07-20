@@ -31,7 +31,6 @@ type UDPConfig struct {
 	DisableIPv4           bool
 	DisableIPv6           bool
 	ID                    peer.ID
-	NetworkDetectInterval time.Duration
 	PeerKeepaliveInterval time.Duration
 	DiscoMagic            func() []byte
 }
@@ -502,9 +501,6 @@ func (c *UDPConn) RestartListener() error {
 func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 	if cfg.ID.Len() == 0 {
 		return nil, errors.New("peer id is required")
-	}
-	if cfg.NetworkDetectInterval < time.Second {
-		cfg.NetworkDetectInterval = 5 * time.Second
 	}
 	if cfg.PeerKeepaliveInterval < time.Second {
 		cfg.PeerKeepaliveInterval = 10 * time.Second
