@@ -187,78 +187,81 @@ func (l *MuxSession) Addr() net.Addr {
 }
 
 func (l *MuxSession) run() {
+	defer l.Close()
 	for {
 		select {
 		case <-l.exit:
 			return
 		default:
 		}
-		header := make([]byte, 8)
-		_, err := io.ReadFull(l.c, header)
-		if err != nil {
-			err = fmt.Errorf("read header: %w", err)
-			slog.Debug("MuxSessionClosed", "err", err)
-			l.Close()
+		if err := l.nextFrame(); err != nil {
+			slog.Debug("NextFrame", "err", err)
 			return
 		}
-		if header[0] != 0 {
-			err = fmt.Errorf("unsupport connmux version %d", header[0])
-			slog.Debug("MuxSessionClosed", "err", err)
-			l.Close()
-			return
-		}
-
-		length := binary.BigEndian.Uint16(header[2:4])
-		seq := binary.BigEndian.Uint32(header[4:8])
-		cmd := header[1]
-		slog.Debug("ReadHeader", "header", header)
-
-		data := make([]byte, length)
-		_, err = io.ReadFull(l.c, data)
-		if err != nil {
-			err = fmt.Errorf("read data: %w", err)
-			slog.Debug("MuxSessionClosed", "err", err)
-			l.Close()
-			return
-		}
-		if cmd == 0 {
-			if c, ok := l.dials[seq]; ok {
-				c.inbound <- data
-				continue
-			}
-			if c, ok := l.accepts[seq]; ok {
-				c.inbound <- data
-				continue
-			}
-			l.accepts[seq] = &muxConn{
-				exit:    make(chan struct{}),
-				inbound: make(chan []byte, 128),
-				seq:     seq,
-				s:       l,
-			}
-			l.accept <- l.accepts[seq]
-			l.accepts[seq].inbound <- data
-			continue
-		}
-
-		if cmd == 1 {
-			if c, ok := l.accepts[seq]; ok {
-				c.close()
-				delete(l.accepts, seq)
-				slog.Debug("ServerSideMuxConnClosed", "seq", c.seq)
-			}
-			if c, ok := l.dials[seq]; ok {
-				c.close()
-				delete(l.dials, seq)
-				slog.Debug("ClientSideMuxConnClosed", "seq", c.seq)
-			}
-			continue
-		}
-		err = fmt.Errorf("unsupport connmux cmd %d", cmd)
-		slog.Error("MuxSessionClosed", "err", err)
-		l.Close()
-		return
 	}
+}
+
+// nextFrame read a new frame
+// a 8 bytes header
+// 1 byte version
+// 1 byte command
+// 2 bytes data length
+// 4 bytes seq
+func (l *MuxSession) nextFrame() error {
+	header := make([]byte, 8)
+	_, err := io.ReadFull(l.c, header)
+	if err != nil {
+		return fmt.Errorf("read header: %w", err)
+	}
+	if header[0] != 0 {
+		return fmt.Errorf("unsupport connmux version %d", header[0])
+	}
+
+	length := binary.BigEndian.Uint16(header[2:4])
+	seq := binary.BigEndian.Uint32(header[4:8])
+	cmd := header[1]
+	slog.Debug("ReadHeader", "header", header)
+
+	data := make([]byte, length)
+	_, err = io.ReadFull(l.c, data)
+	if err != nil {
+		return fmt.Errorf("read data: %w", err)
+	}
+
+	if cmd == 0 {
+		if c, ok := l.dials[seq]; ok {
+			c.inbound <- data
+			return nil
+		}
+		if c, ok := l.accepts[seq]; ok {
+			c.inbound <- data
+			return nil
+		}
+		l.accepts[seq] = &muxConn{
+			exit:    make(chan struct{}),
+			inbound: make(chan []byte, 128),
+			seq:     seq,
+			s:       l,
+		}
+		l.accept <- l.accepts[seq]
+		l.accepts[seq].inbound <- data
+		return nil
+	}
+
+	if cmd == 1 {
+		if c, ok := l.accepts[seq]; ok {
+			c.close()
+			delete(l.accepts, seq)
+			slog.Debug("ServerSideMuxConnClosed", "seq", c.seq)
+		}
+		if c, ok := l.dials[seq]; ok {
+			c.close()
+			delete(l.dials, seq)
+			slog.Debug("ClientSideMuxConnClosed", "seq", c.seq)
+		}
+		return nil
+	}
+	return fmt.Errorf("unsupport connmux cmd %d", cmd)
 }
 
 func (d *MuxSession) OpenStream() (net.Conn, error) {
