@@ -37,7 +37,7 @@ type muxConn struct {
 func (c *muxConn) Read(b []byte) (n int, err error) {
 	select {
 	case <-c.exit:
-		return 0, io.ErrClosedPipe
+		return 0, io.EOF
 	default:
 	}
 
@@ -246,6 +246,11 @@ func (l *MuxSession) run() {
 				c.close()
 				delete(l.accepts, seq)
 				slog.Debug("ServerSideMuxConnClosed", "seq", c.seq)
+			}
+			if c, ok := l.dials[seq]; ok {
+				c.close()
+				delete(l.dials, seq)
+				slog.Debug("ClientSideMuxConnClosed", "seq", c.seq)
 			}
 			continue
 		}
