@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/exec"
 	"slices"
 	"syscall"
 
@@ -87,4 +88,18 @@ func runRouteMsgReadLoop(fd int, ch chan<- RouteUpdate) error {
 			}
 		}
 	}
+}
+
+func AddRoute(ifName string, to *net.IPNet, _ net.IP) error {
+	if to.IP.To4() == nil { // ipv6
+		return exec.Command("route", "-qn", "add", "-inet6", to.String(), "-iface", ifName).Run()
+	}
+	return exec.Command("route", "-qn", "add", "-inet", to.String(), "-iface", ifName).Run()
+}
+
+func DelRoute(_ string, to *net.IPNet, _ net.IP) error {
+	if to.IP.To4() == nil { // ipv6
+		return exec.Command("route", "-qn", "delete", "-inet6", to.String()).Run()
+	}
+	return exec.Command("route", "-qn", "delete", "-inet", to.String()).Run()
 }

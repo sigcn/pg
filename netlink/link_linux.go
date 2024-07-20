@@ -4,7 +4,6 @@ package netlink
 
 import (
 	"errors"
-	"net"
 
 	"github.com/vishvananda/netlink"
 )
@@ -33,20 +32,6 @@ func SetupLink(ifName, cidr string) error {
 		return err
 	}
 	return nil
-}
-
-func AddRoute(_ string, to *net.IPNet, via net.IP) error {
-	return netlink.RouteAdd(&netlink.Route{
-		Dst: to,
-		Gw:  via,
-	})
-}
-
-func DelRoute(_ string, to *net.IPNet, via net.IP) error {
-	return netlink.RouteDel(&netlink.Route{
-		Dst: to,
-		Gw:  via,
-	})
 }
 
 func LinkByIndex(index int) (*Link, error) {

@@ -25,22 +25,6 @@ func SetupLink(ifName, cidr string) error {
 	return exec.Command("netsh", "interface", "ipv4", "set", "address", ifName, "static", ip.String(), addrMask).Run()
 }
 
-func AddRoute(ifName string, to *net.IPNet, via net.IP) error {
-	if via.To4() == nil { // ipv6
-		return exec.Command("netsh", "interface", "ipv6", "add", "route", to.String(), ifName, via.String()).Run()
-	}
-	// ipv4
-	addrMask := fmt.Sprintf("%d.%d.%d.%d", to.Mask[0], to.Mask[1], to.Mask[2], to.Mask[3])
-	return exec.Command("route", "add", to.IP.String(), "mask", addrMask, via.String()).Run()
-}
-
-func DelRoute(ifName string, to *net.IPNet, via net.IP) error {
-	if via.To4() == nil { // ipv6
-		return exec.Command("netsh", "interface", "ipv6", "delete", "route", to.String(), ifName, via.String()).Run()
-	}
-	return exec.Command("route", "delete", to.IP.String()).Run()
-}
-
 func LinkByIndex(index int) (*Link, error) {
 	luid, err := winipcfg.LUIDFromIndex(uint32(index))
 	if err != nil {

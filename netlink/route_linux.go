@@ -3,6 +3,7 @@ package netlink
 import (
 	"context"
 	"log/slog"
+	"net"
 	"slices"
 
 	"github.com/vishvananda/netlink"
@@ -42,4 +43,18 @@ func RouteSubscribe(ctx context.Context, ch chan<- RouteUpdate) error {
 		}
 	}()
 	return nil
+}
+
+func AddRoute(_ string, to *net.IPNet, via net.IP) error {
+	return netlink.RouteAdd(&netlink.Route{
+		Dst: to,
+		Gw:  via,
+	})
+}
+
+func DelRoute(_ string, to *net.IPNet, via net.IP) error {
+	return netlink.RouteDel(&netlink.Route{
+		Dst: to,
+		Gw:  via,
+	})
 }
