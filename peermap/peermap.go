@@ -35,6 +35,11 @@ var (
 	_ io.ReadWriter = (*Peer)(nil)
 )
 
+type peerStat struct {
+	RelayRx  uint64
+	StreamTx uint64
+	StreamRx uint64
+}
 type Peer struct {
 	conn      *websocket.Conn
 	exitSig   chan struct{}
@@ -44,6 +49,7 @@ type Peer struct {
 	networkSecret  auth.JSONSecret
 	networkContext *networkContext
 
+	stat       peerStat
 	metadata   url.Values
 	activeTime atomic.Int64
 	id         peer.ID
@@ -83,6 +89,7 @@ func (p *Peer) Read(b []byte) (n int, err error) {
 		if p.connRRL != nil && n > 0 {
 			p.connRRL.WaitN(context.Background(), n)
 		}
+		p.stat.StreamRx += uint64(n)
 	}()
 	if p.connBuf != nil {
 		n = copy(b, p.connBuf)
@@ -113,6 +120,7 @@ func (p *Peer) Write(b []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
+	p.stat.StreamTx += uint64(len(b))
 	return len(b), nil
 }
 
@@ -125,6 +133,9 @@ func (p *Peer) Close() error {
 }
 
 func (p *Peer) String() string {
+	p.metadata.Set("rrx", fmt.Sprintf("%d", p.stat.RelayRx))
+	p.metadata.Set("stx", fmt.Sprintf("%d", p.stat.StreamTx))
+	p.metadata.Set("srx", fmt.Sprintf("%d", p.stat.StreamRx))
 	return (&url.URL{
 		Scheme:   "pg",
 		Host:     string(p.id),
@@ -225,6 +236,7 @@ func (p *Peer) readMessageLoop() {
 		copy(bb[2:p.id.Len()+2], p.id.Bytes())
 		copy(bb[p.id.Len()+2:], data)
 		_ = tgtPeer.write(bb)
+		p.stat.RelayRx += uint64(len(b))
 	}
 }
 
