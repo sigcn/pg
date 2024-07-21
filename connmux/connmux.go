@@ -94,6 +94,7 @@ func (c *MuxConn) Close() error {
 		slog.Warn("MuxConnFIN", "err", err)
 	}
 	delete(c.s.dials, c.seq)
+	delete(c.s.accepts, c.seq)
 	c.s.mut.Unlock()
 	c.close()
 	slog.Debug("MuxConnClosed", "seq", c.seq)
