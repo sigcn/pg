@@ -50,6 +50,8 @@ type Peer struct {
 	nonce      byte
 	wMut       sync.Mutex
 
+	relayRatelimiter *rate.Limiter
+
 	connRRL  *rate.Limiter
 	connWRL  *rate.Limiter
 	connData chan []byte
@@ -198,8 +200,8 @@ func (p *Peer) readMessageLoop() {
 		}
 		if slices.Contains([]peer.ControlCode{peer.CONTROL_LEAD_DISCO, peer.CONTROL_NEW_PEER_UDP_ADDR}, peer.ControlCode(b[0])) {
 			p.networkContext.disoRatelimiter.WaitN(context.Background(), len(b))
-		} else if p.networkContext.ratelimiter != nil {
-			p.networkContext.ratelimiter.WaitN(context.Background(), len(b))
+		} else if p.relayRatelimiter != nil {
+			p.relayRatelimiter.WaitN(context.Background(), len(b))
 		}
 		if b[0] == peer.CONTROL_CONN.Byte() {
 			p.connData <- b[1:]
@@ -301,7 +303,6 @@ func (p *Peer) checkAlive() bool {
 type networkContext struct {
 	peersMutex      sync.RWMutex
 	peers           map[string]*Peer
-	ratelimiter     *rate.Limiter
 	disoRatelimiter *rate.Limiter
 	createTime      time.Time
 	updateTime      time.Time
@@ -670,14 +671,27 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		auth.Net{Alias: jsonSecret.Alias, Neighbors: jsonSecret.Neighbors},
 		time.Unix(jsonSecret.Deadline, 0).Add(-pm.cfg.SecretValidityPeriod))
 
+	var rateLimiter, srLimiter, swLimiter *rate.Limiter
+	if pm.cfg.RateLimiter != nil && pm.cfg.RateLimiter.Relay.Limit > 0 {
+		rateLimiter = rate.NewLimiter(rate.Limit(pm.cfg.RateLimiter.Relay.Limit), pm.cfg.RateLimiter.Relay.Burst)
+	}
+	if pm.cfg.RateLimiter != nil && pm.cfg.RateLimiter.StreamR.Limit > 0 {
+		srLimiter = rate.NewLimiter(rate.Limit(pm.cfg.RateLimiter.StreamR.Limit), pm.cfg.RateLimiter.StreamR.Burst)
+	}
+	if pm.cfg.RateLimiter != nil && pm.cfg.RateLimiter.StreamW.Limit > 0 {
+		srLimiter = rate.NewLimiter(rate.Limit(pm.cfg.RateLimiter.StreamW.Limit), pm.cfg.RateLimiter.StreamW.Burst)
+	}
 	peer := Peer{
-		exitSig:        make(chan struct{}),
-		peerMap:        pm,
-		networkSecret:  jsonSecret,
-		networkContext: networkCtx,
-		id:             peer.ID(peerID),
-		nonce:          nonce,
-		connData:       make(chan []byte, 128),
+		exitSig:          make(chan struct{}),
+		peerMap:          pm,
+		networkSecret:    jsonSecret,
+		networkContext:   networkCtx,
+		id:               peer.ID(peerID),
+		nonce:            nonce,
+		relayRatelimiter: rateLimiter,
+		connRRL:          srLimiter,
+		connWRL:          swLimiter,
+		connData:         make(chan []byte, 128),
 	}
 
 	metadata := r.Header.Get("X-Metadata")
@@ -709,8 +723,14 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	stuns, _ := json.Marshal(pm.cfg.STUNs)
 	upgradeHeader.Set("X-STUNs", base64.StdEncoding.EncodeToString(stuns))
 	if pm.cfg.RateLimiter != nil {
-		upgradeHeader.Set("X-Limiter-Burst", fmt.Sprintf("%d", pm.cfg.RateLimiter.Burst))
-		upgradeHeader.Set("X-Limiter-Limit", fmt.Sprintf("%d", pm.cfg.RateLimiter.Limit))
+		if pm.cfg.RateLimiter.Relay.Limit > 0 {
+			upgradeHeader.Set("X-Limiter-Burst", fmt.Sprintf("%d", pm.cfg.RateLimiter.Relay.Burst))
+			upgradeHeader.Set("X-Limiter-Limit", fmt.Sprintf("%d", pm.cfg.RateLimiter.Relay.Limit))
+		}
+		if pm.cfg.RateLimiter.StreamR.Limit > 0 {
+			upgradeHeader.Set("X-Limiter-Stream-Burst", fmt.Sprintf("%d", pm.cfg.RateLimiter.StreamR.Burst))
+			upgradeHeader.Set("X-Limiter-Stream-Limit", fmt.Sprintf("%d", pm.cfg.RateLimiter.StreamR.Limit))
+		}
 	}
 	wsConn, err := pm.wsUpgrader.Upgrade(w, r, upgradeHeader)
 	if err != nil {
@@ -741,16 +761,9 @@ func (pm *PeerMap) watchSaveCycle(ctx context.Context) {
 }
 
 func (pm *PeerMap) newNetworkContext(state NetState) *networkContext {
-	var rateLimiter *rate.Limiter
-	if pm.cfg.RateLimiter != nil && pm.cfg.RateLimiter.Limit > 0 {
-		rateLimiter = rate.NewLimiter(
-			rate.Limit(pm.cfg.RateLimiter.Limit),
-			pm.cfg.RateLimiter.Burst)
-	}
 	return &networkContext{
 		id:              state.ID,
 		peers:           make(map[string]*Peer),
-		ratelimiter:     rateLimiter,
 		disoRatelimiter: rate.NewLimiter(rate.Limit(10*1024), 128*1024),
 		createTime:      state.CreateTime,
 		updateTime:      state.UpdateTime,

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -13,8 +14,62 @@ import (
 )
 
 type RateLimiter struct {
-	Limit int
-	Burst int
+	Limit int `yaml:"limit"`
+	Burst int `yaml:"burst"`
+}
+
+type RateLimiterConfig struct {
+	Limit   int         `yaml:"limit"`
+	Burst   int         `yaml:"burst"`
+	Relay   RateLimiter `yaml:"relay"`
+	StreamR RateLimiter `yaml:"stream_r"`
+	StreamW RateLimiter `yaml:"stream_w"`
+}
+
+func (c *RateLimiterConfig) check() error {
+	if c.Relay.Burst == 0 && c.Burst > 0 {
+		c.Relay.Burst = c.Burst
+	}
+
+	if c.Relay.Limit == 0 && c.Limit > 0 {
+		c.Relay.Limit = c.Limit
+	}
+
+	if c.StreamR.Burst == 0 && c.Burst > 0 {
+		c.StreamR.Burst = c.Burst
+	}
+
+	if c.StreamR.Limit == 0 && c.Limit > 0 {
+		c.StreamR.Limit = c.Limit
+	}
+
+	if c.StreamW.Burst == 0 && c.Burst > 0 {
+		c.StreamW.Burst = c.Burst
+	}
+
+	if c.StreamW.Limit == 0 && c.Limit > 0 {
+		c.StreamW.Limit = c.Limit
+	}
+
+	if c.Relay.Burst < c.Relay.Limit {
+		return errors.New("relay.burst must greater than relay.limit")
+	}
+	if c.Relay.Limit < 0 {
+		return errors.New("relay.limit must greater than 0")
+	}
+	if c.StreamR.Burst < c.StreamR.Limit {
+		return errors.New("stream_r.burst must greater than relay.limit")
+	}
+	if c.StreamR.Limit < 0 {
+		return errors.New("stream_r.limit must greater than 0")
+	}
+	if c.StreamW.Burst < c.StreamW.Limit {
+		return errors.New("stream_w.burst must greater than relay.limit")
+	}
+	if c.StreamW.Limit < 0 {
+		return errors.New("stream_w.limit must greater than 0")
+	}
+	return nil
 }
 
 type Config struct {
@@ -23,7 +78,7 @@ type Config struct {
 	STUNs                []string                  `yaml:"stuns"`
 	PublicNetwork        string                    `yaml:"public_network"`
 	OIDCProviders        []oidc.OIDCProviderConfig `yaml:"oidc_providers"`
-	RateLimiter          *RateLimiter              `yaml:"rate_limiter,omitempty"`
+	RateLimiter          *RateLimiterConfig        `yaml:"rate_limiter,omitempty"`
 	SecretRotationPeriod time.Duration             `yaml:"secret_rotation_period"`
 	SecretValidityPeriod time.Duration             `yaml:"secret_validity_period"`
 	StateFile            string                    `yaml:"state_file"`
@@ -43,11 +98,8 @@ func (cfg *Config) applyDefaults() error {
 		slog.Warn("No STUN servers is set up, NAT traversal is disabled")
 	}
 	if cfg.RateLimiter != nil {
-		if cfg.RateLimiter.Burst < cfg.RateLimiter.Limit {
-			return errors.New("burst must greater than limit")
-		}
-		if cfg.RateLimiter.Limit < 0 {
-			return errors.New("limit must greater than 0")
+		if err := cfg.RateLimiter.check(); err != nil {
+			return fmt.Errorf("ratelimiter: %w", err)
 		}
 	}
 	if cfg.SecretValidityPeriod == 0 {

@@ -27,22 +27,23 @@ var (
 )
 
 type WSConn struct {
-	rawConn          atomic.Pointer[websocket.Conn]
-	server           *peer.Peermap
-	connectedServer  string
-	peerID           peer.ID
-	metadata         url.Values
-	closedSig        chan int
-	datagrams        chan *Datagram
-	peers            chan *PeerFindEvent
-	peersUDPAddrs    chan *PeerUDPAddrEvent
-	nonce            byte
-	stuns            []string
-	activeTime       atomic.Int64
-	writeMutex       sync.Mutex
-	rateLimiter      *rate.Limiter
-	controllersMutex sync.RWMutex
-	controllers      map[uint8][]Controller
+	rawConn           atomic.Pointer[websocket.Conn]
+	server            *peer.Peermap
+	connectedServer   string
+	peerID            peer.ID
+	metadata          url.Values
+	closedSig         chan int
+	datagrams         chan *Datagram
+	peers             chan *PeerFindEvent
+	peersUDPAddrs     chan *PeerUDPAddrEvent
+	nonce             byte
+	stuns             []string
+	activeTime        atomic.Int64
+	writeMutex        sync.Mutex
+	rateLimiter       *rate.Limiter
+	streamRateLimiter *rate.Limiter
+	controllersMutex  sync.RWMutex
+	controllers       map[uint8][]Controller
 
 	connData chan []byte
 	connBuf  []byte
@@ -71,6 +72,9 @@ func (c *WSConn) Read(p []byte) (n int, err error) {
 }
 
 func (c *WSConn) Write(p []byte) (n int, err error) {
+	if c.streamRateLimiter != nil {
+		c.streamRateLimiter.WaitN(context.Background(), len(p))
+	}
 	err = c.write(append(append([]byte(nil), peer.CONTROL_CONN.Byte()), p...))
 	if err != nil {
 		return
@@ -260,7 +264,27 @@ func (c *WSConn) configureRatelimiter(respHeader http.Header) error {
 	}
 	slog.Log(context.Background(), -2, "RealyRatelimiter", "limit", limit, "burst", burst)
 	if limit > 0 {
-		c.rateLimiter = rate.NewLimiter(rate.Limit(limit), int(limit))
+		c.rateLimiter = rate.NewLimiter(rate.Limit(limit), int(burst))
+	}
+	streamLimitArg := respHeader.Get("X-Limiter-Stream-Limit")
+	if limitArg == "" {
+		return nil
+	}
+	streamLimit, err := strconv.ParseInt(streamLimitArg, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid pgmap server: parse stream.ratelimiter limit: %w", err)
+	}
+	streamBurstArg := respHeader.Get("X-Limiter-Stream-Burst")
+	if streamBurstArg == "" {
+		streamBurstArg = streamLimitArg
+	}
+	streamBurst, err := strconv.ParseInt(streamBurstArg, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid pgmap server: parse stream.ratelimiter burst: %w", err)
+	}
+	slog.Log(context.Background(), -2, "StreamRatelimiter", "limit", streamLimit, "burst", streamBurst)
+	if limit > 0 {
+		c.streamRateLimiter = rate.NewLimiter(rate.Limit(streamLimit), int(streamBurst))
 	}
 	return nil
 }
