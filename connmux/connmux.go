@@ -26,10 +26,11 @@ var (
 )
 
 type MuxConn struct {
-	exit    chan struct{}
-	inbound chan []byte
-	seq     uint32
-	s       *MuxSession
+	closeOnce sync.Once
+	exit      chan struct{}
+	inbound   chan []byte
+	seq       uint32
+	s         *MuxSession
 
 	buf []byte
 }
@@ -102,13 +103,15 @@ func (c *MuxConn) Close() error {
 }
 
 func (c *MuxConn) close() {
-retry:
-	if len(c.inbound) != 0 {
-		time.Sleep(10 * time.Microsecond) // avoid busy wait
-		goto retry
-	}
-	close(c.exit)
-	close(c.inbound)
+	c.closeOnce.Do(func() {
+	retry:
+		if len(c.inbound) != 0 {
+			time.Sleep(10 * time.Microsecond) // avoid busy wait
+			goto retry
+		}
+		close(c.exit)
+		close(c.inbound)
+	})
 }
 
 // LocalAddr returns the local network address, if known.
