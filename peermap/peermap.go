@@ -244,6 +244,7 @@ func (p *Peer) keepalive() {
 	p.activeTime.Store(time.Now().Unix())
 	p.conn.SetPongHandler(func(appData string) error {
 		p.activeTime.Store(time.Now().Unix())
+		slog.Debug("Pong", "peer", p.id)
 		return nil
 	})
 	ticker := time.NewTicker(12 * time.Second)
