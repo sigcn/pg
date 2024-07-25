@@ -77,13 +77,6 @@ func (p *Peer) writeWS(messageType int, b []byte) error {
 	return p.conn.WriteMessage(messageType, b)
 }
 
-func (p *Peer) close() error {
-	p.peerMap.removePeer(p.networkSecret.Network, p.id)
-	_ = p.conn.WriteControl(websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(2*time.Second))
-	return p.conn.Close()
-}
-
 func (p *Peer) Read(b []byte) (n int, err error) {
 	defer func() {
 		if p.connRRL != nil && n > 0 {
@@ -126,10 +119,14 @@ func (p *Peer) Write(b []byte) (n int, err error) {
 
 func (p *Peer) Close() error {
 	p.closeOnce.Do(func() {
+		p.peerMap.removePeer(p.networkSecret.Network, p.id)
+		_ = p.conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(2*time.Second))
+		p.conn.Close()
 		close(p.exitSig)
 		close(p.connData)
 	})
-	return p.close()
+	return nil
 }
 
 func (p *Peer) String() string {
@@ -270,7 +267,7 @@ func (p *Peer) keepalive() {
 			p.updateSecret()
 		}
 	}
-	p.close()
+	p.Close()
 }
 
 func (p *Peer) updateSecret() error {
@@ -309,7 +306,7 @@ func (p *Peer) checkAlive() bool {
 		p.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
 		time.Sleep(200 * time.Millisecond)
 	}
-	p.close()
+	p.Close()
 	return false
 }
 
