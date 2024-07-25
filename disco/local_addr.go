@@ -72,6 +72,9 @@ func GetIgnoredLocalCIDRs() []net.IPNet {
 
 func SetIgnoredLocalInterfaceNamePrefixs(prefixs ...string) {
 	ignoredLocalInterfaceNamePrefixs = prefixs
+	for _, prefix := range prefixs {
+		slog.Debug("IgnoreInterface", "prefix", prefix)
+	}
 }
 
 func SetLocalIPs(ips ...net.IP) {

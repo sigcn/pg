@@ -54,6 +54,7 @@ func init() {
 	Cmd.Flags().Int("disco-challenges-retry", 5, "ping challenges retry count when disco")
 	Cmd.Flags().Duration("disco-challenges-initial-interval", 200*time.Millisecond, "ping challenges initial interval when disco")
 	Cmd.Flags().Float64("disco-challenges-backoff-rate", 1.65, "ping challenges backoff rate when disco")
+	Cmd.Flags().StringSlice("disco-ignored-interface", nil, "ignore interfaces prefix when disco")
 
 	Cmd.Flags().Bool("pprof", false, "enable http pprof server")
 	Cmd.Flags().Bool("auth-qr", false, "display the QR code when authentication is required")
@@ -102,6 +103,10 @@ func createConfig(cmd *cobra.Command) (cfg Config, err error) {
 		return
 	}
 	cfg.DiscoChallengesBackoffRate, err = cmd.Flags().GetFloat64("disco-challenges-backoff-rate")
+	if err != nil {
+		return
+	}
+	cfg.DiscoIgnoredInterfaces, err = cmd.Flags().GetStringSlice("disco-ignored-interface")
 	if err != nil {
 		return
 	}
@@ -155,6 +160,7 @@ type Config struct {
 	DiscoChallengesRetry           int
 	DiscoChallengesInitialInterval time.Duration
 	DiscoChallengesBackoffRate     float64
+	DiscoIgnoredInterfaces         []string
 	TunName                        string
 	Peers                          []string
 	PrivateKey                     string
@@ -194,7 +200,8 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 		cfg.ChallengesInitialInterval = v.Config.DiscoChallengesInitialInterval
 		cfg.ChallengesBackoffRate = v.Config.DiscoChallengesBackoffRate
 	})
-	disco.SetIgnoredLocalInterfaceNamePrefixs("pg", "wg", "veth", "docker", "nerdctl", "tailscale")
+	v.Config.DiscoIgnoredInterfaces = append(v.Config.DiscoIgnoredInterfaces, "pg", "wg", "veth", "docker", "nerdctl", "tailscale")
+	disco.SetIgnoredLocalInterfaceNamePrefixs(v.Config.DiscoIgnoredInterfaces...)
 
 	p2pOptions := []p2p.Option{
 		p2p.PeerMeta("version", fmt.Sprintf("%s-%s", Version, Commit)),
