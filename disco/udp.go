@@ -42,7 +42,7 @@ type UDPConn struct {
 	closedSig    chan int
 	datagrams    chan *Datagram
 	stunResponse chan []byte
-	udpAddrSends chan *PeerUDPAddrEvent
+	udpAddrSends chan *PeerUDPAddr
 	peersIndex   map[peer.ID]*PeerContext
 
 	stunSessionManager stunSessionManager
@@ -90,7 +90,7 @@ func (c *UDPConn) Datagrams() <-chan *Datagram {
 	return c.datagrams
 }
 
-func (c *UDPConn) UDPAddrSends() <-chan *PeerUDPAddrEvent {
+func (c *UDPConn) UDPAddrSends() <-chan *PeerUDPAddr {
 	return c.udpAddrSends
 }
 
@@ -120,9 +120,9 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.ID, stunServers []string) 
 				continue
 			}
 			c.upnpDeleteMapping = func() { nat.DeletePortMapping("udp", mappedPort, udpPort) }
-			c.udpAddrSends <- &PeerUDPAddrEvent{
-				PeerID: peerID,
-				Addr:   &net.UDPAddr{IP: externalIP, Port: mappedPort},
+			c.udpAddrSends <- &PeerUDPAddr{
+				ID:   peerID,
+				Addr: &net.UDPAddr{IP: externalIP, Port: mappedPort},
 			}
 			return
 		}
@@ -134,9 +134,9 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.ID, stunServers []string) 
 			slog.Error("Resolve local udp addr error", "err", err)
 			continue
 		}
-		c.udpAddrSends <- &PeerUDPAddrEvent{
-			PeerID: peerID,
-			Addr:   uaddr,
+		c.udpAddrSends <- &PeerUDPAddr{
+			ID:   peerID,
+			Addr: uaddr,
 		}
 	}
 	// WAN
@@ -343,7 +343,7 @@ func (c *UDPConn) runSTUNEventLoop() {
 			slog.Error("Skipped resolve udp addr error", "err", err)
 			continue
 		}
-		c.udpAddrSends <- &PeerUDPAddrEvent{PeerID: tx.peerID, Addr: addr}
+		c.udpAddrSends <- &PeerUDPAddr{ID: tx.peerID, Addr: addr}
 	}
 }
 
@@ -511,7 +511,7 @@ func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 		disco:              &Disco{Magic: cfg.DiscoMagic},
 		closedSig:          make(chan int),
 		datagrams:          make(chan *Datagram),
-		udpAddrSends:       make(chan *PeerUDPAddrEvent, 10),
+		udpAddrSends:       make(chan *PeerUDPAddr, 10),
 		stunResponse:       make(chan []byte, 10),
 		peersIndex:         make(map[peer.ID]*PeerContext),
 		stunSessionManager: stunSessionManager{sessions: make(map[string]stunSession)},

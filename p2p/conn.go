@@ -255,24 +255,24 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disc
 			if !ok {
 				return
 			}
-			go udpConn.GenerateLocalAddrsSends(peer.PeerID, wsConn.STUNs())
+			go udpConn.GenerateLocalAddrsSends(peer.ID, wsConn.STUNs())
 			if onPeer := c.cfg.OnPeer; onPeer != nil {
-				go onPeer(peer.PeerID, peer.Metadata)
+				go onPeer(peer.ID, peer.Metadata)
 			}
 		case revcUDPAddr, ok := <-wsConn.PeersUDPAddrs():
 			if !ok {
 				return
 			}
-			go udpConn.RunDiscoMessageSendLoop(revcUDPAddr.PeerID, revcUDPAddr.Addr)
+			go udpConn.RunDiscoMessageSendLoop(revcUDPAddr.ID, revcUDPAddr.Addr)
 		case sendUDPAddr, ok := <-udpConn.UDPAddrSends():
 			if !ok {
 				return
 			}
 			go func() {
 				for i := 0; i < 3; i++ {
-					err := wsConn.WriteTo([]byte(sendUDPAddr.Addr.String()), sendUDPAddr.PeerID, peer.CONTROL_NEW_PEER_UDP_ADDR)
+					err := wsConn.WriteTo([]byte(sendUDPAddr.Addr.String()), sendUDPAddr.ID, peer.CONTROL_NEW_PEER_UDP_ADDR)
 					if err == nil {
-						slog.Debug("ListenUDP", "addr", sendUDPAddr.Addr, "for", sendUDPAddr.PeerID)
+						slog.Debug("ListenUDP", "addr", sendUDPAddr.Addr, "for", sendUDPAddr.ID)
 						break
 					}
 					time.Sleep(200 * time.Millisecond)

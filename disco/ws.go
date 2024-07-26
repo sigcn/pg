@@ -34,8 +34,8 @@ type WSConn struct {
 	metadata          url.Values
 	closedSig         chan int
 	datagrams         chan *Datagram
-	peers             chan *PeerFindEvent
-	peersUDPAddrs     chan *PeerUDPAddrEvent
+	peers             chan *Peer
+	peersUDPAddrs     chan *PeerUDPAddr
 	nonce             byte
 	stuns             []string
 	activeTime        atomic.Int64
@@ -126,11 +126,11 @@ func (c *WSConn) Datagrams() <-chan *Datagram {
 	return c.datagrams
 }
 
-func (c *WSConn) Peers() <-chan *PeerFindEvent {
+func (c *WSConn) Peers() <-chan *Peer {
 	return c.peers
 }
 
-func (c *WSConn) PeersUDPAddrs() <-chan *PeerUDPAddrEvent {
+func (c *WSConn) PeersUDPAddrs() <-chan *PeerUDPAddr {
 	return c.peersUDPAddrs
 }
 
@@ -366,8 +366,8 @@ func (c *WSConn) handleEvents(b []byte) {
 		}
 	case peer.CONTROL_NEW_PEER:
 		meta, _ := url.ParseQuery(string(b[b[1]+2:]))
-		event := PeerFindEvent{
-			PeerID:   peer.ID(b[2 : b[1]+2]),
+		event := Peer{
+			ID:       peer.ID(b[2 : b[1]+2]),
 			Metadata: meta,
 		}
 		c.peers <- &event
@@ -377,9 +377,9 @@ func (c *WSConn) handleEvents(b []byte) {
 			slog.Error("Resolve udp addr error", "err", err)
 			break
 		}
-		c.peersUDPAddrs <- &PeerUDPAddrEvent{
-			PeerID: peer.ID(b[2 : b[1]+2]),
-			Addr:   addr,
+		c.peersUDPAddrs <- &PeerUDPAddr{
+			ID:   peer.ID(b[2 : b[1]+2]),
+			Addr: addr,
 		}
 	case peer.CONTROL_UPDATE_NETWORK_SECRET:
 		var secret peer.NetworkSecret
@@ -435,8 +435,8 @@ func DialPeermap(ctx context.Context, server *peer.Peermap, peerID peer.ID, meta
 		metadata:      metadata,
 		closedSig:     make(chan int),
 		datagrams:     make(chan *Datagram, 50),
-		peers:         make(chan *PeerFindEvent, 20),
-		peersUDPAddrs: make(chan *PeerUDPAddrEvent, 20),
+		peers:         make(chan *Peer, 20),
+		peersUDPAddrs: make(chan *PeerUDPAddr, 20),
 		connData:      make(chan []byte, 128),
 		controllers:   make(map[uint8][]Controller),
 	}

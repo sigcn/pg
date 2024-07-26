@@ -219,11 +219,13 @@ func (m *stunSessionManager) Remove(txid string) {
 	delete(m.sessions, txid)
 }
 
+// Datagram is the packet from peer or to peer
 type Datagram struct {
 	PeerID peer.ID
 	Data   []byte
 }
 
+// TryDecrypt the datagram from peer
 func (d *Datagram) TryDecrypt(symmAlgo secure.SymmAlgo) []byte {
 	if symmAlgo == nil {
 		return d.Data
@@ -236,6 +238,7 @@ func (d *Datagram) TryDecrypt(symmAlgo secure.SymmAlgo) []byte {
 	return b
 }
 
+// TryEncrypt the datagram to peer
 func (d *Datagram) TryEncrypt(symmAlgo secure.SymmAlgo) []byte {
 	if symmAlgo == nil {
 		return d.Data
@@ -248,12 +251,14 @@ func (d *Datagram) TryEncrypt(symmAlgo secure.SymmAlgo) []byte {
 	return b
 }
 
-type PeerFindEvent struct {
-	PeerID   peer.ID
+// Peer descibe the peer info
+type Peer struct {
+	ID       peer.ID
 	Metadata url.Values
 }
 
-type PeerUDPAddrEvent struct {
-	PeerID peer.ID
-	Addr   *net.UDPAddr
+// PeerUDPAddr describe the peer udp addr
+type PeerUDPAddr struct {
+	ID   peer.ID
+	Addr *net.UDPAddr
 }
