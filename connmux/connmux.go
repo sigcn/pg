@@ -1,6 +1,7 @@
 package connmux
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -234,7 +235,7 @@ func (l *MuxSession) nextFrame() error {
 	length := binary.BigEndian.Uint16(header[2:4])
 	seq := binary.BigEndian.Uint32(header[4:8])
 	cmd := header[1]
-	slog.Debug("ReadHeader", "header", header)
+	slog.Log(context.Background(), -5, "ReadHeader", "header", header)
 
 	data := make([]byte, length)
 	_, err = io.ReadFull(l.c, data)
