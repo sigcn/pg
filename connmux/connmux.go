@@ -13,18 +13,41 @@ import (
 	"time"
 )
 
-type GenerateSeq func() uint32
+type SeqGen interface {
+	GenerateSeq() uint32
+}
+
+type stdSeqGen struct {
+	seq     atomic.Uint32
+	delta   uint32
+	initSeq uint32
+	init    sync.Once
+}
+
+func (gen *stdSeqGen) GenerateSeq() uint32 {
+	gen.init.Do(func() {
+		gen.seq.Store(gen.initSeq)
+	})
+	return gen.seq.Add(gen.delta)
+}
 
 var (
-	seq, seqOdd, seqEven atomic.Uint32
-	seqOddInit           sync.Once
-	Seq                  = func() uint32 { return seq.Add(1) }
-	SeqEven              = func() uint32 { return seqEven.Add(2) }
-	SeqOdd               = func() uint32 {
-		seqOddInit.Do(func() { seqOdd.Store(1) })
-		return seqOdd.Add(2)
-	}
+	Seq     = NewSeq()
+	SeqEven = NewSeqEven()
+	SeqOdd  = NewSeqOdd()
 )
+
+func NewSeqEven() SeqGen {
+	return &stdSeqGen{delta: 2}
+}
+
+func NewSeqOdd() SeqGen {
+	return &stdSeqGen{initSeq: 1, delta: 2}
+}
+
+func NewSeq() SeqGen {
+	return &stdSeqGen{delta: 1}
+}
 
 type MuxConn struct {
 	closeOnce sync.Once
@@ -154,15 +177,15 @@ func (c *MuxConn) SetWriteDeadline(t time.Time) error {
 }
 
 type MuxSession struct {
-	mut         sync.Mutex
-	closeOnce   sync.Once
-	closed      atomic.Bool
-	exit        chan struct{}
-	accept      chan net.Conn
-	generateSeq GenerateSeq
-	c           io.ReadWriteCloser
-	accepts     map[uint32]*MuxConn
-	dials       map[uint32]*MuxConn
+	mut       sync.Mutex
+	closeOnce sync.Once
+	closed    atomic.Bool
+	exit      chan struct{}
+	accept    chan net.Conn
+	seqGen    SeqGen
+	c         io.ReadWriteCloser
+	accepts   map[uint32]*MuxConn
+	dials     map[uint32]*MuxConn
 }
 
 // Accept waits for and returns the next connection to the listener.
@@ -280,13 +303,13 @@ func (l *MuxSession) nextFrame() error {
 }
 
 func (d *MuxSession) OpenStream() (net.Conn, error) {
-	if d.generateSeq == nil {
+	if d.seqGen == nil {
 		return nil, errors.New("seq generator must not nil")
 	}
 	c := &MuxConn{
 		exit:    make(chan struct{}),
 		inbound: make(chan []byte, 128),
-		seq:     d.generateSeq(),
+		seq:     d.seqGen.GenerateSeq(),
 		s:       d,
 	}
 	d.mut.Lock()
@@ -295,14 +318,14 @@ func (d *MuxSession) OpenStream() (net.Conn, error) {
 	return c, nil
 }
 
-func Mux(conn io.ReadWriteCloser, generateSeq GenerateSeq) *MuxSession {
+func Mux(conn io.ReadWriteCloser, sqlGen SeqGen) *MuxSession {
 	l := &MuxSession{
-		exit:        make(chan struct{}),
-		c:           conn,
-		generateSeq: generateSeq,
-		accept:      make(chan net.Conn),
-		accepts:     make(map[uint32]*MuxConn),
-		dials:       make(map[uint32]*MuxConn),
+		exit:    make(chan struct{}),
+		c:       conn,
+		seqGen:  sqlGen,
+		accept:  make(chan net.Conn),
+		accepts: make(map[uint32]*MuxConn),
+		dials:   make(map[uint32]*MuxConn),
 	}
 	go l.run()
 	return l
