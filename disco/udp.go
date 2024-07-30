@@ -17,6 +17,7 @@ import (
 
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/upnp"
+	"golang.org/x/time/rate"
 	"tailscale.com/net/stun"
 )
 
@@ -203,6 +204,8 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 
 	slog.Info("[UDP] PortScanning", "peer", peerID, "addr", addr)
 	scan := func(round int) {
+		limit := defaultDiscoConfig.PortScanCount / 10
+		rl := rate.NewLimiter(rate.Limit(limit), limit)
 		for port := addr.Port + defaultDiscoConfig.PortScanOffset; port <= addr.Port+defaultDiscoConfig.PortScanCount; port++ {
 			select {
 			case <-c.closedSig:
@@ -217,8 +220,11 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 				slog.Info("[UDP] PortScanHit", "peer", peerID, "round", round, "port", p)
 				return
 			}
+			if err := rl.Wait(context.Background()); err != nil {
+				slog.Error("[UDP] PortScanRateLimiter", "err", err)
+				return
+			}
 			udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), &net.UDPAddr{IP: addr.IP, Port: p})
-			time.Sleep(200 * time.Microsecond)
 		}
 	}
 	for i := range 2 {
