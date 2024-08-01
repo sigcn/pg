@@ -185,10 +185,6 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr PeerUDPAddr) {
 		return
 	}
 	slog.Log(context.Background(), -2, "RecvPeerAddr", "peer", udpAddr.ID, "udp", udpAddr.Addr, "nat", udpAddr.Type.String())
-	if c.natType == Hard && udpAddr.Type == Hard {
-		slog.Info("I gave up disco since both sides are hard")
-		return
-	}
 	defer slog.Debug("[UDP] DiscoExit", "peer", udpAddr.ID, "addr", udpAddr.Addr)
 	c.discoPing(udpAddr.ID, udpAddr.Addr)
 	interval := defaultDiscoConfig.ChallengesInitialInterval + time.Duration(rand.Intn(50)*int(time.Millisecond))
