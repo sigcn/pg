@@ -14,6 +14,23 @@ import (
 	"github.com/rkonfj/peerguard/secure"
 )
 
+type NATType string
+
+func (t NATType) String() string {
+	if t == "" {
+		return "unknown"
+	}
+	return string(t)
+}
+
+const (
+	Unknown  NATType = ""
+	Hard     NATType = "hard"
+	Easy     NATType = "easy"
+	UPnP     NATType = "upnp"
+	Internal NATType = "internal"
+)
+
 var (
 	ErrUseOfClosedConnection error = errors.New("use of closed network connection")
 )
@@ -193,14 +210,16 @@ type PeerState struct {
 type stunSession struct {
 	peerID peer.ID
 	cTime  time.Time
+	addrs  []string
+	timer  *time.Timer
 }
 
 type stunSessionManager struct {
 	sync.RWMutex
-	sessions map[string]stunSession
+	sessions map[string]*stunSession
 }
 
-func (m *stunSessionManager) Get(txid string) (stunSession, bool) {
+func (m *stunSessionManager) Get(txid string) (*stunSession, bool) {
 	m.RLock()
 	defer m.RUnlock()
 	s, ok := m.sessions[txid]
@@ -210,7 +229,7 @@ func (m *stunSessionManager) Get(txid string) (stunSession, bool) {
 func (m *stunSessionManager) Set(txid string, peerID peer.ID) {
 	m.Lock()
 	defer m.Unlock()
-	m.sessions[txid] = stunSession{peerID: peerID, cTime: time.Now()}
+	m.sessions[txid] = &stunSession{peerID: peerID, cTime: time.Now()}
 }
 
 func (m *stunSessionManager) Remove(txid string) {
@@ -261,4 +280,5 @@ type Peer struct {
 type PeerUDPAddr struct {
 	ID   peer.ID
 	Addr *net.UDPAddr
+	Type NATType
 }

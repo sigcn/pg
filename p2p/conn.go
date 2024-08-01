@@ -238,6 +238,9 @@ func (c *PeerPacketConn) runAddrUpdateEventLoop() {
 		if err := c.udpConn.RestartListener(); err != nil {
 			slog.Error("RestartUDPListener", "err", err)
 		}
+
+		c.udpConn.RequestSTUN("", c.wsConn.STUNs()) // update NAT type
+
 		if err := c.wsConn.RestartListener(); err != nil {
 			slog.Error("RestartWebsocketListener", "err", err)
 		}
@@ -263,14 +266,19 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disc
 			if !ok {
 				return
 			}
-			go udpConn.RunDiscoMessageSendLoop(revcUDPAddr.ID, revcUDPAddr.Addr)
+			go udpConn.RunDiscoMessageSendLoop(*revcUDPAddr)
 		case sendUDPAddr, ok := <-udpConn.UDPAddrSends():
 			if !ok {
 				return
 			}
 			go func() {
 				for i := 0; i < 3; i++ {
-					err := wsConn.WriteTo([]byte(sendUDPAddr.Addr.String()), sendUDPAddr.ID, peer.CONTROL_NEW_PEER_UDP_ADDR)
+					data := []byte{'a'}
+					addr := []byte(sendUDPAddr.Addr.String())
+					data = append(data, byte(len(addr)))
+					data = append(data, addr...)
+					data = append(data, []byte(sendUDPAddr.Type)...)
+					err := wsConn.WriteTo(data, sendUDPAddr.ID, peer.CONTROL_NEW_PEER_UDP_ADDR)
 					if err == nil {
 						slog.Debug("ListenUDP", "addr", sendUDPAddr.Addr, "for", sendUDPAddr.ID)
 						break
@@ -318,6 +326,8 @@ func ListenPacketContext(ctx context.Context, peermap *peer.Peermap, opts ...Opt
 		udpConn.Close()
 		return nil, err
 	}
+
+	udpConn.RequestSTUN("", wsConn.STUNs())
 
 	slog.Info("ListenPeer", "addr", cfg.PeerID)
 	packetConn := PeerPacketConn{

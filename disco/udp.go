@@ -44,13 +44,15 @@ type UDPConn struct {
 	datagrams    chan *Datagram
 	stunResponse chan []byte
 	udpAddrSends chan *PeerUDPAddr
-	peersIndex   map[peer.ID]*PeerContext
+
+	peersIndex      map[peer.ID]*PeerContext
+	peersIndexMutex sync.RWMutex
 
 	stunSessionManager stunSessionManager
 
 	upnpDeleteMapping func()
 
-	peersIndexMutex sync.RWMutex
+	natType NATType
 }
 
 func (c *UDPConn) Close() error {
@@ -124,6 +126,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.ID, stunServers []string) 
 			c.udpAddrSends <- &PeerUDPAddr{
 				ID:   peerID,
 				Addr: &net.UDPAddr{IP: externalIP, Port: mappedPort},
+				Type: UPnP,
 			}
 			return
 		}
@@ -138,12 +141,13 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.ID, stunServers []string) 
 		c.udpAddrSends <- &PeerUDPAddr{
 			ID:   peerID,
 			Addr: uaddr,
+			Type: Internal,
 		}
 	}
 	// WAN
 	time.AfterFunc(time.Second, func() {
 		if _, ok := c.FindPeer(peerID); !ok {
-			c.requestSTUN(peerID, stunServers)
+			c.RequestSTUN(peerID, stunServers)
 		}
 	})
 }
@@ -175,14 +179,18 @@ func (c *UDPConn) tryPeerContext(peerID peer.ID) *PeerContext {
 	return &peerCtx
 }
 
-func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
+func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr PeerUDPAddr) {
 	udpConn := c.rawConn.Load()
 	if udpConn == nil {
 		return
 	}
-	slog.Log(context.Background(), -2, "RecvPeerAddr", "peer", peerID, "udp", addr)
-	defer slog.Debug("[UDP] DiscoExit", "peer", peerID, "addr", addr)
-	c.discoPing(peerID, addr)
+	slog.Log(context.Background(), -2, "RecvPeerAddr", "peer", udpAddr.ID, "udp", udpAddr.Addr, "nat", udpAddr.Type.String())
+	if c.natType == Hard && udpAddr.Type == Hard {
+		slog.Info("I gave up disco since both sides are hard")
+		return
+	}
+	defer slog.Debug("[UDP] DiscoExit", "peer", udpAddr.ID, "addr", udpAddr.Addr)
+	c.discoPing(udpAddr.ID, udpAddr.Addr)
 	interval := defaultDiscoConfig.ChallengesInitialInterval + time.Duration(rand.Intn(50)*int(time.Millisecond))
 	for i := 0; i < defaultDiscoConfig.ChallengesRetry; i++ {
 		time.Sleep(interval)
@@ -191,22 +199,26 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 			return
 		default:
 		}
-		c.discoPing(peerID, addr)
+		c.discoPing(udpAddr.ID, udpAddr.Addr)
 		interval = time.Duration(float64(interval) * defaultDiscoConfig.ChallengesBackoffRate)
-		if c.findPeerID(addr) != "" {
+		if c.findPeerID(udpAddr.Addr) != "" {
 			return
 		}
 	}
 
-	if ctx, ok := c.FindPeer(peerID); (ok && ctx.Ready()) || (addr.IP.To4() == nil) || addr.IP.IsPrivate() {
+	if ctx, ok := c.FindPeer(udpAddr.ID); (ok && ctx.Ready()) || (udpAddr.Addr.IP.To4() == nil) || udpAddr.Addr.IP.IsPrivate() {
 		return
 	}
 
-	slog.Info("[UDP] PortScanning", "peer", peerID, "addr", addr)
+	if udpAddr.Type == Easy {
+		return
+	}
+
+	slog.Info("[UDP] PortScanning", "peer", udpAddr.ID, "addr", udpAddr.Addr)
 	scan := func(round int) {
-		limit := defaultDiscoConfig.PortScanCount / 10
+		limit := defaultDiscoConfig.PortScanCount / 5
 		rl := rate.NewLimiter(rate.Limit(limit), limit)
-		for port := addr.Port + defaultDiscoConfig.PortScanOffset; port <= addr.Port+defaultDiscoConfig.PortScanCount; port++ {
+		for port := udpAddr.Addr.Port + defaultDiscoConfig.PortScanOffset; port <= udpAddr.Addr.Port+defaultDiscoConfig.PortScanCount; port++ {
 			select {
 			case <-c.closedSig:
 				return
@@ -216,21 +228,21 @@ func (c *UDPConn) RunDiscoMessageSendLoop(peerID peer.ID, addr *net.UDPAddr) {
 			if p <= 1024 {
 				continue
 			}
-			if ctx, ok := c.FindPeer(peerID); ok && ctx.Ready() {
-				slog.Info("[UDP] PortScanHit", "peer", peerID, "round", round, "port", p)
+			if ctx, ok := c.FindPeer(udpAddr.ID); ok && ctx.Ready() {
+				slog.Info("[UDP] PortScanHit", "peer", udpAddr.ID, "round", round, "port", p)
 				return
 			}
 			if err := rl.Wait(context.Background()); err != nil {
 				slog.Error("[UDP] PortScanRateLimiter", "err", err)
 				return
 			}
-			udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), &net.UDPAddr{IP: addr.IP, Port: p})
+			udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), &net.UDPAddr{IP: udpAddr.Addr.IP, Port: p})
 		}
 	}
 	for i := range 2 {
 		scan(i + 1)
 	}
-	slog.Info("[UDP] PortScanExit", "peer", peerID, "addr", addr)
+	slog.Info("[UDP] PortScanExit", "peer", udpAddr.ID, "addr", udpAddr.Addr)
 }
 
 func (c *UDPConn) discoPing(peerID peer.ID, peerAddr *net.UDPAddr) {
@@ -349,7 +361,26 @@ func (c *UDPConn) runSTUNEventLoop() {
 			slog.Error("Skipped resolve udp addr error", "err", err)
 			continue
 		}
-		c.udpAddrSends <- &PeerUDPAddr{ID: tx.peerID, Addr: addr}
+		tx.addrs = append(tx.addrs, addr.String())
+		natAddrFound := func(t NATType) {
+			c.stunSessionManager.Remove(string(txid[:]))
+			if tx.peerID == "" {
+				c.natType = t
+				slog.Log(context.Background(), -1, "NATAddrFound", "addr", addr, "type", t)
+				return
+			}
+			c.udpAddrSends <- &PeerUDPAddr{ID: tx.peerID, Addr: addr, Type: t}
+		}
+		if len(tx.addrs) == 1 {
+			tx.timer = time.AfterFunc(3*time.Second, func() { natAddrFound(Unknown) })
+			continue
+		}
+		tx.timer.Stop()
+		if len(slices.Compact(tx.addrs)) == 1 {
+			natAddrFound(Easy)
+			continue
+		}
+		natAddrFound(Hard)
 	}
 }
 
@@ -374,7 +405,7 @@ func (c *UDPConn) runPeersHealthcheckLoop() {
 	}
 }
 
-func (c *UDPConn) requestSTUN(peerID peer.ID, stunServers []string) {
+func (c *UDPConn) RequestSTUN(peerID peer.ID, stunServers []string) {
 	udpConn := c.rawConn.Load()
 	if udpConn == nil {
 		return
@@ -391,11 +422,6 @@ func (c *UDPConn) requestSTUN(peerID peer.ID, stunServers []string) {
 		if err != nil {
 			slog.Error("Request STUN server failed", "err", err.Error())
 			continue
-		}
-		time.Sleep(5 * time.Second)
-		if _, ok := c.FindPeer(peerID); ok {
-			c.stunSessionManager.Remove(string(txID[:]))
-			break
 		}
 	}
 }
@@ -520,7 +546,7 @@ func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 		udpAddrSends:       make(chan *PeerUDPAddr, 10),
 		stunResponse:       make(chan []byte, 10),
 		peersIndex:         make(map[peer.ID]*PeerContext),
-		stunSessionManager: stunSessionManager{sessions: make(map[string]stunSession)},
+		stunSessionManager: stunSessionManager{sessions: make(map[string]*stunSession)},
 	}
 
 	if err := udpConn.RestartListener(); err != nil {

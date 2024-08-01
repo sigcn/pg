@@ -372,7 +372,22 @@ func (c *WSConn) handleEvents(b []byte) {
 		}
 		c.peers <- &event
 	case peer.CONTROL_NEW_PEER_UDP_ADDR:
-		addr, err := net.ResolveUDPAddr("udp", string(b[b[1]+2:]))
+		if b[b[1]+2] != 'a' { // old version without nat type
+			slog.Error("IncompatiblePeerVersionFound(v0.7 is required)", "peer", peer.ID(b[2:b[1]+2]))
+			addr, err := net.ResolveUDPAddr("udp", string(b[b[1]+2:]))
+			if err != nil {
+				slog.Error("Resolve udp addr error", "err", err)
+				break
+			}
+			c.peersUDPAddrs <- &PeerUDPAddr{
+				ID:   peer.ID(b[2 : b[1]+2]),
+				Addr: addr,
+			}
+			return
+		}
+		addrLen := b[b[1]+3]
+		s := b[1] + 4
+		addr, err := net.ResolveUDPAddr("udp", string(b[s:s+addrLen]))
 		if err != nil {
 			slog.Error("Resolve udp addr error", "err", err)
 			break
@@ -380,6 +395,7 @@ func (c *WSConn) handleEvents(b []byte) {
 		c.peersUDPAddrs <- &PeerUDPAddr{
 			ID:   peer.ID(b[2 : b[1]+2]),
 			Addr: addr,
+			Type: NATType(b[s+addrLen:]),
 		}
 	case peer.CONTROL_UPDATE_NETWORK_SECRET:
 		var secret peer.NetworkSecret
