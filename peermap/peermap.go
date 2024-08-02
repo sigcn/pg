@@ -34,7 +34,7 @@ var (
 	ErrAddressAlreadyInuse  = peer.Error{Code: 4000, Msg: "the network address is already in use"}
 	ErrNetworkSecretExpired = peer.Error{Code: 4030, Msg: "network secret is expired"}
 
-	_ io.ReadWriter = (*Peer)(nil)
+	_ io.ReadWriter = (*peerConn)(nil)
 )
 
 type peerStat struct {
@@ -42,7 +42,7 @@ type peerStat struct {
 	StreamTx uint64
 	StreamRx uint64
 }
-type Peer struct {
+type peerConn struct {
 	conn      *websocket.Conn
 	exitSig   chan struct{}
 	closeOnce sync.Once
@@ -66,20 +66,7 @@ type Peer struct {
 	connBuf  []byte
 }
 
-func (p *Peer) write(b []byte) error {
-	for i, v := range b {
-		b[i] = v ^ p.nonce
-	}
-	return p.writeWS(websocket.BinaryMessage, b)
-}
-
-func (p *Peer) writeWS(messageType int, b []byte) error {
-	p.wMut.Lock()
-	defer p.wMut.Unlock()
-	return p.conn.WriteMessage(messageType, b)
-}
-
-func (p *Peer) Read(b []byte) (n int, err error) {
+func (p *peerConn) Read(b []byte) (n int, err error) {
 	defer func() {
 		if p.connRRL != nil && n > 0 {
 			p.connRRL.WaitN(context.Background(), n)
@@ -107,7 +94,7 @@ func (p *Peer) Read(b []byte) (n int, err error) {
 	return
 }
 
-func (p *Peer) Write(b []byte) (n int, err error) {
+func (p *peerConn) Write(b []byte) (n int, err error) {
 	if p.connWRL != nil && len(b) > 0 {
 		p.connWRL.WaitN(context.Background(), len(b))
 	}
@@ -119,7 +106,7 @@ func (p *Peer) Write(b []byte) (n int, err error) {
 	return len(b), nil
 }
 
-func (p *Peer) Close() error {
+func (p *peerConn) Close() error {
 	p.closeOnce.Do(func() {
 		p.peerMap.removePeer(p.networkSecret.Network, p.id)
 		_ = p.conn.WriteControl(websocket.CloseMessage,
@@ -131,7 +118,7 @@ func (p *Peer) Close() error {
 	return nil
 }
 
-func (p *Peer) String() string {
+func (p *peerConn) String() string {
 	p.metadata.Set("rrx", fmt.Sprintf("%d", p.stat.RelayRx))
 	p.metadata.Set("stx", fmt.Sprintf("%d", p.stat.StreamTx))
 	p.metadata.Set("srx", fmt.Sprintf("%d", p.stat.StreamRx))
@@ -142,7 +129,20 @@ func (p *Peer) String() string {
 	}).String()
 }
 
-func (p *Peer) Start() {
+func (p *peerConn) write(b []byte) error {
+	for i, v := range b {
+		b[i] = v ^ p.nonce
+	}
+	return p.writeWS(websocket.BinaryMessage, b)
+}
+
+func (p *peerConn) writeWS(messageType int, b []byte) error {
+	p.wMut.Lock()
+	defer p.wMut.Unlock()
+	return p.conn.WriteMessage(messageType, b)
+}
+
+func (p *peerConn) start() {
 	go p.readMessageLoop()
 	go p.keepalive()
 	if p.metadata.Has("silenceMode") {
@@ -168,7 +168,7 @@ func (p *Peer) Start() {
 	}
 }
 
-func (p *Peer) leadDisco(target *Peer) {
+func (p *peerConn) leadDisco(target *peerConn) {
 	myMeta := []byte(p.metadata.Encode())
 	b := make([]byte, 2+len(p.id)+len(myMeta))
 	b[0] = peer.CONTROL_NEW_PEER.Byte()
@@ -186,7 +186,7 @@ func (p *Peer) leadDisco(target *Peer) {
 	p.write(b1)
 }
 
-func (p *Peer) readMessageLoop() {
+func (p *peerConn) readMessageLoop() {
 	for {
 		select {
 		case <-p.exitSig:
@@ -242,7 +242,7 @@ func (p *Peer) readMessageLoop() {
 	}
 }
 
-func (p *Peer) updatePeerUDPAddr(b []byte) {
+func (p *peerConn) updatePeerUDPAddr(b []byte) {
 	if b[b[1]+2] != 'a' {
 		return
 	}
@@ -265,7 +265,7 @@ func (p *Peer) updatePeerUDPAddr(b []byte) {
 	}
 }
 
-func (p *Peer) keepalive() {
+func (p *peerConn) keepalive() {
 	p.activeTime.Store(time.Now().Unix())
 	p.conn.SetPongHandler(func(appData string) error {
 		p.activeTime.Store(time.Now().Unix())
@@ -298,7 +298,7 @@ func (p *Peer) keepalive() {
 	p.Close()
 }
 
-func (p *Peer) updateSecret() error {
+func (p *peerConn) updateSecret() error {
 	secret, err := p.peerMap.generateSecret(auth.Net{
 		ID:        p.networkSecret.Network,
 		Alias:     p.networkContext.alias,
@@ -324,7 +324,7 @@ func (p *Peer) updateSecret() error {
 	return nil
 }
 
-func (p *Peer) checkAlive() bool {
+func (p *peerConn) checkAlive() bool {
 	seconds := time.Now().Unix()
 	for range 3 {
 		slog.Debug("CheckAlive", "sec", seconds, "active", p.activeTime.Load(), "peer", p.id)
@@ -340,7 +340,7 @@ func (p *Peer) checkAlive() bool {
 
 type networkContext struct {
 	peersMutex      sync.RWMutex
-	peers           map[string]*Peer
+	peers           map[string]*peerConn
 	disoRatelimiter *rate.Limiter
 	createTime      time.Time
 	updateTime      time.Time
@@ -357,7 +357,7 @@ func (ctx *networkContext) removePeer(id peer.ID) {
 	delete(ctx.peers, string(id))
 }
 
-func (ctx *networkContext) getPeer(id peer.ID) (*Peer, bool) {
+func (ctx *networkContext) getPeer(id peer.ID) (*peerConn, bool) {
 	ctx.peersMutex.RLock()
 	defer ctx.peersMutex.RUnlock()
 	p, ok := ctx.peers[id.String()]
@@ -370,7 +370,7 @@ func (ctx *networkContext) peerCount() int {
 	return len(ctx.peers)
 }
 
-func (ctx *networkContext) SetIfAbsent(peerID string, p *Peer) bool {
+func (ctx *networkContext) SetIfAbsent(peerID string, p *peerConn) bool {
 	ctx.peersMutex.Lock()
 	if p1, ok := ctx.peers[peerID]; ok {
 		ctx.peersMutex.Unlock()
@@ -449,7 +449,7 @@ func (pm *PeerMap) getNetwork(network string) (*networkContext, bool) {
 	return ctx, ok
 }
 
-func (pm *PeerMap) getPeer(network string, peerID peer.ID) (*Peer, error) {
+func (pm *PeerMap) getPeer(network string, peerID peer.ID) (*peerConn, error) {
 	if ctx, ok := pm.getNetwork(network); ok {
 		if peer, ok := ctx.getPeer(peerID); ok {
 			return peer, nil
@@ -466,9 +466,9 @@ func (pm *PeerMap) getPeer(network string, peerID peer.ID) (*Peer, error) {
 	return nil, fmt.Errorf("peer(%s/%s) not found", network, peerID)
 }
 
-func (pm *PeerMap) FindPeer(network string, filter func(url.Values) bool) ([]*Peer, error) {
+func (pm *PeerMap) FindPeer(network string, filter func(url.Values) bool) ([]*peerConn, error) {
 	if ctx, ok := pm.getNetwork(network); ok {
-		var ret []*Peer
+		var ret []*peerConn
 		ctx.peersMutex.RLock()
 		defer ctx.peersMutex.RUnlock()
 		for _, v := range ctx.peers {
@@ -719,7 +719,7 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	if pm.cfg.RateLimiter != nil && pm.cfg.RateLimiter.StreamW.Limit > 0 {
 		srLimiter = rate.NewLimiter(rate.Limit(pm.cfg.RateLimiter.StreamW.Limit), pm.cfg.RateLimiter.StreamW.Burst)
 	}
-	peer := Peer{
+	peer := peerConn{
 		exitSig:          make(chan struct{}),
 		peerMap:          pm,
 		networkSecret:    jsonSecret,
@@ -777,7 +777,7 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	peer.conn = wsConn
-	peer.Start()
+	peer.start()
 	slog.Debug("PeerConnected", "network", jsonSecret.Network, "peer", peerID)
 }
 
@@ -801,7 +801,7 @@ func (pm *PeerMap) watchSaveCycle(ctx context.Context) {
 func (pm *PeerMap) newNetworkContext(state NetState) *networkContext {
 	return &networkContext{
 		id:              state.ID,
-		peers:           make(map[string]*Peer),
+		peers:           make(map[string]*peerConn),
 		disoRatelimiter: rate.NewLimiter(rate.Limit(10*1024), 128*1024),
 		createTime:      state.CreateTime,
 		updateTime:      state.UpdateTime,
