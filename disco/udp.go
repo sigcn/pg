@@ -220,13 +220,13 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr PeerUDPAddr) {
 	}
 
 	slog.Info("[UDP] PortScanning", "peer", udpAddr.ID, "addr", udpAddr.Addr)
-	scan := func(round int) {
+	scan := func(round int) bool {
 		limit := defaultDiscoConfig.PortScanCount / 5
 		rl := rate.NewLimiter(rate.Limit(limit), limit)
 		for port := udpAddr.Addr.Port + defaultDiscoConfig.PortScanOffset; port <= udpAddr.Addr.Port+defaultDiscoConfig.PortScanCount; port++ {
 			select {
 			case <-c.closedSig:
-				return
+				return false
 			default:
 			}
 			p := port % 65536
@@ -235,17 +235,20 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr PeerUDPAddr) {
 			}
 			if ctx, ok := c.FindPeer(udpAddr.ID); ok && ctx.Ready() {
 				slog.Info("[UDP] PortScanHit", "peer", udpAddr.ID, "round", round, "port", p)
-				return
+				return true
 			}
 			if err := rl.Wait(context.Background()); err != nil {
 				slog.Error("[UDP] PortScanRateLimiter", "err", err)
-				return
+				return false
 			}
 			udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), &net.UDPAddr{IP: udpAddr.Addr.IP, Port: p})
 		}
+		return false
 	}
 	for i := range 2 {
-		scan(i + 1)
+		if scan(i + 1) {
+			break
+		}
 	}
 	slog.Info("[UDP] PortScanExit", "peer", udpAddr.ID, "addr", udpAddr.Addr)
 }
