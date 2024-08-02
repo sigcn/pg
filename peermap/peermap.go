@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/auth"
 	"github.com/rkonfj/peerguard/peermap/exporter"
@@ -226,6 +228,9 @@ func (p *Peer) readMessageLoop() {
 			p.leadDisco(tgtPeer)
 			continue
 		}
+		if peer.ControlCode(b[0]) == peer.CONTROL_NEW_PEER_UDP_ADDR {
+			p.updatePeerUDPAddr(b)
+		}
 		data := b[b[1]+2:]
 		bb := make([]byte, 2+len(p.id)+len(data))
 		bb[0] = b[0]
@@ -234,6 +239,29 @@ func (p *Peer) readMessageLoop() {
 		copy(bb[p.id.Len()+2:], data)
 		_ = tgtPeer.write(bb)
 		p.stat.RelayRx += uint64(len(b))
+	}
+}
+
+func (p *Peer) updatePeerUDPAddr(b []byte) {
+	if b[b[1]+2] != 'a' {
+		return
+	}
+	addrLen := b[b[1]+3]
+	s := b[1] + 4
+	addr, err := net.ResolveUDPAddr("udp", string(b[s:s+addrLen]))
+	if err != nil {
+		slog.Error("Resolve udp addr error", "err", err)
+		return
+	}
+	natType := disco.NATType(b[s+addrLen:])
+	slog.Debug("ExchangeUDPAddr", "nat", natType, "addr", addr.String())
+	if slices.Contains([]disco.NATType{disco.Easy, disco.Hard, disco.IP6, disco.IP4}, natType) {
+		if natType.AccurateThan(disco.NATType(p.metadata.Get("nat"))) {
+			p.metadata.Set("nat", natType.String())
+		}
+		if !slices.Contains(p.metadata["addr"], addr.String()) {
+			p.metadata.Add("addr", addr.String())
+		}
 	}
 }
 

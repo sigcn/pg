@@ -16,6 +16,22 @@ import (
 
 type NATType string
 
+func (t NATType) AccurateThan(t1 NATType) bool {
+	if t == Unknown {
+		return false
+	}
+	if t == t1 {
+		return false
+	}
+	if t == Easy && t1 != Unknown {
+		return false
+	}
+	if t == Hard && !slices.Contains([]NATType{Unknown, Easy}, t1) {
+		return false
+	}
+	return true
+}
+
 func (t NATType) String() string {
 	if t == "" {
 		return "unknown"
@@ -28,6 +44,8 @@ const (
 	Hard     NATType = "hard"
 	Easy     NATType = "easy"
 	UPnP     NATType = "upnp"
+	IP4      NATType = "ip4"
+	IP6      NATType = "ip6"
 	Internal NATType = "internal"
 )
 

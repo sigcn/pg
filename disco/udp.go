@@ -138,10 +138,19 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.ID, stunServers []string) 
 			slog.Error("Resolve local udp addr error", "err", err)
 			continue
 		}
+		natType := Internal
+
+		if uaddr.IP.IsGlobalUnicast() && !uaddr.IP.IsPrivate() {
+			if uaddr.IP.To4() != nil {
+				natType = IP4
+			} else {
+				natType = IP6
+			}
+		}
 		c.udpAddrSends <- &PeerUDPAddr{
 			ID:   peerID,
 			Addr: uaddr,
-			Type: Internal,
+			Type: natType,
 		}
 	}
 	// WAN
@@ -206,7 +215,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr PeerUDPAddr) {
 		return
 	}
 
-	if udpAddr.Type == Easy {
+	if slices.Contains([]NATType{Easy, IP4, IP6, UPnP}, udpAddr.Type) {
 		return
 	}
 
