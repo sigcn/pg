@@ -359,7 +359,6 @@ func (c *UDPConn) runSTUNEventLoop() {
 		}
 		tx.addrs = append(tx.addrs, addr.String())
 		natAddrFound := func(t NATType) {
-			c.stunSessionManager.Remove(string(txid[:]))
 			if tx.peerID == "" {
 				c.natType = t
 				slog.Log(context.Background(), -1, "NATAddrFound", "addr", addr, "type", t)
@@ -368,11 +367,19 @@ func (c *UDPConn) runSTUNEventLoop() {
 			c.udpAddrSends <- &PeerUDPAddr{ID: tx.peerID, Addr: addr, Type: t}
 		}
 		if len(tx.addrs) == 1 {
-			tx.timer = time.AfterFunc(3*time.Second, func() { natAddrFound(Unknown) })
+			tx.timer = time.AfterFunc(3*time.Second, func() {
+				c.stunSessionManager.Remove(string(txid[:]))
+				if len(tx.addrs) > 1 {
+					natAddrFound(Hard)
+					return
+				}
+				natAddrFound(Unknown)
+			})
 			continue
 		}
-		tx.timer.Stop()
 		if len(slices.Compact(tx.addrs)) == 1 {
+			tx.timer.Stop()
+			c.stunSessionManager.Remove(string(txid[:]))
 			natAddrFound(Easy)
 			continue
 		}
