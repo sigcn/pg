@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	N "github.com/rkonfj/peerguard/net"
 )
 
 type SeqGen interface {
@@ -57,6 +59,8 @@ type MuxConn struct {
 	s         *MuxSession
 
 	buf []byte
+
+	deadlineRead *N.Deadline
 }
 
 func (c *MuxConn) Seq() uint32 {
@@ -64,12 +68,6 @@ func (c *MuxConn) Seq() uint32 {
 }
 
 func (c *MuxConn) Read(b []byte) (n int, err error) {
-	select {
-	case <-c.exit:
-		return 0, io.EOF
-	default:
-	}
-
 	if c.buf != nil {
 		n = copy(b, c.buf)
 		if n < len(c.buf) {
@@ -80,15 +78,21 @@ func (c *MuxConn) Read(b []byte) (n int, err error) {
 		return
 	}
 
-	wsb, ok := <-c.inbound
-	if !ok {
+	select {
+	case <-c.exit:
 		return 0, io.EOF
+	case <-c.deadlineRead.Deadline():
+		return 0, N.ErrDeadline
+	case wsb, ok := <-c.inbound:
+		if !ok {
+			return 0, io.EOF
+		}
+		n = copy(b, wsb)
+		if n < len(wsb) {
+			c.buf = wsb[n:]
+		}
+		return
 	}
-	n = copy(b, wsb)
-	if n < len(wsb) {
-		c.buf = wsb[n:]
-	}
-	return
 }
 
 func (c *MuxConn) Write(p []byte) (int, error) {
@@ -135,6 +139,7 @@ func (c *MuxConn) close() {
 		}
 		close(c.exit)
 		close(c.inbound)
+		c.deadlineRead.Close()
 	})
 }
 
