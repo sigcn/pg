@@ -159,6 +159,7 @@ func (c *rdtConn) Close() error {
 		close(c.nck)
 		close(c.finack)
 		close(c.sendEvent)
+		c.deadlineRead.Close()
 		c.inboundBuf = nil
 		c.sentNO = 0
 		c.sendMutex.Lock()

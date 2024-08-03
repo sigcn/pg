@@ -50,3 +50,11 @@ func (d *Deadline) Deadline() <-chan struct{} {
 	})
 	return d.deadline
 }
+
+func (d *Deadline) Close() error {
+	d.init.Do(func() {
+		d.deadline = make(chan struct{})
+	})
+	close(d.deadline)
+	return nil
+}
