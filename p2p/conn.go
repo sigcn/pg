@@ -251,23 +251,23 @@ func (c *PeerPacketConn) runAddrUpdateEventLoop() {
 }
 
 // runControlEventLoop events control loop
-func (c *PeerPacketConn) runControlEventLoop(wsConn *tp.WSConn, udpConn *tp.UDPConn) {
+func (c *PeerPacketConn) runControlEventLoop() {
 	for {
 		select {
-		case peer, ok := <-wsConn.Peers():
+		case peer, ok := <-c.wsConn.Peers():
 			if !ok {
 				return
 			}
-			go udpConn.GenerateLocalAddrsSends(peer.ID, wsConn.STUNs())
+			go c.udpConn.GenerateLocalAddrsSends(peer.ID, c.wsConn.STUNs())
 			if onPeer := c.cfg.OnPeer; onPeer != nil {
 				go onPeer(peer.ID, peer.Metadata)
 			}
-		case revcUDPAddr, ok := <-wsConn.PeersUDPAddrs():
+		case revcUDPAddr, ok := <-c.wsConn.PeersUDPAddrs():
 			if !ok {
 				return
 			}
-			go udpConn.RunDiscoMessageSendLoop(*revcUDPAddr)
-		case sendUDPAddr, ok := <-udpConn.UDPAddrSends():
+			go c.udpConn.RunDiscoMessageSendLoop(*revcUDPAddr)
+		case sendUDPAddr, ok := <-c.udpConn.UDPAddrSends():
 			if !ok {
 				return
 			}
@@ -278,7 +278,7 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *tp.WSConn, udpConn *tp.UDPC
 					data = append(data, byte(len(addr)))
 					data = append(data, addr...)
 					data = append(data, []byte(sendUDPAddr.Type)...)
-					err := wsConn.WriteTo(data, sendUDPAddr.ID, disco.CONTROL_NEW_PEER_UDP_ADDR)
+					err := c.wsConn.WriteTo(data, sendUDPAddr.ID, disco.CONTROL_NEW_PEER_UDP_ADDR)
 					if err == nil {
 						slog.Debug("ListenUDP", "addr", sendUDPAddr.Addr, "for", sendUDPAddr.ID)
 						break
@@ -338,7 +338,7 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Peermap, opts ...Op
 		wsConn:       wsConn,
 		discoCooling: lru.New[disco.PeerID, time.Time](1024),
 	}
+	go packetConn.runControlEventLoop()
 	go packetConn.runAddrUpdateEventLoop()
-	go packetConn.runControlEventLoop(wsConn, udpConn)
 	return &packetConn, nil
 }
