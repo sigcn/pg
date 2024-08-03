@@ -33,6 +33,7 @@ type WSConn struct {
 	peerID            disco.PeerID
 	metadata          url.Values
 	closedSig         chan int
+	closed            atomic.Bool
 	datagrams         chan *disco.Datagram
 	peers             chan *disco.Peer
 	peersUDPAddrs     chan *disco.PeerUDPAddr
@@ -46,6 +47,7 @@ type WSConn struct {
 	controllers       map[uint8][]disco.Controller
 
 	connData chan []byte
+	connEOF  chan struct{}
 	connBuf  []byte
 }
 
@@ -60,15 +62,21 @@ func (c *WSConn) Read(p []byte) (n int, err error) {
 		return
 	}
 
-	wsb, ok := <-c.connData
-	if !ok {
+	select {
+	case <-c.closedSig:
 		return 0, io.EOF
+	case <-c.connEOF:
+		return 0, io.EOF
+	case wsb, ok := <-c.connData:
+		if !ok {
+			return 0, io.EOF
+		}
+		n = copy(p, wsb)
+		if n < len(wsb) {
+			c.connBuf = wsb[n:]
+		}
+		return
 	}
-	n = copy(p, wsb)
-	if n < len(wsb) {
-		c.connBuf = wsb[n:]
-	}
-	return
 }
 
 func (c *WSConn) Write(p []byte) (n int, err error) {
@@ -83,11 +91,13 @@ func (c *WSConn) Write(p []byte) (n int, err error) {
 }
 
 func (c *WSConn) Close() error {
+	c.closed.Store(true)
 	close(c.closedSig)
 	close(c.datagrams)
 	close(c.peers)
 	close(c.peersUDPAddrs)
 	close(c.connData)
+	close(c.connEOF)
 	if conn := c.rawConn.Load(); conn != nil {
 		_ = conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
@@ -97,10 +107,17 @@ func (c *WSConn) Close() error {
 }
 
 func (c *WSConn) RestartListener() error {
+	if c.closed.Load() {
+		return nil
+	}
 	if conn := c.rawConn.Load(); conn != nil {
 		_ = conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNoStatusReceived, ""), time.Now().Add(time.Second))
 		_ = conn.Close()
+	}
+	select {
+	case c.connEOF <- struct{}{}:
+	default:
 	}
 	return nil
 }
@@ -327,7 +344,7 @@ func (c *WSConn) runEventsReadLoop() {
 				!strings.Contains(err.Error(), net.ErrClosed.Error()) {
 				slog.Error("ReadLoopExited", "details", err.Error())
 			}
-			conn.Close()
+			c.RestartListener()
 			for {
 				select {
 				case <-c.closedSig:
@@ -441,6 +458,7 @@ func DialPeermap(ctx context.Context, server *disco.Peermap, peerID disco.PeerID
 		peers:         make(chan *disco.Peer, 20),
 		peersUDPAddrs: make(chan *disco.PeerUDPAddr, 20),
 		connData:      make(chan []byte, 128),
+		connEOF:       make(chan struct{}),
 		controllers:   make(map[uint8][]disco.Controller),
 	}
 	if err := wsConn.dial(ctx, ""); err != nil {
