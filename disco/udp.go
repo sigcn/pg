@@ -45,7 +45,7 @@ type UDPConn struct {
 	stunResponse chan []byte
 	udpAddrSends chan *PeerUDPAddr
 
-	peersIndex      map[peer.ID]*PeerContext
+	peersIndex      map[peer.ID]*peerkeeper
 	peersIndexMutex sync.RWMutex
 
 	stunSessionManager stunSessionManager
@@ -155,13 +155,13 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID peer.ID, stunServers []string) 
 	}
 	// WAN
 	time.AfterFunc(time.Second, func() {
-		if _, ok := c.FindPeer(peerID); !ok {
+		if _, ok := c.findPeer(peerID); !ok {
 			c.RequestSTUN(peerID, stunServers)
 		}
 	})
 }
 
-func (c *UDPConn) tryPeerContext(peerID peer.ID) *PeerContext {
+func (c *UDPConn) tryGetPeerkeeper(peerID peer.ID) *peerkeeper {
 	if !c.peersIndexMutex.TryRLock() {
 		return nil
 	}
@@ -175,17 +175,18 @@ func (c *UDPConn) tryPeerContext(peerID peer.ID) *PeerContext {
 	if ctx, ok := c.peersIndex[peerID]; ok {
 		return ctx
 	}
-	peerCtx := PeerContext{
+	pkeeper := peerkeeper{
+		peerID:     peerID,
+		states:     make(map[string]*PeerState),
+		createTime: time.Now(),
+
 		exitSig:           make(chan struct{}),
 		ping:              c.discoPing,
 		keepaliveInterval: c.cfg.PeerKeepaliveInterval,
-		PeerID:            peerID,
-		States:            make(map[string]*PeerState),
-		CreateTime:        time.Now(),
 	}
-	c.peersIndex[peerID] = &peerCtx
-	go peerCtx.RunKeepaliveLoop()
-	return &peerCtx
+	c.peersIndex[peerID] = &pkeeper
+	go pkeeper.run()
+	return &pkeeper
 }
 
 func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr PeerUDPAddr) {
@@ -211,7 +212,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr PeerUDPAddr) {
 		}
 	}
 
-	if ctx, ok := c.FindPeer(udpAddr.ID); (ok && ctx.Ready()) || (udpAddr.Addr.IP.To4() == nil) || udpAddr.Addr.IP.IsPrivate() {
+	if ctx, ok := c.findPeer(udpAddr.ID); (ok && ctx.ready()) || (udpAddr.Addr.IP.To4() == nil) || udpAddr.Addr.IP.IsPrivate() {
 		return
 	}
 
@@ -233,7 +234,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr PeerUDPAddr) {
 			if p <= 1024 {
 				continue
 			}
-			if ctx, ok := c.FindPeer(udpAddr.ID); ok && ctx.Ready() {
+			if ctx, ok := c.findPeer(udpAddr.ID); ok && ctx.ready() {
 				slog.Info("[UDP] PortScanHit", "peer", udpAddr.ID, "round", round, "port", p)
 				return true
 			}
@@ -312,7 +313,7 @@ func (c *UDPConn) runPacketEventLoop() {
 
 		// ping
 		if peerID := c.disco.ParsePing(buf[:n]); peerID.Len() > 0 {
-			c.tryPeerContext(peerID).Heartbeat(peerAddr)
+			c.tryGetPeerkeeper(peerID).heartbeat(peerAddr)
 			continue
 		}
 
@@ -330,7 +331,7 @@ func (c *UDPConn) runPacketEventLoop() {
 			slog.Error("RecvButPeerNotReady", "addr", peerAddr)
 			continue
 		}
-		c.tryPeerContext(peerID).Heartbeat(peerAddr)
+		c.tryGetPeerkeeper(peerID).heartbeat(peerAddr)
 		b := make([]byte, n)
 		copy(b, buf[:n])
 		c.datagrams <- &Datagram{PeerID: peerID, Data: b}
@@ -409,9 +410,9 @@ func (c *UDPConn) runPeersHealthcheckLoop() {
 		case <-ticker.C:
 			c.peersIndexMutex.Lock()
 			for k, v := range c.peersIndex {
-				v.Healthcheck()
-				if len(v.States) == 0 {
-					v.Close()
+				v.healthcheck()
+				if len(v.states) == 0 {
+					v.close()
 					delete(c.peersIndex, k)
 				}
 			}
@@ -450,7 +451,7 @@ func (c *UDPConn) findPeerID(udpAddr *net.UDPAddr) peer.ID {
 	var candidates []PeerState
 peerSeek:
 	for _, v := range c.peersIndex {
-		for _, state := range v.States {
+		for _, state := range v.states {
 			if !state.Addr.IP.Equal(udpAddr.IP) || state.Addr.Port != udpAddr.Port {
 				continue
 			}
@@ -474,18 +475,18 @@ peerSeek:
 }
 
 // FindPeer is used to find ready peer context by peer id
-func (c *UDPConn) FindPeer(peerID peer.ID) (*PeerContext, bool) {
+func (c *UDPConn) findPeer(peerID peer.ID) (*peerkeeper, bool) {
 	c.peersIndexMutex.RLock()
 	defer c.peersIndexMutex.RUnlock()
-	if peer, ok := c.peersIndex[peerID]; ok && peer.Ready() {
+	if peer, ok := c.peersIndex[peerID]; ok && peer.ready() {
 		return peer, true
 	}
 	return nil, false
 }
 
 func (c *UDPConn) WriteToUDP(p []byte, peerID peer.ID) (int, error) {
-	if peer, ok := c.FindPeer(peerID); ok {
-		if addr := peer.Select(); addr != nil {
+	if peer, ok := c.findPeer(peerID); ok {
+		if addr := peer.selectUDPAddr(); addr != nil {
 			udpConn := c.rawConn.Load()
 			if udpConn == nil {
 				return 0, ErrUDPConnNotReady
@@ -525,7 +526,7 @@ func (c *UDPConn) Peers() (peers []PeerState) {
 	defer c.peersIndexMutex.RUnlock()
 	for _, v := range c.peersIndex {
 		v.statesMutex.RLock()
-		for _, state := range v.States {
+		for _, state := range v.states {
 			peers = append(peers, *state)
 		}
 		v.statesMutex.RUnlock()
@@ -560,7 +561,7 @@ func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 		datagrams:          make(chan *Datagram),
 		udpAddrSends:       make(chan *PeerUDPAddr, 10),
 		stunResponse:       make(chan []byte, 10),
-		peersIndex:         make(map[peer.ID]*PeerContext),
+		peersIndex:         make(map[peer.ID]*peerkeeper),
 		stunSessionManager: stunSessionManager{sessions: make(map[string]*stunSession)},
 	}
 
@@ -572,4 +573,150 @@ func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 	go udpConn.runPacketEventLoop()
 	go udpConn.runPeersHealthcheckLoop()
 	return &udpConn, nil
+}
+
+type PeerStore interface {
+	Peers() []PeerState
+}
+
+type PeerState struct {
+	PeerID         peer.ID
+	Addr           *net.UDPAddr
+	LastActiveTime time.Time
+}
+
+type stunSession struct {
+	peerID peer.ID
+	cTime  time.Time
+	addrs  []string
+	timer  *time.Timer
+}
+
+type stunSessionManager struct {
+	sync.RWMutex
+	sessions map[string]*stunSession
+}
+
+func (m *stunSessionManager) Get(txid string) (*stunSession, bool) {
+	m.RLock()
+	defer m.RUnlock()
+	s, ok := m.sessions[txid]
+	return s, ok
+}
+
+func (m *stunSessionManager) Set(txid string, peerID peer.ID) {
+	m.Lock()
+	defer m.Unlock()
+	m.sessions[txid] = &stunSession{peerID: peerID, cTime: time.Now()}
+}
+
+func (m *stunSessionManager) Remove(txid string) {
+	m.Lock()
+	defer m.Unlock()
+	delete(m.sessions, txid)
+}
+
+type peerkeeper struct {
+	peerID     peer.ID
+	states     map[string]*PeerState // key is udp addr
+	createTime time.Time
+
+	exitSig           chan struct{}
+	ping              func(peerID peer.ID, addr *net.UDPAddr)
+	keepaliveInterval time.Duration
+
+	statesMutex sync.RWMutex
+}
+
+func (peer *peerkeeper) heartbeat(addr *net.UDPAddr) {
+	if peer == nil || !peer.statesMutex.TryLock() {
+		return
+	}
+	defer peer.statesMutex.Unlock()
+	slog.Log(context.Background(), -5, "[UDP] Heartbeat", "peer", peer.peerID, "addr", addr)
+	for _, state := range peer.states {
+		if state.Addr.IP.Equal(addr.IP) && state.Addr.Port == addr.Port {
+			state.LastActiveTime = time.Now()
+			return
+		}
+	}
+	slog.Info("[UDP] AddPeer", "peer", peer.peerID, "addr", addr)
+	peer.states[addr.String()] = &PeerState{Addr: addr, LastActiveTime: time.Now(), PeerID: peer.peerID}
+	peer.ping(peer.peerID, addr)
+}
+
+func (peer *peerkeeper) healthcheck() {
+	if time.Since(peer.createTime) > 3*peer.keepaliveInterval {
+		for addr, state := range peer.states {
+			if time.Since(state.LastActiveTime) > 2*peer.keepaliveInterval+time.Second {
+				slog.Info("[UDP] RemovePeer", "peer", peer.peerID, "addr", state.Addr)
+				peer.statesMutex.Lock()
+				delete(peer.states, addr)
+				peer.statesMutex.Unlock()
+			}
+		}
+	}
+}
+
+// ready when peer context has at least one active udp address
+func (peer *peerkeeper) ready() bool {
+	peer.statesMutex.RLock()
+	defer peer.statesMutex.RUnlock()
+	for _, state := range peer.states {
+		if time.Since(state.LastActiveTime) <= peer.keepaliveInterval+2*time.Second {
+			return true
+		}
+	}
+	return false
+}
+
+func (peer *peerkeeper) selectUDPAddr() *net.UDPAddr {
+	candidates := make([]PeerState, 0, len(peer.states))
+	peer.statesMutex.RLock()
+	for _, state := range peer.states {
+		if time.Since(state.LastActiveTime) < peer.keepaliveInterval+2*time.Second {
+			candidates = append(candidates, *state)
+		}
+	}
+	peer.statesMutex.RUnlock()
+	if len(candidates) == 0 {
+		return nil
+	}
+	slices.SortFunc(candidates, func(c1, c2 PeerState) int {
+		if c1.LastActiveTime.After(c2.LastActiveTime) {
+			return -1
+		}
+		return 1
+	})
+	return candidates[0].Addr
+}
+
+func (peer *peerkeeper) run() {
+	ticker := time.NewTicker(peer.keepaliveInterval)
+	ping := func() {
+		addrs := make([]*net.UDPAddr, 0, len(peer.states))
+		peer.statesMutex.RLock()
+		for _, v := range peer.states {
+			addrs = append(addrs, v.Addr)
+		}
+		peer.statesMutex.RUnlock()
+		for _, addr := range addrs {
+			peer.ping(peer.peerID, addr)
+		}
+	}
+	for {
+		select {
+		case <-peer.exitSig:
+			ticker.Stop()
+			slog.Debug("[UDP] KeepaliveExit", "peer", peer.peerID)
+			return
+		case <-ticker.C:
+			ping()
+		}
+	}
+}
+
+func (peer *peerkeeper) close() error {
+	close(peer.exitSig)
+	return nil
 }

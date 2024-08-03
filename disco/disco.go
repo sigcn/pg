@@ -1,13 +1,11 @@
 package disco
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"net"
 	"net/url"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/rkonfj/peerguard/peer"
@@ -107,153 +105,6 @@ func (d *Disco) magic() []byte {
 		return []byte("_ping")
 	}
 	return magic
-}
-
-type PeerStore interface {
-	FindPeer(peer.ID) (*PeerContext, bool)
-	Peers() []PeerState
-}
-
-type PeerContext struct {
-	PeerID     peer.ID
-	States     map[string]*PeerState // key is udp addr
-	CreateTime time.Time
-
-	exitSig           chan struct{}
-	ping              func(peerID peer.ID, addr *net.UDPAddr)
-	keepaliveInterval time.Duration
-
-	statesMutex sync.RWMutex
-}
-
-func (peer *PeerContext) Heartbeat(addr *net.UDPAddr) {
-	if peer == nil || !peer.statesMutex.TryLock() {
-		return
-	}
-	defer peer.statesMutex.Unlock()
-	slog.Log(context.Background(), -5, "[UDP] Heartbeat", "peer", peer.PeerID, "addr", addr)
-	for _, state := range peer.States {
-		if state.Addr.IP.Equal(addr.IP) && state.Addr.Port == addr.Port {
-			state.LastActiveTime = time.Now()
-			return
-		}
-	}
-	slog.Info("[UDP] AddPeer", "peer", peer.PeerID, "addr", addr)
-	peer.States[addr.String()] = &PeerState{Addr: addr, LastActiveTime: time.Now(), PeerID: peer.PeerID}
-	peer.ping(peer.PeerID, addr)
-}
-
-func (peer *PeerContext) Healthcheck() {
-	if time.Since(peer.CreateTime) > 3*peer.keepaliveInterval {
-		for addr, state := range peer.States {
-			if time.Since(state.LastActiveTime) > 2*peer.keepaliveInterval+time.Second {
-				slog.Info("[UDP] RemovePeer", "peer", peer.PeerID, "addr", state.Addr)
-				peer.statesMutex.Lock()
-				delete(peer.States, addr)
-				peer.statesMutex.Unlock()
-			}
-		}
-	}
-}
-
-// Ready when peer context has at least one active udp address
-func (peer *PeerContext) Ready() bool {
-	peer.statesMutex.RLock()
-	defer peer.statesMutex.RUnlock()
-	for _, state := range peer.States {
-		if time.Since(state.LastActiveTime) <= peer.keepaliveInterval+2*time.Second {
-			return true
-		}
-	}
-	return false
-}
-
-func (peer *PeerContext) Select() *net.UDPAddr {
-	candidates := make([]PeerState, 0, len(peer.States))
-	peer.statesMutex.RLock()
-	for _, state := range peer.States {
-		if time.Since(state.LastActiveTime) < peer.keepaliveInterval+2*time.Second {
-			candidates = append(candidates, *state)
-		}
-	}
-	peer.statesMutex.RUnlock()
-	if len(candidates) == 0 {
-		return nil
-	}
-	slices.SortFunc(candidates, func(c1, c2 PeerState) int {
-		if c1.LastActiveTime.After(c2.LastActiveTime) {
-			return -1
-		}
-		return 1
-	})
-	return candidates[0].Addr
-}
-
-func (peer *PeerContext) RunKeepaliveLoop() {
-	ticker := time.NewTicker(peer.keepaliveInterval)
-	ping := func() {
-		addrs := make([]*net.UDPAddr, 0, len(peer.States))
-		peer.statesMutex.RLock()
-		for _, v := range peer.States {
-			addrs = append(addrs, v.Addr)
-		}
-		peer.statesMutex.RUnlock()
-		for _, addr := range addrs {
-			peer.ping(peer.PeerID, addr)
-		}
-	}
-	for {
-		select {
-		case <-peer.exitSig:
-			ticker.Stop()
-			slog.Debug("[UDP] KeepaliveExit", "peer", peer.PeerID)
-			return
-		case <-ticker.C:
-			ping()
-		}
-	}
-}
-
-func (peer *PeerContext) Close() error {
-	close(peer.exitSig)
-	return nil
-}
-
-type PeerState struct {
-	PeerID         peer.ID
-	Addr           *net.UDPAddr
-	LastActiveTime time.Time
-}
-
-type stunSession struct {
-	peerID peer.ID
-	cTime  time.Time
-	addrs  []string
-	timer  *time.Timer
-}
-
-type stunSessionManager struct {
-	sync.RWMutex
-	sessions map[string]*stunSession
-}
-
-func (m *stunSessionManager) Get(txid string) (*stunSession, bool) {
-	m.RLock()
-	defer m.RUnlock()
-	s, ok := m.sessions[txid]
-	return s, ok
-}
-
-func (m *stunSessionManager) Set(txid string, peerID peer.ID) {
-	m.Lock()
-	defer m.Unlock()
-	m.sessions[txid] = &stunSession{peerID: peerID, cTime: time.Now()}
-}
-
-func (m *stunSessionManager) Remove(txid string) {
-	m.Lock()
-	defer m.Unlock()
-	delete(m.sessions, txid)
 }
 
 // Datagram is the packet from peer or to peer
