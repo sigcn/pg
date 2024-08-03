@@ -731,6 +731,7 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		connData:         make(chan []byte, 128),
 	}
 
+	peer.metadata = url.Values{}
 	metadata := r.Header.Get("X-Metadata")
 	if len(metadata) > 0 {
 		_, err := base64.StdEncoding.DecodeString(metadata)
