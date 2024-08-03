@@ -202,6 +202,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 	tp.SetModifyDiscoConfig(func(cfg *tp.DiscoConfig) {
 		cfg.PortScanOffset = v.Config.DiscoPortScanOffset
 		cfg.PortScanCount = v.Config.DiscoPortScanCount
+		cfg.PortScanDuration = v.Config.DiscoPortScanDuration
 		cfg.ChallengesRetry = v.Config.DiscoChallengesRetry
 		cfg.ChallengesInitialInterval = v.Config.DiscoChallengesInitialInterval
 		cfg.ChallengesBackoffRate = v.Config.DiscoChallengesBackoffRate
