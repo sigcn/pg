@@ -11,6 +11,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/rdt"
@@ -31,10 +32,12 @@ func (h *FileHandle) Handshake(offset uint32, sha256Checksum []byte) error {
 		return err
 	}
 	header := make([]byte, 5)
+	h.c.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, err = io.ReadFull(h.c, header)
 	if err != nil {
-		return err
+		return fmt.Errorf("read header: %w", err)
 	}
+	h.c.SetReadDeadline(time.Time{})
 	switch header[0] {
 	case 0:
 	case 20:
