@@ -50,7 +50,7 @@ type PeerPacketConn struct {
 func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 	select {
 	case <-c.closedSig:
-		err = disco.ErrUseOfClosedConnection
+		err = net.ErrClosed
 		return
 	case <-c.readTimeout:
 		err = os.ErrDeadlineExceeded

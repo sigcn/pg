@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/netlink"
 	"github.com/rkonfj/peerguard/vpn/iface"
 	"golang.org/x/net/ipv4"
@@ -144,7 +143,7 @@ func (vpn *VPN) runPacketConnReadEventLoop(wg *sync.WaitGroup, packetConn net.Pa
 	for {
 		n, _, err := packetConn.ReadFrom(buf)
 		if err != nil {
-			if errors.Is(err, disco.ErrUseOfClosedConnection) {
+			if errors.Is(err, net.ErrClosed) {
 				return
 			}
 			panic(err)

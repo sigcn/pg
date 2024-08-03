@@ -324,7 +324,7 @@ func (c *WSConn) runEventsReadLoop() {
 				!websocket.IsUnexpectedCloseError(err,
 					websocket.CloseGoingAway,
 					websocket.CloseAbnormalClosure) &&
-				!strings.Contains(err.Error(), disco.ErrUseOfClosedConnection.Error()) {
+				!strings.Contains(err.Error(), net.ErrClosed.Error()) {
 				slog.Error("ReadLoopExited", "details", err.Error())
 			}
 			conn.Close()
@@ -416,7 +416,7 @@ func (c *WSConn) writeWS(messageType int, data []byte) error {
 	if wsConn := c.rawConn.Load(); wsConn != nil {
 		return wsConn.WriteMessage(messageType, data)
 	}
-	return disco.ErrUseOfClosedConnection
+	return net.ErrClosed
 }
 
 func (c *WSConn) updateNetworkSecret(secret disco.NetworkSecret) {

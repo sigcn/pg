@@ -2,7 +2,6 @@ package disco
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -97,10 +96,6 @@ const (
 	IP4      NATType = "ip4"
 	IP6      NATType = "ip6"
 	Internal NATType = "internal"
-)
-
-var (
-	ErrUseOfClosedConnection error = errors.New("use of closed network connection")
 )
 
 type Disco struct {

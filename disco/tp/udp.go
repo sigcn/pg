@@ -330,7 +330,7 @@ func (c *UDPConn) runPacketEventLoop() {
 		}
 		n, peerAddr, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
-			if !strings.Contains(err.Error(), disco.ErrUseOfClosedConnection.Error()) {
+			if !strings.Contains(err.Error(), net.ErrClosed.Error()) {
 				slog.Error("read from udp error", "err", err)
 			}
 			time.Sleep(10 * time.Millisecond) // avoid busy wait
@@ -521,7 +521,7 @@ func (c *UDPConn) WriteToUDP(p []byte, peerID disco.PeerID) (int, error) {
 			return udpConn.WriteToUDP(p, addr)
 		}
 	}
-	return 0, disco.ErrUseOfClosedConnection
+	return 0, net.ErrClosed
 }
 
 func (c *UDPConn) Broadcast(b []byte) (peerCount int, err error) {
