@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"path"
 
-	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/disco"
 	"storj.io/common/base58"
 )
 
@@ -27,7 +27,7 @@ func (intent *JoinIntent) AuthURL() string {
 	return fmt.Sprintf("%s?state=%s", intent.authURL, intent.state)
 }
 
-func (intent *JoinIntent) Wait(ctx context.Context) (joined peer.NetworkSecret, err error) {
+func (intent *JoinIntent) Wait(ctx context.Context) (joined disco.NetworkSecret, err error) {
 	tokenURL := fmt.Sprintf("https://%s/oidc/secret?state=%s", intent.peermap.Host, intent.state)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL, nil)
 	if err != nil {

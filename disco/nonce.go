@@ -1,4 +1,4 @@
-package peer
+package disco
 
 import (
 	"crypto/rand"

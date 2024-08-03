@@ -7,8 +7,8 @@ import (
 	"net"
 	"net/url"
 
+	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/p2p"
-	"github.com/rkonfj/peerguard/peer"
 )
 
 type PublicNetwork struct {
@@ -23,7 +23,7 @@ func (pn *PublicNetwork) ListenPacket(udpPort int) (net.PacketConn, error) {
 		return nil, fmt.Errorf("invalid peermap URL: %w", err)
 	}
 	network := cmp.Or(pn.Name, "pubnet")
-	pmap, err := peer.NewPeermap(pmapURL, &peer.NetworkSecret{Network: network, Secret: network})
+	pmap, err := disco.NewPeermap(pmapURL, &disco.NetworkSecret{Network: network, Secret: network})
 	if err != nil {
 		return nil, fmt.Errorf("create peermap failed: %w", err)
 	}

@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/secure"
 	"github.com/rkonfj/peerguard/secure/chacha20poly1305"
 )
@@ -18,7 +18,7 @@ func SetDefaultSymmAlgo(symmAlgo func(secure.ProvideSecretKey) secure.SymmAlgo) 
 
 type Config struct {
 	UDPPort         int
-	PeerID          peer.ID
+	PeerID          disco.PeerID
 	DisableIPv6     bool
 	DisableIPv4     bool
 	SymmAlgo        secure.SymmAlgo
@@ -28,7 +28,7 @@ type Config struct {
 }
 
 type Option func(cfg *Config) error
-type OnPeer func(peer.ID, url.Values)
+type OnPeer func(disco.PeerID, url.Values)
 
 var (
 	OptionNoOp Option = func(cfg *Config) error { return nil }
@@ -46,7 +46,7 @@ func ListenPeerID(id string) Option {
 		if cfg.SymmAlgo != nil {
 			return errors.New("options ListenPeerID and ListenPeerSecure/Curve25519 conflict")
 		}
-		peerID := peer.ID(id)
+		peerID := disco.PeerID(id)
 		if peerID.Len() > 0 {
 			cfg.PeerID = peerID
 		}
@@ -74,7 +74,7 @@ func ListenPeerCurve25519(privateKey string) Option {
 			return err
 		}
 		cfg.SymmAlgo = defaultSymmAlgo(priv.SharedKey)
-		cfg.PeerID = peer.ID(priv.PublicKey.String())
+		cfg.PeerID = disco.PeerID(priv.PublicKey.String())
 		return nil
 	}
 }
@@ -102,8 +102,8 @@ func ListenPeerUp(onPeer OnPeer) Option {
 	}
 }
 
-func FileSecretStore(storeFilePath string) peer.SecretStore {
-	return &peer.FileSecretStore{StoreFilePath: storeFilePath}
+func FileSecretStore(storeFilePath string) disco.SecretStore {
+	return &disco.FileSecretStore{StoreFilePath: storeFilePath}
 }
 
 func PeerSilenceMode() Option {

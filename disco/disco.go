@@ -9,9 +9,7 @@ import (
 	"net"
 	"net/url"
 	"slices"
-	"time"
 
-	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/secure"
 )
 
@@ -105,47 +103,21 @@ var (
 	ErrUseOfClosedConnection error = errors.New("use of closed network connection")
 )
 
-var defaultDiscoConfig = DiscoConfig{
-	PortScanOffset:            -1000,
-	PortScanCount:             3000,
-	ChallengesRetry:           5,
-	ChallengesInitialInterval: 200 * time.Millisecond,
-	ChallengesBackoffRate:     1.65,
-}
-
-type DiscoConfig struct {
-	PortScanOffset            int
-	PortScanCount             int
-	ChallengesRetry           int
-	ChallengesInitialInterval time.Duration
-	ChallengesBackoffRate     float64
-}
-
-func SetModifyDiscoConfig(modify func(cfg *DiscoConfig)) {
-	if modify != nil {
-		modify(&defaultDiscoConfig)
-	}
-	defaultDiscoConfig.PortScanCount = min(max(32, defaultDiscoConfig.PortScanCount), 65535-1024)
-	defaultDiscoConfig.ChallengesRetry = max(1, defaultDiscoConfig.ChallengesRetry)
-	defaultDiscoConfig.ChallengesInitialInterval = max(10*time.Millisecond, defaultDiscoConfig.ChallengesInitialInterval)
-	defaultDiscoConfig.ChallengesBackoffRate = max(1, defaultDiscoConfig.ChallengesBackoffRate)
-}
-
 type Disco struct {
 	Magic func() []byte
 }
 
-func (d *Disco) NewPing(peerID peer.ID) []byte {
+func (d *Disco) NewPing(peerID PeerID) []byte {
 	return slices.Concat(d.magic(), peerID.Bytes())
 }
 
-func (d *Disco) ParsePing(b []byte) peer.ID {
+func (d *Disco) ParsePing(b []byte) PeerID {
 	magic := d.magic()
 	if len(b) <= len(magic) || len(b) > 255+len(magic) {
 		return ""
 	}
 	if slices.Equal(magic, b[:len(magic)]) {
-		return peer.ID(b[len(magic):])
+		return PeerID(b[len(magic):])
 	}
 	return ""
 }
@@ -163,7 +135,7 @@ func (d *Disco) magic() []byte {
 
 // Datagram is the packet from peer or to peer
 type Datagram struct {
-	PeerID peer.ID
+	PeerID PeerID
 	Data   []byte
 }
 
@@ -195,13 +167,13 @@ func (d *Datagram) TryEncrypt(symmAlgo secure.SymmAlgo) []byte {
 
 // Peer descibe the peer info
 type Peer struct {
-	ID       peer.ID
+	ID       PeerID
 	Metadata url.Values
 }
 
 // PeerUDPAddr describe the peer udp addr
 type PeerUDPAddr struct {
-	ID   peer.ID
+	ID   PeerID
 	Addr *net.UDPAddr
 	Type NATType
 }

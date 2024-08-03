@@ -19,8 +19,8 @@ import (
 
 	"github.com/mdp/qrterminal/v3"
 	"github.com/rkonfj/peerguard/disco"
+	"github.com/rkonfj/peerguard/disco/tp"
 	"github.com/rkonfj/peerguard/p2p"
-	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/network"
 	"github.com/rkonfj/peerguard/vpn"
 	"github.com/rkonfj/peerguard/vpn/iface"
@@ -193,7 +193,7 @@ func (v *P2PVPN) Run(ctx context.Context) error {
 }
 
 func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err error) {
-	disco.SetModifyDiscoConfig(func(cfg *disco.DiscoConfig) {
+	tp.SetModifyDiscoConfig(func(cfg *tp.DiscoConfig) {
 		cfg.PortScanOffset = v.Config.DiscoPortScanOffset
 		cfg.PortScanCount = v.Config.DiscoPortScanCount
 		cfg.ChallengesRetry = v.Config.DiscoChallengesRetry
@@ -218,7 +218,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 		if pgPeer.Scheme != "pg" {
 			return nil, fmt.Errorf("unsupport scheme %s", pgPeer.Scheme)
 		}
-		v.addPeer(peer.ID(pgPeer.Host), pgPeer.Query())
+		v.addPeer(disco.PeerID(pgPeer.Host), pgPeer.Query())
 	}
 	if v.Config.IPv4 != "" {
 		ipv4, err := netip.ParsePrefix(v.Config.IPv4)
@@ -250,7 +250,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 	if err != nil {
 		return
 	}
-	peermap, err := peer.NewPeermap(peermapURL, secretStore)
+	peermap, err := disco.NewPeermap(peermapURL, secretStore)
 	if err != nil {
 		return
 	}
@@ -258,11 +258,11 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 	return p2p.ListenPacketContext(ctx, peermap, p2pOptions...)
 }
 
-func (v *P2PVPN) addPeer(pi peer.ID, m url.Values) {
+func (v *P2PVPN) addPeer(pi disco.PeerID, m url.Values) {
 	v.iface.AddPeer(pi, m.Get("alias1"), m.Get("alias2"))
 }
 
-func (v *P2PVPN) loginIfNecessary(ctx context.Context) (peer.SecretStore, error) {
+func (v *P2PVPN) loginIfNecessary(ctx context.Context) (disco.SecretStore, error) {
 	if len(v.Config.SecretFile) == 0 {
 		currentUser, err := user.Current()
 		if err != nil {
@@ -272,7 +272,7 @@ func (v *P2PVPN) loginIfNecessary(ctx context.Context) (peer.SecretStore, error)
 	}
 
 	store := p2p.FileSecretStore(v.Config.SecretFile)
-	newFileStore := func() (peer.SecretStore, error) {
+	newFileStore := func() (disco.SecretStore, error) {
 		joined, err := v.requestNetworkSecret(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("request network secret failed: %w", err)
@@ -293,11 +293,11 @@ func (v *P2PVPN) loginIfNecessary(ctx context.Context) (peer.SecretStore, error)
 	return store, nil
 }
 
-func (v *P2PVPN) requestNetworkSecret(ctx context.Context) (peer.NetworkSecret, error) {
+func (v *P2PVPN) requestNetworkSecret(ctx context.Context) (disco.NetworkSecret, error) {
 	join, err := network.JoinOIDC("", v.Config.Server)
 	if err != nil {
 		slog.Error("JoinNetwork failed", "err", err)
-		return peer.NetworkSecret{}, err
+		return disco.NetworkSecret{}, err
 	}
 	fmt.Println("Open the following link to authenticate")
 	fmt.Println(join.AuthURL())

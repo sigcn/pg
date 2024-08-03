@@ -17,7 +17,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/rdt"
 )
 
@@ -32,7 +32,7 @@ type FileManager struct {
 	index     int
 	files     map[int]string
 	filesInit sync.Once
-	peerID    peer.ID
+	peerID    disco.PeerID
 }
 
 func (m *FileManager) ListenNetwork() (net.Listener, error) {
@@ -46,7 +46,7 @@ func (m *FileManager) ListenNetwork() (net.Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listen rdt: %w", err)
 	}
-	m.peerID = peer.ID(listener.Addr().String())
+	m.peerID = disco.PeerID(listener.Addr().String())
 	return listener, nil
 }
 

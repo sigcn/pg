@@ -11,15 +11,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/disco"
 )
 
 var (
-	notifyContext    = make(map[string]chan peer.NetworkSecret)
+	notifyContext    = make(map[string]chan disco.NetworkSecret)
 	notifyContextMut sync.RWMutex
 )
 
-func NotifyToken(state string, secret peer.NetworkSecret) error {
+func NotifyToken(state string, secret disco.NetworkSecret) error {
 	notifyContextMut.RLock()
 	defer notifyContextMut.RUnlock()
 	if ch, ok := notifyContext[state]; ok {
@@ -34,7 +34,7 @@ func OIDCSecret(w http.ResponseWriter, r *http.Request) {
 	if state == "" {
 		return
 	}
-	ch := make(chan peer.NetworkSecret)
+	ch := make(chan disco.NetworkSecret)
 	notifyContextMut.Lock()
 	notifyContext[state] = ch
 	notifyContextMut.Unlock()

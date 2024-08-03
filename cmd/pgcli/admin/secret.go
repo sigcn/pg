@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/peermap/auth"
 	"github.com/spf13/cobra"
 )
@@ -39,7 +39,7 @@ func secretCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return json.NewEncoder(os.Stdout).Encode(peer.NetworkSecret{
+			return json.NewEncoder(os.Stdout).Encode(disco.NetworkSecret{
 				Secret:  secret,
 				Network: network,
 				Expire:  time.Now().Add(validDuration - 10*time.Second),

@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/rkonfj/peerguard/disco"
+	"github.com/rkonfj/peerguard/disco/tp"
 	"github.com/rkonfj/peerguard/lru"
 	"github.com/rkonfj/peerguard/netlink"
-	"github.com/rkonfj/peerguard/peer"
 	"storj.io/common/base58"
 )
 
@@ -32,9 +32,9 @@ type PeerPacketConn struct {
 	cfg               Config
 	closedSig         chan struct{}
 	readTimeout       chan struct{}
-	udpConn           *disco.UDPConn
-	wsConn            *disco.WSConn
-	discoCooling      *lru.Cache[peer.ID, time.Time]
+	udpConn           *tp.UDPConn
+	wsConn            *tp.WSConn
+	discoCooling      *lru.Cache[disco.PeerID, time.Time]
 	discoCoolingMutex sync.Mutex
 }
 
@@ -71,11 +71,11 @@ func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 // fixed time limit; see SetDeadline and SetWriteDeadline.
 // On packet-oriented connections, write timeouts are rare.
 func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	if _, ok := addr.(peer.ID); !ok {
+	if _, ok := addr.(disco.PeerID); !ok {
 		return 0, errors.New("not a p2p address")
 	}
 
-	datagram := disco.Datagram{PeerID: addr.(peer.ID), Data: p}
+	datagram := disco.Datagram{PeerID: addr.(disco.PeerID), Data: p}
 	p = datagram.TryEncrypt(c.cfg.SymmAlgo)
 
 	n, err = c.udpConn.WriteToUDP(p, datagram.PeerID)
@@ -171,7 +171,7 @@ func (c *PeerPacketConn) Broadcast(b []byte) (int, error) {
 
 // TryLeadDisco try lead a peer discovery
 // disco as soon as every minute
-func (c *PeerPacketConn) TryLeadDisco(peerID peer.ID) {
+func (c *PeerPacketConn) TryLeadDisco(peerID disco.PeerID) {
 	if !c.discoCoolingMutex.TryLock() {
 		return
 	}
@@ -199,12 +199,12 @@ func (c *PeerPacketConn) ControllerManager() disco.ControllerManager {
 }
 
 // PeerStore stores the found peers
-func (c *PeerPacketConn) PeerStore() disco.PeerStore {
+func (c *PeerPacketConn) PeerStore() tp.PeerStore {
 	return c.udpConn
 }
 
 // SharedKey get the key shared with the peer
-func (c *PeerPacketConn) SharedKey(peerID peer.ID) ([]byte, error) {
+func (c *PeerPacketConn) SharedKey(peerID disco.PeerID) ([]byte, error) {
 	if c.cfg.SymmAlgo == nil {
 		return nil, errors.New("get shared key from plain conn")
 	}
@@ -251,7 +251,7 @@ func (c *PeerPacketConn) runAddrUpdateEventLoop() {
 }
 
 // runControlEventLoop events control loop
-func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disco.UDPConn) {
+func (c *PeerPacketConn) runControlEventLoop(wsConn *tp.WSConn, udpConn *tp.UDPConn) {
 	for {
 		select {
 		case peer, ok := <-wsConn.Peers():
@@ -291,18 +291,18 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disc
 }
 
 // ListenPacket same as ListenPacketContext, but no context required
-func ListenPacket(peermap *peer.Peermap, opts ...Option) (*PeerPacketConn, error) {
+func ListenPacket(peermap *disco.Peermap, opts ...Option) (*PeerPacketConn, error) {
 	return ListenPacketContext(context.Background(), peermap, opts...)
 }
 
 // ListenPacketContext listen the p2p network for read/write packets
-func ListenPacketContext(ctx context.Context, peermap *peer.Peermap, opts ...Option) (*PeerPacketConn, error) {
+func ListenPacketContext(ctx context.Context, peermap *disco.Peermap, opts ...Option) (*PeerPacketConn, error) {
 	id := make([]byte, 16)
 	rand.Read(id)
 	cfg := Config{
 		UDPPort:         29877,
 		KeepAlivePeriod: 10 * time.Second,
-		PeerID:          peer.ID(base58.Encode(id)),
+		PeerID:          disco.PeerID(base58.Encode(id)),
 	}
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
@@ -310,7 +310,7 @@ func ListenPacketContext(ctx context.Context, peermap *peer.Peermap, opts ...Opt
 		}
 	}
 
-	udpConn, err := disco.ListenUDP(disco.UDPConfig{
+	udpConn, err := tp.ListenUDP(tp.UDPConfig{
 		Port:                  cfg.UDPPort,
 		DisableIPv4:           cfg.DisableIPv4,
 		DisableIPv6:           cfg.DisableIPv6,
@@ -321,7 +321,7 @@ func ListenPacketContext(ctx context.Context, peermap *peer.Peermap, opts ...Opt
 		return nil, err
 	}
 
-	wsConn, err := disco.DialPeermap(ctx, peermap, cfg.PeerID, cfg.Metadata)
+	wsConn, err := tp.DialPeermap(ctx, peermap, cfg.PeerID, cfg.Metadata)
 	if err != nil {
 		udpConn.Close()
 		return nil, err
@@ -336,7 +336,7 @@ func ListenPacketContext(ctx context.Context, peermap *peer.Peermap, opts ...Opt
 		readTimeout:  make(chan struct{}),
 		udpConn:      udpConn,
 		wsConn:       wsConn,
-		discoCooling: lru.New[peer.ID, time.Time](1024),
+		discoCooling: lru.New[disco.PeerID, time.Time](1024),
 	}
 	go packetConn.runAddrUpdateEventLoop()
 	go packetConn.runControlEventLoop(wsConn, udpConn)

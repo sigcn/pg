@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rkonfj/peerguard/peer"
+	"github.com/rkonfj/peerguard/disco"
 	"github.com/rkonfj/peerguard/rdt"
 )
 
@@ -109,7 +109,7 @@ func (d *Downloader) Request(ctx context.Context, shareURL string, read Read) er
 		fn = filename
 	}
 
-	conn, err := listener.OpenStream(peer.ID(resourceURL.Host))
+	conn, err := listener.OpenStream(disco.PeerID(resourceURL.Host))
 	if err != nil {
 		return fmt.Errorf("dial server failed: %w", err)
 	}

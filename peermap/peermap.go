@@ -22,7 +22,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/rkonfj/peerguard/disco"
-	"github.com/rkonfj/peerguard/peer"
 	"github.com/rkonfj/peerguard/peermap/auth"
 	"github.com/rkonfj/peerguard/peermap/exporter"
 	exporterauth "github.com/rkonfj/peerguard/peermap/exporter/auth"
@@ -54,7 +53,7 @@ type peerConn struct {
 	stat       peerStat
 	metadata   url.Values
 	activeTime atomic.Int64
-	id         peer.ID
+	id         disco.PeerID
 	nonce      byte
 	wMut       sync.Mutex
 
@@ -217,7 +216,7 @@ func (p *peerConn) readMessageLoop() {
 			p.connData <- b[1:]
 			continue
 		}
-		tgtPeerID := peer.ID(b[2 : b[1]+2])
+		tgtPeerID := disco.PeerID(b[2 : b[1]+2])
 		slog.Debug("PeerEvent", "op", disco.ControlCode(b[0]), "from", p.id, "to", tgtPeerID)
 		tgtPeer, err := p.peerMap.getPeer(p.networkSecret.Network, tgtPeerID)
 		if err != nil {
@@ -351,13 +350,13 @@ type networkContext struct {
 	neighbors []string
 }
 
-func (ctx *networkContext) removePeer(id peer.ID) {
+func (ctx *networkContext) removePeer(id disco.PeerID) {
 	ctx.peersMutex.Lock()
 	defer ctx.peersMutex.Unlock()
 	delete(ctx.peers, string(id))
 }
 
-func (ctx *networkContext) getPeer(id peer.ID) (*peerConn, bool) {
+func (ctx *networkContext) getPeer(id disco.PeerID) (*peerConn, bool) {
 	ctx.peersMutex.RLock()
 	defer ctx.peersMutex.RUnlock()
 	p, ok := ctx.peers[id.String()]
@@ -432,7 +431,7 @@ type PeerMap struct {
 	exporterAuthenticator *exporterauth.Authenticator
 }
 
-func (pm *PeerMap) removePeer(network string, id peer.ID) {
+func (pm *PeerMap) removePeer(network string, id disco.PeerID) {
 	if ctx, ok := pm.getNetwork(network); ok {
 		slog.Debug("PeerRemoved", "network", network, "peer", id)
 		ctx.removePeer(id)
@@ -449,7 +448,7 @@ func (pm *PeerMap) getNetwork(network string) (*networkContext, bool) {
 	return ctx, ok
 }
 
-func (pm *PeerMap) getPeer(network string, peerID peer.ID) (*peerConn, error) {
+func (pm *PeerMap) getPeer(network string, peerID disco.PeerID) (*peerConn, error) {
 	if ctx, ok := pm.getNetwork(network); ok {
 		if peer, ok := ctx.getPeer(peerID); ok {
 			return peer, nil
@@ -687,7 +686,7 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	}
 
 	peerID := r.Header.Get("X-PeerID")
-	nonce := peer.MustParseNonce(r.Header.Get("X-Nonce"))
+	nonce := disco.MustParseNonce(r.Header.Get("X-Nonce"))
 
 	pm.networkMapMutex.RLock()
 	networkCtx, ok := pm.networkMap[jsonSecret.Network]
@@ -724,7 +723,7 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		peerMap:          pm,
 		networkSecret:    jsonSecret,
 		networkContext:   networkCtx,
-		id:               peer.ID(peerID),
+		id:               disco.PeerID(peerID),
 		nonce:            nonce,
 		relayRatelimiter: rateLimiter,
 		connRRL:          srLimiter,
@@ -810,12 +809,12 @@ func (pm *PeerMap) newNetworkContext(state NetState) *networkContext {
 	}
 }
 
-func (pm *PeerMap) generateSecret(n auth.Net) (peer.NetworkSecret, error) {
+func (pm *PeerMap) generateSecret(n auth.Net) (disco.NetworkSecret, error) {
 	secret, err := auth.NewAuthenticator(pm.cfg.SecretKey).GenerateSecret(n, pm.cfg.SecretValidityPeriod)
 	if err != nil {
-		return peer.NetworkSecret{}, err
+		return disco.NetworkSecret{}, err
 	}
-	return peer.NetworkSecret{
+	return disco.NetworkSecret{
 		Network: n.ID,
 		Secret:  secret,
 		Expire:  time.Now().Add(pm.cfg.SecretValidityPeriod - 10*time.Second),
