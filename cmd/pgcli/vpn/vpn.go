@@ -51,6 +51,7 @@ func init() {
 
 	Cmd.Flags().Int("disco-port-scan-offset", -1000, "scan ports offset when disco")
 	Cmd.Flags().Int("disco-port-scan-count", 3000, "scan ports count when disco")
+	Cmd.Flags().Duration("disco-port-scan-duration", 6*time.Second, "scan ports duration when disco")
 	Cmd.Flags().Int("disco-challenges-retry", 5, "ping challenges retry count when disco")
 	Cmd.Flags().Duration("disco-challenges-initial-interval", 200*time.Millisecond, "ping challenges initial interval when disco")
 	Cmd.Flags().Float64("disco-challenges-backoff-rate", 1.65, "ping challenges backoff rate when disco")
@@ -91,6 +92,10 @@ func createConfig(cmd *cobra.Command) (cfg Config, err error) {
 		return
 	}
 	cfg.DiscoPortScanCount, err = cmd.Flags().GetInt("disco-port-scan-count")
+	if err != nil {
+		return
+	}
+	cfg.DiscoPortScanDuration, err = cmd.Flags().GetDuration("disco-port-scan-duration")
 	if err != nil {
 		return
 	}
@@ -157,6 +162,7 @@ type Config struct {
 	iface.Config
 	DiscoPortScanOffset            int
 	DiscoPortScanCount             int
+	DiscoPortScanDuration          time.Duration
 	DiscoChallengesRetry           int
 	DiscoChallengesInitialInterval time.Duration
 	DiscoChallengesBackoffRate     float64

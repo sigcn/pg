@@ -24,6 +24,7 @@ import (
 var defaultDiscoConfig = DiscoConfig{
 	PortScanOffset:            -1000,
 	PortScanCount:             3000,
+	PortScanDuration:          5 * time.Second,
 	ChallengesRetry:           5,
 	ChallengesInitialInterval: 200 * time.Millisecond,
 	ChallengesBackoffRate:     1.65,
@@ -32,6 +33,7 @@ var defaultDiscoConfig = DiscoConfig{
 type DiscoConfig struct {
 	PortScanOffset            int
 	PortScanCount             int
+	PortScanDuration          time.Duration
 	ChallengesRetry           int
 	ChallengesInitialInterval time.Duration
 	ChallengesBackoffRate     float64
@@ -41,7 +43,9 @@ func SetModifyDiscoConfig(modify func(cfg *DiscoConfig)) {
 	if modify != nil {
 		modify(&defaultDiscoConfig)
 	}
+	defaultDiscoConfig.PortScanOffset = max(min(defaultDiscoConfig.PortScanOffset, 65535), -65535)
 	defaultDiscoConfig.PortScanCount = min(max(32, defaultDiscoConfig.PortScanCount), 65535-1024)
+	defaultDiscoConfig.PortScanDuration = max(time.Second, defaultDiscoConfig.PortScanDuration)
 	defaultDiscoConfig.ChallengesRetry = max(1, defaultDiscoConfig.ChallengesRetry)
 	defaultDiscoConfig.ChallengesInitialInterval = max(10*time.Millisecond, defaultDiscoConfig.ChallengesInitialInterval)
 	defaultDiscoConfig.ChallengesBackoffRate = max(1, defaultDiscoConfig.ChallengesBackoffRate)
@@ -248,7 +252,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 
 	slog.Info("[UDP] PortScanning", "peer", udpAddr.ID, "addr", udpAddr.Addr)
 	scan := func(round int) bool {
-		limit := defaultDiscoConfig.PortScanCount / 5
+		limit := defaultDiscoConfig.PortScanCount / max(1, int(defaultDiscoConfig.PortScanDuration.Seconds()))
 		rl := rate.NewLimiter(rate.Limit(limit), limit)
 		for port := udpAddr.Addr.Port + defaultDiscoConfig.PortScanOffset; port <= udpAddr.Addr.Port+defaultDiscoConfig.PortScanCount; port++ {
 			select {
