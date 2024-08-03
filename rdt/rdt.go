@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	N "github.com/rkonfj/peerguard/net"
 )
 
 const (
@@ -57,6 +59,8 @@ type rdtConn struct {
 	closeOnce sync.Once
 
 	wClosed *net.OpError
+
+	deadlineRead N.Deadline
 }
 
 // Read reads data from the connection.
@@ -67,6 +71,9 @@ func (c *rdtConn) Read(b []byte) (n int, err error) {
 		select {
 		case <-c.exit:
 			err = io.EOF
+			return
+		case <-c.deadlineRead.Deadline():
+			err = N.ErrDeadline
 			return
 		case pkt, ok := <-c.inbound:
 			if !ok {
@@ -193,14 +200,17 @@ func (c *rdtConn) RemoteAddr() net.Addr {
 //
 // A zero value for t means I/O operations will not time out.
 func (c *rdtConn) SetDeadline(t time.Time) error {
-	return errors.ErrUnsupported
+	err1 := c.SetReadDeadline(t)
+	err2 := c.SetWriteDeadline(t)
+	return errors.Join(err1, err2)
 }
 
 // SetReadDeadline sets the deadline for future Read calls
 // and any currently-blocked Read call.
 // A zero value for t means Read will not time out.
 func (c *rdtConn) SetReadDeadline(t time.Time) error {
-	return errors.ErrUnsupported
+	c.deadlineRead.SetDeadline(t)
+	return nil
 }
 
 // SetWriteDeadline sets the deadline for future Write calls
