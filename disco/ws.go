@@ -75,7 +75,7 @@ func (c *WSConn) Write(p []byte) (n int, err error) {
 	if c.streamRateLimiter != nil {
 		c.streamRateLimiter.WaitN(context.Background(), len(p))
 	}
-	err = c.write(append(append([]byte(nil), peer.CONTROL_CONN.Byte()), p...))
+	err = c.write(append(append([]byte(nil), CONTROL_CONN.Byte()), p...))
 	if err != nil {
 		return
 	}
@@ -105,8 +105,8 @@ func (c *WSConn) RestartListener() error {
 	return nil
 }
 
-func (c *WSConn) WriteTo(p []byte, peerID peer.ID, op peer.ControlCode) error {
-	if op == peer.CONTROL_RELAY && c.rateLimiter != nil {
+func (c *WSConn) WriteTo(p []byte, peerID peer.ID, op ControlCode) error {
+	if op == CONTROL_RELAY && c.rateLimiter != nil {
 		c.rateLimiter.WaitN(context.Background(), len(p))
 	}
 	b := make([]byte, 0, 2+len(peerID)+len(p))
@@ -119,7 +119,7 @@ func (c *WSConn) WriteTo(p []byte, peerID peer.ID, op peer.ControlCode) error {
 
 func (c *WSConn) LeadDisco(peerID peer.ID) error {
 	slog.Log(context.Background(), -3, "LeadDisco", "peer", peerID)
-	return c.WriteTo(nil, peerID, peer.CONTROL_LEAD_DISCO)
+	return c.WriteTo(nil, peerID, CONTROL_LEAD_DISCO)
 }
 
 func (c *WSConn) Datagrams() <-chan *Datagram {
@@ -188,7 +188,7 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 		return fmt.Errorf("address: %s is already in used", c.peerID)
 	}
 	if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
-		var err peer.Error
+		var err Error
 		json.NewDecoder(httpResp.Body).Decode(&err)
 		defer httpResp.Body.Close()
 		return err
@@ -358,20 +358,14 @@ func (c *WSConn) runEventsReadLoop() {
 }
 
 func (c *WSConn) handleEvents(b []byte) {
-	switch peer.ControlCode(b[0]) {
-	case peer.CONTROL_RELAY:
-		c.datagrams <- &Datagram{
-			PeerID: peer.ID(b[2 : b[1]+2]),
-			Data:   b[b[1]+2:],
-		}
-	case peer.CONTROL_NEW_PEER:
+	switch ControlCode(b[0]) {
+	case CONTROL_RELAY:
+		c.datagrams <- &Datagram{PeerID: peer.ID(b[2 : b[1]+2]), Data: b[b[1]+2:]}
+	case CONTROL_NEW_PEER:
 		meta, _ := url.ParseQuery(string(b[b[1]+2:]))
-		event := Peer{
-			ID:       peer.ID(b[2 : b[1]+2]),
-			Metadata: meta,
-		}
+		event := Peer{ID: peer.ID(b[2 : b[1]+2]), Metadata: meta}
 		c.peers <- &event
-	case peer.CONTROL_NEW_PEER_UDP_ADDR:
+	case CONTROL_NEW_PEER_UDP_ADDR:
 		if b[b[1]+2] != 'a' { // old version without nat type
 			slog.Error("IncompatiblePeerVersionFound(v0.7 is required)", "peer", peer.ID(b[2:b[1]+2]))
 			addr, err := net.ResolveUDPAddr("udp", string(b[b[1]+2:]))
@@ -379,10 +373,7 @@ func (c *WSConn) handleEvents(b []byte) {
 				slog.Error("Resolve udp addr error", "err", err)
 				break
 			}
-			c.peersUDPAddrs <- &PeerUDPAddr{
-				ID:   peer.ID(b[2 : b[1]+2]),
-				Addr: addr,
-			}
+			c.peersUDPAddrs <- &PeerUDPAddr{ID: peer.ID(b[2 : b[1]+2]), Addr: addr}
 			return
 		}
 		addrLen := b[b[1]+3]
@@ -392,19 +383,15 @@ func (c *WSConn) handleEvents(b []byte) {
 			slog.Error("Resolve udp addr error", "err", err)
 			break
 		}
-		c.peersUDPAddrs <- &PeerUDPAddr{
-			ID:   peer.ID(b[2 : b[1]+2]),
-			Addr: addr,
-			Type: NATType(b[s+addrLen:]),
-		}
-	case peer.CONTROL_UPDATE_NETWORK_SECRET:
+		c.peersUDPAddrs <- &PeerUDPAddr{ID: peer.ID(b[2 : b[1]+2]), Addr: addr, Type: NATType(b[s+addrLen:])}
+	case CONTROL_UPDATE_NETWORK_SECRET:
 		var secret peer.NetworkSecret
 		if err := json.Unmarshal(b[1:], &secret); err != nil {
 			slog.Error("NetworkSecretUpdate", "err", err)
 			break
 		}
 		go c.updateNetworkSecret(secret)
-	case peer.CONTROL_CONN:
+	case CONTROL_CONN:
 		c.connData <- b[1:]
 	default:
 		c.controllersMutex.RLock()

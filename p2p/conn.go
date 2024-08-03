@@ -82,7 +82,7 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	if err != nil {
 		c.TryLeadDisco(datagram.PeerID)
 		slog.Log(context.Background(), -3, "[Relay] WriteTo", "addr", datagram.PeerID)
-		return len(p), c.wsConn.WriteTo(p, datagram.PeerID, peer.CONTROL_RELAY)
+		return len(p), c.wsConn.WriteTo(p, datagram.PeerID, disco.CONTROL_RELAY)
 	}
 	return
 }
@@ -278,7 +278,7 @@ func (c *PeerPacketConn) runControlEventLoop(wsConn *disco.WSConn, udpConn *disc
 					data = append(data, byte(len(addr)))
 					data = append(data, addr...)
 					data = append(data, []byte(sendUDPAddr.Type)...)
-					err := wsConn.WriteTo(data, sendUDPAddr.ID, peer.CONTROL_NEW_PEER_UDP_ADDR)
+					err := wsConn.WriteTo(data, sendUDPAddr.ID, disco.CONTROL_NEW_PEER_UDP_ADDR)
 					if err == nil {
 						slog.Debug("ListenUDP", "addr", sendUDPAddr.Addr, "for", sendUDPAddr.ID)
 						break
