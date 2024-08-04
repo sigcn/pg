@@ -349,6 +349,7 @@ func (c *UDPConn) runPacketEventLoop() {
 
 		// stun response
 		if stun.Is(buf[:n]) {
+			slog.Log(context.Background(), -3, "RecvSTUNResponse", "from", peerAddr)
 			b := make([]byte, n)
 			copy(b, buf[:n])
 			c.stunResponse <- b
@@ -458,6 +459,7 @@ func (c *UDPConn) RequestSTUN(peerID disco.PeerID, stunServers []string) {
 	}
 	txID := stun.NewTxID()
 	c.stunSessionManager.Set(string(txID[:]), peerID)
+	rand.Shuffle(len(stunServers), func(i, j int) { stunServers[i], stunServers[j] = stunServers[j], stunServers[i] })
 	for _, stunServer := range stunServers {
 		uaddr, err := net.ResolveUDPAddr("udp", stunServer)
 		if err != nil {
@@ -469,6 +471,7 @@ func (c *UDPConn) RequestSTUN(peerID disco.PeerID, stunServers []string) {
 			slog.Error("Request STUN server failed", "err", err.Error())
 			continue
 		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
