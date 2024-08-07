@@ -81,7 +81,10 @@ func (c *MuxConn) Read(b []byte) (n int, err error) {
 	select {
 	case <-c.exit:
 		return 0, io.EOF
-	case <-c.deadlineRead.Deadline():
+	case _, ok := <-c.deadlineRead.Deadline():
+		if !ok {
+			return 0, io.EOF
+		}
 		return 0, N.ErrDeadline
 	case wsb, ok := <-c.inbound:
 		if !ok {
@@ -308,8 +311,10 @@ func (l *MuxSession) nextFrame() error {
 			delete(l.dials, seq)
 			slog.Debug("ClientSideMuxConnClosed", "seq", c.seq)
 		}
+	default:
+		return fmt.Errorf("unsupport connmux cmd %d", cmd)
 	}
-	return fmt.Errorf("unsupport connmux cmd %d", cmd)
+	return nil
 }
 
 func (d *MuxSession) OpenStream() (net.Conn, error) {

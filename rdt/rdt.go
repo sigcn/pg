@@ -72,7 +72,10 @@ func (c *rdtConn) Read(b []byte) (n int, err error) {
 		case <-c.exit:
 			err = io.EOF
 			return
-		case <-c.deadlineRead.Deadline():
+		case _, ok := <-c.deadlineRead.Deadline():
+			if !ok {
+				return 0, io.EOF
+			}
 			err = N.ErrDeadline
 			return
 		case pkt, ok := <-c.inbound:

@@ -53,7 +53,11 @@ func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 	case <-c.closedSig:
 		err = net.ErrClosed
 		return
-	case <-c.deadlineRead.Deadline():
+	case _, ok := <-c.deadlineRead.Deadline():
+		if !ok {
+			err = net.ErrClosed
+			return
+		}
 		err = N.ErrDeadline
 		return
 	case datagram := <-c.wsConn.Datagrams():
