@@ -60,7 +60,7 @@ type MuxConn struct {
 
 	buf []byte
 
-	deadlineRead *N.Deadline
+	deadlineRead N.Deadline
 }
 
 func (c *MuxConn) Seq() uint32 {
@@ -169,6 +169,7 @@ func (c *MuxConn) SetDeadline(t time.Time) error {
 // and any currently-blocked Read call.
 // A zero value for t means Read will not time out.
 func (c *MuxConn) SetReadDeadline(t time.Time) error {
+	c.deadlineRead.SetDeadline(t)
 	return nil
 }
 
@@ -178,7 +179,7 @@ func (c *MuxConn) SetReadDeadline(t time.Time) error {
 // some of the data was successfully written.
 // A zero value for t means Write will not time out.
 func (c *MuxConn) SetWriteDeadline(t time.Time) error {
-	return nil
+	return errors.ErrUnsupported
 }
 
 type MuxSession struct {
