@@ -105,8 +105,8 @@ func (c *MuxConn) Write(p []byte) (int, error) {
 	b = append(b, binary.BigEndian.AppendUint16(nil, uint16(len(p)))...)
 	b = append(b, binary.BigEndian.AppendUint32(nil, c.seq)...)
 	b = append(b, p...)
-	c.s.mut.Lock()
-	defer c.s.mut.Unlock()
+	c.s.w.Lock()
+	defer c.s.w.Unlock()
 	n, err := c.s.c.Write(b)
 	if err != nil {
 		return max(0, n-8), err
@@ -118,13 +118,18 @@ func (c *MuxConn) Close() error {
 	b := []byte{0, 1} // FIN
 	b = append(b, binary.BigEndian.AppendUint16(nil, uint16(0))...)
 	b = append(b, binary.BigEndian.AppendUint32(nil, c.seq)...)
-	c.s.mut.Lock()
+
+	c.s.w.Lock()
 	if _, err := c.s.c.Write(b); err != nil {
 		slog.Warn("MuxConnFIN", "err", err)
 	}
+	c.s.w.Unlock()
+
+	c.s.r.Lock()
 	delete(c.s.dials, c.seq)
 	delete(c.s.accepts, c.seq)
-	c.s.mut.Unlock()
+	c.s.r.Unlock()
+
 	c.close()
 	slog.Debug("MuxConnClosed", "seq", c.seq)
 	return nil
@@ -183,7 +188,7 @@ func (c *MuxConn) SetWriteDeadline(t time.Time) error {
 }
 
 type MuxSession struct {
-	mut       sync.Mutex
+	r, w      sync.Mutex
 	closeOnce sync.Once
 	closed    atomic.Bool
 	exit      chan struct{}
@@ -272,7 +277,10 @@ func (l *MuxSession) nextFrame() error {
 		return fmt.Errorf("read data: %w", err)
 	}
 
-	if cmd == 0 {
+	l.r.Lock()
+	defer l.r.Unlock()
+	switch cmd {
+	case 0:
 		if c, ok := l.dials[seq]; ok {
 			c.inbound <- data
 			return nil
@@ -289,10 +297,7 @@ func (l *MuxSession) nextFrame() error {
 		}
 		l.accept <- l.accepts[seq]
 		l.accepts[seq].inbound <- data
-		return nil
-	}
-
-	if cmd == 1 {
+	case 1:
 		if c, ok := l.accepts[seq]; ok {
 			c.close()
 			delete(l.accepts, seq)
@@ -303,7 +308,6 @@ func (l *MuxSession) nextFrame() error {
 			delete(l.dials, seq)
 			slog.Debug("ClientSideMuxConnClosed", "seq", c.seq)
 		}
-		return nil
 	}
 	return fmt.Errorf("unsupport connmux cmd %d", cmd)
 }
@@ -318,9 +322,9 @@ func (d *MuxSession) OpenStream() (net.Conn, error) {
 		seq:     d.seqGen.GenerateSeq(),
 		s:       d,
 	}
-	d.mut.Lock()
+	d.r.Lock()
 	d.dials[c.seq] = c
-	d.mut.Unlock()
+	d.r.Unlock()
 	return c, nil
 }
 
