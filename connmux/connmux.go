@@ -16,7 +16,7 @@ import (
 )
 
 type SeqGen interface {
-	GenerateSeq() uint32
+	GenSeq() uint32
 }
 
 type stdSeqGen struct {
@@ -26,7 +26,7 @@ type stdSeqGen struct {
 	init    sync.Once
 }
 
-func (gen *stdSeqGen) GenerateSeq() uint32 {
+func (gen *stdSeqGen) GenSeq() uint32 {
 	gen.init.Do(func() {
 		gen.seq.Store(gen.initSeq)
 	})
@@ -53,7 +53,8 @@ func NewSeq() SeqGen {
 
 type MuxConn struct {
 	closeOnce sync.Once
-	exit      chan struct{}
+	fin       chan struct{}
+	finWait   chan struct{}
 	inbound   chan []byte
 	seq       uint32
 	s         *MuxSession
@@ -79,8 +80,6 @@ func (c *MuxConn) Read(b []byte) (n int, err error) {
 	}
 
 	select {
-	case <-c.exit:
-		return 0, io.EOF
 	case _, ok := <-c.deadlineRead.Deadline():
 		if !ok {
 			return 0, io.EOF
@@ -100,7 +99,7 @@ func (c *MuxConn) Read(b []byte) (n int, err error) {
 
 func (c *MuxConn) Write(p []byte) (int, error) {
 	select {
-	case <-c.exit:
+	case <-c.fin:
 		return 0, io.ErrClosedPipe
 	default:
 	}
@@ -118,37 +117,45 @@ func (c *MuxConn) Write(p []byte) (int, error) {
 }
 
 func (c *MuxConn) Close() error {
-	b := []byte{0, 1} // FIN
-	b = append(b, binary.BigEndian.AppendUint16(nil, uint16(0))...)
-	b = append(b, binary.BigEndian.AppendUint32(nil, c.seq)...)
-
-	c.s.w.Lock()
-	if _, err := c.s.c.Write(b); err != nil {
-		slog.Warn("MuxConnFIN", "err", err)
-	}
-	c.s.w.Unlock()
-
-	c.s.r.Lock()
-	delete(c.s.dials, c.seq)
-	delete(c.s.accepts, c.seq)
-	c.s.r.Unlock()
-
-	c.close()
-	slog.Debug("MuxConnClosed", "seq", c.seq)
-	return nil
-}
-
-func (c *MuxConn) close() {
 	c.closeOnce.Do(func() {
-	retry:
-		if len(c.inbound) != 0 {
-			time.Sleep(10 * time.Microsecond) // avoid busy wait
-			goto retry
+		close(c.fin) // disable write
+
+		b := []byte{0, 1} // FIN
+		b = append(b, binary.BigEndian.AppendUint16(nil, uint16(0))...)
+		b = append(b, binary.BigEndian.AppendUint32(nil, c.seq)...)
+
+		c.s.w.Lock()
+		if _, err := c.s.c.Write(b); err != nil {
+			slog.Warn("MuxConnFIN", "err", err)
 		}
-		close(c.exit)
-		close(c.inbound)
-		c.deadlineRead.Close()
+		c.s.w.Unlock()
+
+		go func() { // FIN WAIT
+			timeout := time.NewTimer(60 * time.Second)
+			defer timeout.Stop()
+			select {
+			case <-c.finWait:
+			case <-timeout.C:
+			}
+			c.s.r.Lock()
+			delete(c.s.dials, c.seq)
+			delete(c.s.accepts, c.seq)
+			c.s.r.Unlock()
+
+			for range 20 { // wait read done
+				if len(c.inbound) == 0 {
+					break
+				}
+				time.Sleep(10 * time.Millisecond) // avoid busy wait
+			}
+
+			close(c.inbound) // disable read
+			c.deadlineRead.Close()
+			slog.Debug("MuxConnClosed", "seq", c.seq, "state", "CLOSED")
+		}()
 	})
+	slog.Debug("MuxConnClosed", "seq", c.seq, "state", "CLOSE_WAIT")
+	return nil
 }
 
 // LocalAddr returns the local network address, if known.
@@ -191,7 +198,7 @@ func (c *MuxConn) SetWriteDeadline(t time.Time) error {
 }
 
 type MuxSession struct {
-	r, w      sync.Mutex
+	r, w      sync.RWMutex
 	closeOnce sync.Once
 	closed    atomic.Bool
 	exit      chan struct{}
@@ -284,31 +291,41 @@ func (l *MuxSession) nextFrame() error {
 	defer l.r.Unlock()
 	switch cmd {
 	case 0:
+		l.r.RLock()
 		if c, ok := l.dials[seq]; ok {
+			l.r.RUnlock()
 			c.inbound <- data
 			return nil
 		}
 		if c, ok := l.accepts[seq]; ok {
+			l.r.RUnlock()
 			c.inbound <- data
 			return nil
 		}
-		l.accepts[seq] = &MuxConn{
-			exit:    make(chan struct{}),
+		l.r.RUnlock()
+
+		muxConn := &MuxConn{
+			fin:     make(chan struct{}),
+			finWait: make(chan struct{}, 1),
 			inbound: make(chan []byte, 128),
 			seq:     seq,
 			s:       l,
 		}
-		l.accept <- l.accepts[seq]
-		l.accepts[seq].inbound <- data
+		l.r.Lock()
+		l.accepts[seq] = muxConn
+		l.r.Unlock()
+
+		l.accept <- muxConn
+		muxConn.inbound <- data
 	case 1:
 		if c, ok := l.accepts[seq]; ok {
-			c.close()
-			delete(l.accepts, seq)
+			close(c.finWait)
+			c.Close()
 			slog.Debug("ServerSideMuxConnClosed", "seq", c.seq)
 		}
 		if c, ok := l.dials[seq]; ok {
-			c.close()
-			delete(l.dials, seq)
+			close(c.finWait)
+			c.Close()
 			slog.Debug("ClientSideMuxConnClosed", "seq", c.seq)
 		}
 	default:
@@ -322,9 +339,10 @@ func (d *MuxSession) OpenStream() (net.Conn, error) {
 		return nil, errors.New("seq generator must not nil")
 	}
 	c := &MuxConn{
-		exit:    make(chan struct{}),
+		fin:     make(chan struct{}),
+		finWait: make(chan struct{}),
 		inbound: make(chan []byte, 128),
-		seq:     d.seqGen.GenerateSeq(),
+		seq:     d.seqGen.GenSeq(),
 		s:       d,
 	}
 	d.r.Lock()
