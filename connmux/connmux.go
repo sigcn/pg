@@ -18,6 +18,8 @@ import (
 const (
 	CMD_DATA = 0
 	CMD_FIN  = 1
+
+	HEADER_LEN = 8
 )
 
 type SeqGen interface {
@@ -103,22 +105,22 @@ func (c *MuxConn) Read(b []byte) (n int, err error) {
 }
 
 func (c *MuxConn) Write(p []byte) (int, error) {
-	select {
-	case <-c.fin:
-		return 0, io.ErrClosedPipe
-	default:
-	}
 	b := []byte{0, 0}
 	b = append(b, binary.BigEndian.AppendUint16(nil, uint16(len(p)))...)
 	b = append(b, binary.BigEndian.AppendUint32(nil, c.seq)...)
 	b = append(b, p...)
 	c.s.w.Lock()
 	defer c.s.w.Unlock()
+	select {
+	case <-c.fin:
+		return 0, io.ErrClosedPipe
+	default:
+	}
 	n, err := c.s.c.Write(b)
 	if err != nil {
-		return max(0, n-8), err
+		return max(0, n-HEADER_LEN), err
 	}
-	return max(0, n-8), nil
+	return max(0, n-HEADER_LEN), nil
 }
 
 func (c *MuxConn) Close() error {
@@ -275,7 +277,7 @@ func (l *MuxSession) run() {
 // 2 bytes data length
 // 4 bytes seq
 func (l *MuxSession) nextFrame() error {
-	header := make([]byte, 8)
+	header := make([]byte, HEADER_LEN)
 	_, err := io.ReadFull(l.c, header)
 	if err != nil {
 		return fmt.Errorf("read header: %w", err)
@@ -309,7 +311,7 @@ func (l *MuxSession) nextFrame() error {
 		if conn == nil {
 			conn = &MuxConn{
 				fin:     make(chan struct{}),
-				finWait: make(chan struct{}, 1),
+				finWait: make(chan struct{}),
 				inbound: make(chan []byte, 128),
 				seq:     seq,
 				s:       l,
