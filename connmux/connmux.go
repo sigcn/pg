@@ -15,6 +15,11 @@ import (
 	N "github.com/rkonfj/peerguard/net"
 )
 
+const (
+	CMD_DATA = 0
+	CMD_FIN  = 1
+)
+
 type SeqGen interface {
 	GenSeq() uint32
 }
@@ -261,7 +266,9 @@ func (l *MuxSession) run() {
 }
 
 // nextFrame read a new frame
-// a 8 bytes header
+// a frame consists of an 8-byte header and data
+// | VER | CMD | LEN | SEQ | DATA |
+//
 // 1 byte version
 // 1 byte command
 // 2 bytes data length
@@ -287,51 +294,43 @@ func (l *MuxSession) nextFrame() error {
 		return fmt.Errorf("read data: %w", err)
 	}
 
-	l.r.Lock()
-	defer l.r.Unlock()
-	switch cmd {
-	case 0:
-		l.r.RLock()
-		if c, ok := l.dials[seq]; ok {
-			l.r.RUnlock()
-			c.inbound <- data
-			return nil
-		}
-		if c, ok := l.accepts[seq]; ok {
-			l.r.RUnlock()
-			c.inbound <- data
-			return nil
-		}
-		l.r.RUnlock()
-
-		muxConn := &MuxConn{
-			fin:     make(chan struct{}),
-			finWait: make(chan struct{}, 1),
-			inbound: make(chan []byte, 128),
-			seq:     seq,
-			s:       l,
-		}
-		l.r.Lock()
-		l.accepts[seq] = muxConn
-		l.r.Unlock()
-
-		l.accept <- muxConn
-		muxConn.inbound <- data
-	case 1:
-		if c, ok := l.accepts[seq]; ok {
-			close(c.finWait)
-			c.Close()
-			slog.Debug("ServerSideMuxConnClosed", "seq", c.seq)
-		}
-		if c, ok := l.dials[seq]; ok {
-			close(c.finWait)
-			c.Close()
-			slog.Debug("ClientSideMuxConnClosed", "seq", c.seq)
-		}
-	default:
-		return fmt.Errorf("unsupport connmux cmd %d", cmd)
+	var conn *MuxConn
+	l.r.RLock()
+	if c, ok := l.accepts[seq]; ok {
+		conn = c
 	}
-	return nil
+	if c, ok := l.dials[seq]; ok {
+		conn = c
+	}
+	l.r.RUnlock()
+
+	if cmd == CMD_DATA {
+		if conn == nil {
+			conn = &MuxConn{
+				fin:     make(chan struct{}),
+				finWait: make(chan struct{}, 1),
+				inbound: make(chan []byte, 128),
+				seq:     seq,
+				s:       l,
+			}
+			l.r.Lock()
+			l.accepts[seq] = conn
+			l.r.Unlock()
+			l.accept <- conn
+		}
+		conn.inbound <- data
+		return nil
+	}
+
+	if cmd == CMD_FIN {
+		if conn == nil {
+			return nil
+		}
+		close(conn.finWait)
+		conn.Close()
+		return nil
+	}
+	return fmt.Errorf("unsupport connmux cmd %d", cmd)
 }
 
 func (d *MuxSession) OpenStream() (net.Conn, error) {
@@ -351,11 +350,11 @@ func (d *MuxSession) OpenStream() (net.Conn, error) {
 	return c, nil
 }
 
-func Mux(conn io.ReadWriteCloser, sqlGen SeqGen) *MuxSession {
+func Mux(conn io.ReadWriteCloser, seqGen SeqGen) *MuxSession {
 	l := &MuxSession{
 		exit:    make(chan struct{}),
 		c:       conn,
-		seqGen:  sqlGen,
+		seqGen:  seqGen,
 		accept:  make(chan net.Conn),
 		accepts: make(map[uint32]*MuxConn),
 		dials:   make(map[uint32]*MuxConn),
