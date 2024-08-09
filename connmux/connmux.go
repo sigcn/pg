@@ -122,21 +122,22 @@ func (c *MuxConn) Write(p []byte) (int, error) {
 }
 
 func (c *MuxConn) Close() error {
-	c.closeOnce.Do(func() {
+	closeConn := func() {
 		close(c.fin) // disable write
 
-		b := []byte{0, 1} // FIN
+		b := []byte{0, 1}
 		b = append(b, binary.BigEndian.AppendUint16(nil, uint16(0))...)
 		b = append(b, binary.BigEndian.AppendUint32(nil, c.seq)...)
 
 		c.s.w.Lock()
-		if _, err := c.s.c.Write(b); err != nil {
+		if _, err := c.s.c.Write(b); err != nil { // send FIN
 			slog.Warn("MuxConnFIN", "err", err)
 		}
 		c.s.w.Unlock()
+		slog.Debug("MuxConnClosed", "seq", c.seq, "state", "CLOSE_WAIT")
 
 		go func() { // FIN WAIT
-			timeout := time.NewTimer(60 * time.Second)
+			timeout := time.NewTimer(30 * time.Second)
 			defer timeout.Stop()
 			select {
 			case <-c.finWait:
@@ -158,8 +159,8 @@ func (c *MuxConn) Close() error {
 			c.deadlineRead.Close()
 			slog.Debug("MuxConnClosed", "seq", c.seq, "state", "CLOSED")
 		}()
-	})
-	slog.Debug("MuxConnClosed", "seq", c.seq, "state", "CLOSE_WAIT")
+	}
+	c.closeOnce.Do(closeConn)
 	return nil
 }
 
