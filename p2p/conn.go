@@ -151,7 +151,7 @@ func (c *PeerPacketConn) SetReadDeadline(t time.Time) error {
 // some of the data was successfully written.
 // A zero value for t means WriteTo will not time out.
 func (c *PeerPacketConn) SetWriteDeadline(t time.Time) error {
-	return nil
+	return errors.ErrUnsupported
 }
 
 // SetReadBuffer sets the size of the operating system's
@@ -213,8 +213,8 @@ func (c *PeerPacketConn) SharedKey(peerID disco.PeerID) ([]byte, error) {
 	return c.cfg.SymmAlgo.SecretKey()(peerID.String())
 }
 
-// runAddrUpdateEventLoop listen network change and restart udp and websocket listener
-func (c *PeerPacketConn) runAddrUpdateEventLoop() {
+// runNetworkChangeDetectLoop listen network change and restart udp and websocket listener
+func (c *PeerPacketConn) runNetworkChangeDetectLoop() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ch := make(chan netlink.AddrUpdate)
@@ -229,13 +229,28 @@ func (c *PeerPacketConn) runAddrUpdateEventLoop() {
 		cancel()
 	}()
 
+	foundIPMap := map[string]struct{}{}
+	ips, _ := disco.ListLocalIPs()
+	for _, ip := range ips {
+		foundIPMap[ip.String()] = struct{}{}
+	}
+
 	for e := range ch {
 		if e.Addr.IP.IsLinkLocalUnicast() {
 			continue
 		}
-		if !e.New || disco.IPIgnored(e.Addr.IP) {
+		if !e.New {
+			delete(foundIPMap, e.Addr.IP.String())
 			continue
 		}
+		if disco.IPIgnored(e.Addr.IP) {
+			continue
+		}
+		if _, ok := foundIPMap[e.Addr.IP.String()]; ok {
+			continue
+		}
+		foundIPMap[e.Addr.IP.String()] = struct{}{}
+
 		slog.Log(context.Background(), -2, "NewAddr", "addr", e.Addr.String(), "link", e.LinkIndex)
 		if err := c.udpConn.RestartListener(); err != nil {
 			slog.Error("RestartUDPListener", "err", err)
@@ -340,6 +355,6 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Peermap, opts ...Op
 		discoCooling: lru.New[disco.PeerID, time.Time](1024),
 	}
 	go packetConn.runControlEventLoop()
-	go packetConn.runAddrUpdateEventLoop()
+	go packetConn.runNetworkChangeDetectLoop()
 	return &packetConn, nil
 }
