@@ -254,7 +254,7 @@ func (p *peerConn) updatePeerUDPAddr(b []byte) {
 	}
 	natType := disco.NATType(b[s+addrLen:])
 	slog.Debug("ExchangeUDPAddr", "nat", natType, "addr", addr.String())
-	if slices.Contains([]disco.NATType{disco.Easy, disco.Hard, disco.IP6, disco.IP4}, natType) {
+	if slices.Contains([]disco.NATType{disco.Easy, disco.IP6, disco.IP4}, natType) {
 		if natType.AccurateThan(disco.NATType(p.metadata.Get("nat"))) {
 			p.metadata.Set("nat", natType.String())
 		}
