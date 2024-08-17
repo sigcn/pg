@@ -256,7 +256,7 @@ func (c *PeerPacketConn) runNetworkChangeDetectLoop() {
 			slog.Error("RestartUDPListener", "err", err)
 		}
 
-		c.udpConn.RequestSTUN("", c.wsConn.STUNs()) // update NAT type
+		c.udpConn.DetectNAT(c.wsConn.STUNs()) // update NAT type
 
 		if err := c.wsConn.RestartListener(); err != nil {
 			slog.Error("RestartWebsocketListener", "err", err)
@@ -344,7 +344,7 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Peermap, opts ...Op
 		return nil, err
 	}
 
-	udpConn.RequestSTUN("", wsConn.STUNs())
+	udpConn.DetectNAT(wsConn.STUNs())
 
 	slog.Info("ListenPeer", "addr", cfg.PeerID)
 	packetConn := PeerPacketConn{

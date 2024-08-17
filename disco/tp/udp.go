@@ -2,13 +2,13 @@ package tp
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
 	"net"
 	"net/netip"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -51,6 +51,11 @@ func SetModifyDiscoConfig(modify func(cfg *DiscoConfig)) {
 	defaultDiscoConfig.ChallengesBackoffRate = max(1, defaultDiscoConfig.ChallengesBackoffRate)
 }
 
+type NATInfo struct {
+	Type  disco.NATType
+	Addrs []*net.UDPAddr
+}
+
 var (
 	ErrUDPConnNotReady = errors.New("udpConn not ready yet")
 
@@ -72,17 +77,16 @@ type UDPConn struct {
 	disco        *disco.Disco
 	closedSig    chan int
 	datagrams    chan *disco.Datagram
-	stunResponse chan []byte
 	udpAddrSends chan *disco.PeerUDPAddr
 
 	peersIndex      map[disco.PeerID]*peerkeeper
 	peersIndexMutex sync.RWMutex
 
-	stunSessionManager stunSessionManager
+	stunResponseMapMutex sync.RWMutex
+	stunResponseMap      map[string]chan stunResponse // key is stun txid
+	natInfo              atomic.Pointer[NATInfo]
 
 	upnpDeleteMapping func()
-
-	natType disco.NATType
 }
 
 func (c *UDPConn) Close() error {
@@ -94,7 +98,6 @@ func (c *UDPConn) Close() error {
 	}
 	close(c.closedSig)
 	close(c.datagrams)
-	close(c.stunResponse)
 	close(c.udpAddrSends)
 	return nil
 }
@@ -185,38 +188,98 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 	}
 	// WAN
 	time.AfterFunc(time.Second, func() {
-		if _, ok := c.findPeer(peerID); !ok {
-			c.RequestSTUN(peerID, stunServers)
+		if _, ok := c.findPeer(peerID); ok {
+			return
+		}
+		natInfo := c.DetectNAT(stunServers)
+		if natInfo.Addrs == nil {
+			slog.Warn("No NAT addr found")
+			return
+		}
+		if natInfo.Type == disco.Hard {
+			for _, addr := range natInfo.Addrs {
+				c.udpAddrSends <- &disco.PeerUDPAddr{
+					ID:   peerID,
+					Addr: addr,
+					Type: natInfo.Type,
+				}
+			}
+			return
+		}
+		c.udpAddrSends <- &disco.PeerUDPAddr{
+			ID:   peerID,
+			Addr: natInfo.Addrs[0],
+			Type: natInfo.Type,
 		}
 	})
 }
 
-func (c *UDPConn) tryGetPeerkeeper(peerID disco.PeerID) *peerkeeper {
-	if !c.peersIndexMutex.TryRLock() {
-		return nil
+func (c *UDPConn) RoundTripSTUN(stunServer string) (*net.UDPAddr, error) {
+	udpConn := c.rawConn.Load()
+	if udpConn == nil {
+		return nil, errors.New("udp conn not ready yet")
 	}
-	ctx, ok := c.peersIndex[peerID]
-	c.peersIndexMutex.RUnlock()
-	if ok {
-		return ctx
+	txID := stun.NewTxID()
+	ch := make(chan stunResponse)
+	defer close(ch)
+	c.stunResponseMapMutex.Lock()
+	c.stunResponseMap[string(txID[:])] = ch
+	c.stunResponseMapMutex.Unlock()
+	uaddr, err := net.ResolveUDPAddr("udp", stunServer)
+	if err != nil {
+		return nil, fmt.Errorf("resolve stun addr: %w", err)
 	}
-	c.peersIndexMutex.Lock()
-	defer c.peersIndexMutex.Unlock()
-	if ctx, ok := c.peersIndex[peerID]; ok {
-		return ctx
+	_, err = udpConn.WriteToUDP(stun.Request(txID), uaddr)
+	if err != nil {
+		return nil, fmt.Errorf("write udp: %w", err)
 	}
-	pkeeper := peerkeeper{
-		peerID:     peerID,
-		states:     make(map[string]*PeerState),
-		createTime: time.Now(),
 
-		exitSig:           make(chan struct{}),
-		ping:              c.discoPing,
-		keepaliveInterval: c.cfg.PeerKeepaliveInterval,
+	timeout := time.NewTimer(3 * time.Second)
+	defer timeout.Stop()
+	select {
+	case r := <-ch:
+		return r.addr, nil
+	case <-timeout.C:
+		return nil, os.ErrDeadlineExceeded
 	}
-	c.peersIndex[peerID] = &pkeeper
-	go pkeeper.run()
-	return &pkeeper
+}
+
+func (c *UDPConn) DetectNAT(stunServers []string) NATInfo {
+	var udpAddrs []*net.UDPAddr
+	var mutex sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(len(stunServers))
+	for _, server := range stunServers {
+		go func() {
+			defer wg.Done()
+			udpAddr, err := c.RoundTripSTUN(server)
+			if err != nil {
+				slog.Log(context.Background(), -3, "RoundTripSTUN", "server", server, "err", err)
+				return
+			}
+			mutex.Lock()
+			defer mutex.Unlock()
+			udpAddrs = append(udpAddrs, udpAddr)
+		}()
+	}
+	wg.Wait()
+
+	if len(udpAddrs) <= 1 {
+		slog.Log(context.Background(), -1, "[NAT] TypeDetected", "type", disco.Unknown)
+		c.natInfo.Store(&NATInfo{Type: disco.Unknown, Addrs: udpAddrs})
+		return *c.natInfo.Load()
+	}
+	lastAddr := udpAddrs[0].String()
+	for _, addr := range udpAddrs {
+		if lastAddr != addr.String() {
+			slog.Log(context.Background(), -1, "[NAT] TypeDetected", "type", disco.Hard)
+			c.natInfo.Store(&NATInfo{Type: disco.Hard, Addrs: udpAddrs})
+			return *c.natInfo.Load()
+		}
+	}
+	slog.Log(context.Background(), -1, "[NAT] TypeDetected", "type", disco.Easy)
+	c.natInfo.Store(&NATInfo{Type: disco.Easy, Addrs: udpAddrs})
+	return *c.natInfo.Load()
 }
 
 func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
@@ -284,239 +347,6 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 	slog.Info("[UDP] PortScanExit", "peer", udpAddr.ID, "addr", udpAddr.Addr)
 }
 
-func (c *UDPConn) discoPing(peerID disco.PeerID, peerAddr *net.UDPAddr) {
-	udpConn := c.rawConn.Load()
-	if udpConn == nil {
-		return
-	}
-	slog.Debug("[UDP] DiscoPing", "peer", peerID, "addr", peerAddr)
-	udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), peerAddr)
-}
-
-func (c *UDPConn) localAddrs() []string {
-	ips, err := disco.ListLocalIPs()
-	if err != nil {
-		slog.Error("ListLocalIPsFailed", "details", err)
-		return nil
-	}
-	var detectIPs []string
-	for _, ip := range ips {
-		addr := net.JoinHostPort(ip.String(), fmt.Sprintf("%d", c.cfg.Port))
-		if ip.To4() != nil {
-			if c.cfg.DisableIPv4 {
-				continue
-			}
-		} else {
-			if c.cfg.DisableIPv6 {
-				continue
-			}
-		}
-		if slices.Contains(detectIPs, addr) {
-			continue
-		}
-		detectIPs = append(detectIPs, addr)
-	}
-	slog.Log(context.Background(), -2, "LocalAddrs", "addrs", detectIPs)
-	return detectIPs
-}
-
-func (c *UDPConn) runPacketEventLoop() {
-	buf := make([]byte, 65535)
-	for {
-		select {
-		case <-c.closedSig:
-			return
-		default:
-		}
-		udpConn := c.rawConn.Load()
-		if udpConn == nil {
-			continue
-		}
-		n, peerAddr, err := udpConn.ReadFromUDP(buf)
-		if err != nil {
-			if !strings.Contains(err.Error(), net.ErrClosed.Error()) {
-				slog.Error("read from udp error", "err", err)
-			}
-			time.Sleep(10 * time.Millisecond) // avoid busy wait
-			continue
-		}
-
-		// ping
-		if peerID := c.disco.ParsePing(buf[:n]); peerID.Len() > 0 {
-			c.tryGetPeerkeeper(peerID).heartbeat(peerAddr)
-			continue
-		}
-
-		// stun response
-		if stun.Is(buf[:n]) {
-			slog.Log(context.Background(), -3, "RecvSTUNResponse", "from", peerAddr)
-			b := make([]byte, n)
-			copy(b, buf[:n])
-			c.stunResponse <- b
-			continue
-		}
-
-		// datagram
-		peerID := c.findPeerID(peerAddr)
-		if peerID.Len() == 0 {
-			slog.Error("RecvButPeerNotReady", "addr", peerAddr)
-			continue
-		}
-		c.tryGetPeerkeeper(peerID).heartbeat(peerAddr)
-		b := make([]byte, n)
-		copy(b, buf[:n])
-		c.datagrams <- &disco.Datagram{PeerID: peerID, Data: b}
-	}
-}
-
-func (c *UDPConn) runSTUNEventLoop() {
-	for {
-		select {
-		case <-c.closedSig:
-			return
-		default:
-		}
-		stunResp, ok := <-c.stunResponse
-		if !ok {
-			return
-		}
-		txid, saddr, err := stun.ParseResponse(stunResp)
-		if err != nil {
-			slog.Error("Skipped invalid stun response", "err", err.Error())
-			continue
-		}
-
-		tx, ok := c.stunSessionManager.Get(string(txid[:]))
-		if !ok {
-			slog.Debug("Skipped unknown stun response", "txid", hex.EncodeToString(txid[:]))
-			continue
-		}
-
-		if !saddr.IsValid() {
-			slog.Error("Skipped invalid UDP addr", "addr", saddr)
-			continue
-		}
-		addr, err := net.ResolveUDPAddr("udp", saddr.String())
-		if err != nil {
-			slog.Error("Skipped resolve udp addr error", "err", err)
-			continue
-		}
-		tx.addrs = append(tx.addrs, addr.String())
-		natAddrFound := func(t disco.NATType) {
-			if tx.peerID == "" {
-				c.natType = t
-				slog.Log(context.Background(), -1, "NATAddrFound", "addr", addr, "type", t)
-				return
-			}
-			c.udpAddrSends <- &disco.PeerUDPAddr{ID: tx.peerID, Addr: addr, Type: t}
-		}
-		if len(tx.addrs) == 1 {
-			tx.timer = time.AfterFunc(3*time.Second, func() {
-				c.stunSessionManager.Remove(string(txid[:]))
-				if len(tx.addrs) > 1 {
-					natAddrFound(disco.Hard)
-					return
-				}
-				natAddrFound(disco.Unknown)
-			})
-			continue
-		}
-		if len(slices.Compact(tx.addrs)) == 1 {
-			tx.timer.Stop()
-			c.stunSessionManager.Remove(string(txid[:]))
-			natAddrFound(disco.Easy)
-			continue
-		}
-		natAddrFound(disco.Hard)
-	}
-}
-
-func (c *UDPConn) runPeersHealthcheckLoop() {
-	ticker := time.NewTicker(c.cfg.PeerKeepaliveInterval/2 + time.Second)
-	for {
-		select {
-		case <-c.closedSig:
-			ticker.Stop()
-			return
-		case <-ticker.C:
-			c.peersIndexMutex.Lock()
-			for k, v := range c.peersIndex {
-				v.healthcheck()
-				if len(v.states) == 0 {
-					v.close()
-					delete(c.peersIndex, k)
-				}
-			}
-			c.peersIndexMutex.Unlock()
-		}
-	}
-}
-
-func (c *UDPConn) RequestSTUN(peerID disco.PeerID, stunServers []string) {
-	udpConn := c.rawConn.Load()
-	if udpConn == nil {
-		return
-	}
-	txID := stun.NewTxID()
-	c.stunSessionManager.Set(string(txID[:]), peerID)
-	rand.Shuffle(len(stunServers), func(i, j int) { stunServers[i], stunServers[j] = stunServers[j], stunServers[i] })
-	for _, stunServer := range stunServers {
-		uaddr, err := net.ResolveUDPAddr("udp", stunServer)
-		if err != nil {
-			slog.Error("Invalid STUN addr", "addr", stunServer, "err", err.Error())
-			continue
-		}
-		_, err = udpConn.WriteToUDP(stun.Request(txID), uaddr)
-		if err != nil {
-			slog.Error("Request STUN server failed", "err", err.Error())
-			continue
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-}
-
-func (c *UDPConn) findPeerID(udpAddr *net.UDPAddr) disco.PeerID {
-	if udpAddr == nil {
-		return ""
-	}
-	c.peersIndexMutex.RLock()
-	defer c.peersIndexMutex.RUnlock()
-	var candidates []PeerState
-peerSeek:
-	for _, v := range c.peersIndex {
-		for _, state := range v.states {
-			if !state.Addr.IP.Equal(udpAddr.IP) || state.Addr.Port != udpAddr.Port {
-				continue
-			}
-			if time.Since(state.LastActiveTime) > 2*c.cfg.PeerKeepaliveInterval {
-				continue peerSeek
-			}
-			candidates = append(candidates, *state)
-			continue peerSeek
-		}
-	}
-	if len(candidates) == 0 {
-		return ""
-	}
-	slices.SortFunc(candidates, func(c1, c2 PeerState) int {
-		if c1.LastActiveTime.After(c2.LastActiveTime) {
-			return -1
-		}
-		return 1
-	})
-	return candidates[0].PeerID
-}
-
-// FindPeer is used to find ready peer context by peer id
-func (c *UDPConn) findPeer(peerID disco.PeerID) (*peerkeeper, bool) {
-	c.peersIndexMutex.RLock()
-	defer c.peersIndexMutex.RUnlock()
-	if peer, ok := c.peersIndex[peerID]; ok && peer.ready() {
-		return peer, true
-	}
-	return nil, false
-}
-
 func (c *UDPConn) WriteToUDP(p []byte, peerID disco.PeerID) (int, error) {
 	if peer, ok := c.findPeer(peerID); ok {
 		if addr := peer.selectUDPAddr(); addr != nil {
@@ -579,6 +409,202 @@ func (c *UDPConn) RestartListener() error {
 	return nil
 }
 
+func (c *UDPConn) discoPing(peerID disco.PeerID, peerAddr *net.UDPAddr) {
+	udpConn := c.rawConn.Load()
+	if udpConn == nil {
+		return
+	}
+	slog.Debug("[UDP] DiscoPing", "peer", peerID, "addr", peerAddr)
+	udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), peerAddr)
+}
+
+func (c *UDPConn) localAddrs() []string {
+	ips, err := disco.ListLocalIPs()
+	if err != nil {
+		slog.Error("ListLocalIPsFailed", "details", err)
+		return nil
+	}
+	var detectIPs []string
+	for _, ip := range ips {
+		addr := net.JoinHostPort(ip.String(), fmt.Sprintf("%d", c.cfg.Port))
+		if ip.To4() != nil {
+			if c.cfg.DisableIPv4 {
+				continue
+			}
+		} else {
+			if c.cfg.DisableIPv6 {
+				continue
+			}
+		}
+		if slices.Contains(detectIPs, addr) {
+			continue
+		}
+		detectIPs = append(detectIPs, addr)
+	}
+	slog.Log(context.Background(), -2, "LocalAddrs", "addrs", detectIPs)
+	return detectIPs
+}
+
+func (c *UDPConn) tryGetPeerkeeper(peerID disco.PeerID) *peerkeeper {
+	if !c.peersIndexMutex.TryRLock() {
+		return nil
+	}
+	ctx, ok := c.peersIndex[peerID]
+	c.peersIndexMutex.RUnlock()
+	if ok {
+		return ctx
+	}
+	c.peersIndexMutex.Lock()
+	defer c.peersIndexMutex.Unlock()
+	if ctx, ok := c.peersIndex[peerID]; ok {
+		return ctx
+	}
+	pkeeper := peerkeeper{
+		peerID:     peerID,
+		states:     make(map[string]*PeerState),
+		createTime: time.Now(),
+
+		exitSig:           make(chan struct{}),
+		ping:              c.discoPing,
+		keepaliveInterval: c.cfg.PeerKeepaliveInterval,
+	}
+	c.peersIndex[peerID] = &pkeeper
+	go pkeeper.run()
+	return &pkeeper
+}
+
+func (c *UDPConn) runPacketEventLoop() {
+	buf := make([]byte, 65535)
+	for {
+		select {
+		case <-c.closedSig:
+			return
+		default:
+		}
+		udpConn := c.rawConn.Load()
+		if udpConn == nil {
+			continue
+		}
+		n, peerAddr, err := udpConn.ReadFromUDP(buf)
+		if err != nil {
+			if !strings.Contains(err.Error(), net.ErrClosed.Error()) {
+				slog.Error("read from udp error", "err", err)
+			}
+			time.Sleep(10 * time.Millisecond) // avoid busy wait
+			continue
+		}
+
+		// ping
+		if peerID := c.disco.ParsePing(buf[:n]); peerID.Len() > 0 {
+			c.tryGetPeerkeeper(peerID).heartbeat(peerAddr)
+			continue
+		}
+
+		// stun response
+		if stun.Is(buf[:n]) {
+			c.recvSTUNResponse(buf[:n], peerAddr)
+			continue
+		}
+
+		// datagram
+		peerID := c.findPeerID(peerAddr)
+		if peerID.Len() == 0 {
+			slog.Error("RecvButPeerNotReady", "addr", peerAddr)
+			continue
+		}
+		c.tryGetPeerkeeper(peerID).heartbeat(peerAddr)
+		b := make([]byte, n)
+		copy(b, buf[:n])
+		c.datagrams <- &disco.Datagram{PeerID: peerID, Data: b}
+	}
+}
+
+func (c *UDPConn) recvSTUNResponse(b []byte, peerAddr net.Addr) {
+	txid, saddr, err := stun.ParseResponse(b)
+	if err != nil {
+		slog.Error("[STUN] ParseResponse", "stun", peerAddr, "err", fmt.Errorf("parse: %w", err))
+		return
+	}
+	c.stunResponseMapMutex.RLock()
+	if r, ok := c.stunResponseMap[string(txid[:])]; ok {
+		c.stunResponseMapMutex.RUnlock()
+		addr, err := net.ResolveUDPAddr("udp", saddr.String())
+		if err != nil {
+			slog.Error("[STUN] ParseResponse", "stun", peerAddr, "err", fmt.Errorf("resolve udp addr: %w", err))
+			return
+		}
+		resp := stunResponse{txid: string(txid[:]), addr: addr}
+		r <- resp
+		slog.Log(context.Background(), -3, "[STUN] RecvResponse", "from", peerAddr, "pub_addr", addr)
+		return
+	}
+	c.stunResponseMapMutex.RUnlock()
+	slog.Log(context.Background(), -3, "[STUN] RecvResponse", "from", peerAddr)
+}
+
+func (c *UDPConn) runPeersHealthcheckLoop() {
+	ticker := time.NewTicker(c.cfg.PeerKeepaliveInterval/2 + time.Second)
+	for {
+		select {
+		case <-c.closedSig:
+			ticker.Stop()
+			return
+		case <-ticker.C:
+			c.peersIndexMutex.Lock()
+			for k, v := range c.peersIndex {
+				v.healthcheck()
+				if len(v.states) == 0 {
+					v.close()
+					delete(c.peersIndex, k)
+				}
+			}
+			c.peersIndexMutex.Unlock()
+		}
+	}
+}
+
+func (c *UDPConn) findPeerID(udpAddr *net.UDPAddr) disco.PeerID {
+	if udpAddr == nil {
+		return ""
+	}
+	c.peersIndexMutex.RLock()
+	defer c.peersIndexMutex.RUnlock()
+	var candidates []PeerState
+peerSeek:
+	for _, v := range c.peersIndex {
+		for _, state := range v.states {
+			if !state.Addr.IP.Equal(udpAddr.IP) || state.Addr.Port != udpAddr.Port {
+				continue
+			}
+			if time.Since(state.LastActiveTime) > 2*c.cfg.PeerKeepaliveInterval {
+				continue peerSeek
+			}
+			candidates = append(candidates, *state)
+			continue peerSeek
+		}
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	slices.SortFunc(candidates, func(c1, c2 PeerState) int {
+		if c1.LastActiveTime.After(c2.LastActiveTime) {
+			return -1
+		}
+		return 1
+	})
+	return candidates[0].PeerID
+}
+
+// FindPeer is used to find ready peer context by peer id
+func (c *UDPConn) findPeer(peerID disco.PeerID) (*peerkeeper, bool) {
+	c.peersIndexMutex.RLock()
+	defer c.peersIndexMutex.RUnlock()
+	if peer, ok := c.peersIndex[peerID]; ok && peer.ready() {
+		return peer, true
+	}
+	return nil, false
+}
+
 func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 	if cfg.ID.Len() == 0 {
 		return nil, errors.New("peer id is required")
@@ -588,21 +614,19 @@ func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 	}
 
 	udpConn := UDPConn{
-		cfg:                cfg,
-		disco:              &disco.Disco{Magic: cfg.DiscoMagic},
-		closedSig:          make(chan int),
-		datagrams:          make(chan *disco.Datagram),
-		udpAddrSends:       make(chan *disco.PeerUDPAddr, 10),
-		stunResponse:       make(chan []byte, 10),
-		peersIndex:         make(map[disco.PeerID]*peerkeeper),
-		stunSessionManager: stunSessionManager{sessions: make(map[string]*stunSession)},
+		cfg:             cfg,
+		disco:           &disco.Disco{Magic: cfg.DiscoMagic},
+		closedSig:       make(chan int),
+		datagrams:       make(chan *disco.Datagram),
+		udpAddrSends:    make(chan *disco.PeerUDPAddr, 10),
+		peersIndex:      make(map[disco.PeerID]*peerkeeper),
+		stunResponseMap: make(map[string]chan stunResponse),
 	}
 
 	if err := udpConn.RestartListener(); err != nil {
 		return nil, err
 	}
 
-	go udpConn.runSTUNEventLoop()
 	go udpConn.runPacketEventLoop()
 	go udpConn.runPeersHealthcheckLoop()
 	return &udpConn, nil
@@ -618,35 +642,9 @@ type PeerState struct {
 	LastActiveTime time.Time
 }
 
-type stunSession struct {
-	peerID disco.PeerID
-	cTime  time.Time
-	addrs  []string
-	timer  *time.Timer
-}
-
-type stunSessionManager struct {
-	sync.RWMutex
-	sessions map[string]*stunSession
-}
-
-func (m *stunSessionManager) Get(txid string) (*stunSession, bool) {
-	m.RLock()
-	defer m.RUnlock()
-	s, ok := m.sessions[txid]
-	return s, ok
-}
-
-func (m *stunSessionManager) Set(txid string, peerID disco.PeerID) {
-	m.Lock()
-	defer m.Unlock()
-	m.sessions[txid] = &stunSession{peerID: peerID, cTime: time.Now()}
-}
-
-func (m *stunSessionManager) Remove(txid string) {
-	m.Lock()
-	defer m.Unlock()
-	delete(m.sessions, txid)
+type stunResponse struct {
+	txid string
+	addr *net.UDPAddr
 }
 
 type peerkeeper struct {
