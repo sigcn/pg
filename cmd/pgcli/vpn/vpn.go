@@ -49,8 +49,7 @@ func init() {
 	Cmd.Flags().StringP("server", "s", os.Getenv("PG_SERVER"), "peermap server url")
 	Cmd.Flags().StringSlice("peer", []string{}, "specify peers instead of auto-discovery (pg://<peerID>?alias1=<ipv4>&alias2=<ipv6>)")
 
-	Cmd.Flags().Int("disco-port-scan-offset", -1000, "scan ports offset when disco")
-	Cmd.Flags().Int("disco-port-scan-count", 3000, "scan ports count when disco")
+	Cmd.Flags().Int("disco-port-scan-count", 2000, "scan ports count when disco")
 	Cmd.Flags().Duration("disco-port-scan-duration", 6*time.Second, "scan ports duration when disco")
 	Cmd.Flags().Int("disco-challenges-retry", 5, "ping challenges retry count when disco")
 	Cmd.Flags().Duration("disco-challenges-initial-interval", 200*time.Millisecond, "ping challenges initial interval when disco")
@@ -87,10 +86,6 @@ func run(cmd *cobra.Command, args []string) (err error) {
 }
 
 func createConfig(cmd *cobra.Command) (cfg Config, err error) {
-	cfg.DiscoPortScanOffset, err = cmd.Flags().GetInt("disco-port-scan-offset")
-	if err != nil {
-		return
-	}
 	cfg.DiscoPortScanCount, err = cmd.Flags().GetInt("disco-port-scan-count")
 	if err != nil {
 		return
@@ -160,7 +155,6 @@ func createConfig(cmd *cobra.Command) (cfg Config, err error) {
 
 type Config struct {
 	iface.Config
-	DiscoPortScanOffset            int
 	DiscoPortScanCount             int
 	DiscoPortScanDuration          time.Duration
 	DiscoChallengesRetry           int
@@ -200,7 +194,6 @@ func (v *P2PVPN) Run(ctx context.Context) error {
 
 func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err error) {
 	tp.SetModifyDiscoConfig(func(cfg *tp.DiscoConfig) {
-		cfg.PortScanOffset = v.Config.DiscoPortScanOffset
 		cfg.PortScanCount = v.Config.DiscoPortScanCount
 		cfg.PortScanDuration = v.Config.DiscoPortScanDuration
 		cfg.ChallengesRetry = v.Config.DiscoChallengesRetry

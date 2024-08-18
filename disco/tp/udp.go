@@ -2,12 +2,12 @@ package tp
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand"
+	"math/big"
 	"net"
-	"net/netip"
 	"os"
 	"slices"
 	"strings"
@@ -22,8 +22,7 @@ import (
 )
 
 var defaultDiscoConfig = DiscoConfig{
-	PortScanOffset:            -1000,
-	PortScanCount:             3000,
+	PortScanCount:             2000,
 	PortScanDuration:          5 * time.Second,
 	ChallengesRetry:           5,
 	ChallengesInitialInterval: 200 * time.Millisecond,
@@ -31,7 +30,6 @@ var defaultDiscoConfig = DiscoConfig{
 }
 
 type DiscoConfig struct {
-	PortScanOffset            int
 	PortScanCount             int
 	PortScanDuration          time.Duration
 	ChallengesRetry           int
@@ -43,7 +41,6 @@ func SetModifyDiscoConfig(modify func(cfg *DiscoConfig)) {
 	if modify != nil {
 		modify(&defaultDiscoConfig)
 	}
-	defaultDiscoConfig.PortScanOffset = max(min(defaultDiscoConfig.PortScanOffset, 65535), -65535)
 	defaultDiscoConfig.PortScanCount = min(max(32, defaultDiscoConfig.PortScanCount), 65535-1024)
 	defaultDiscoConfig.PortScanDuration = max(time.Second, defaultDiscoConfig.PortScanDuration)
 	defaultDiscoConfig.ChallengesRetry = max(1, defaultDiscoConfig.ChallengesRetry)
@@ -72,7 +69,9 @@ type UDPConfig struct {
 }
 
 type UDPConn struct {
-	rawConn      atomic.Pointer[net.UDPConn]
+	udpConnsMutex sync.RWMutex
+	udpConns      []*net.UDPConn
+
 	cfg          UDPConfig
 	disco        *disco.Disco
 	closedSig    chan int
@@ -93,9 +92,12 @@ func (c *UDPConn) Close() error {
 	if c.upnpDeleteMapping != nil {
 		c.upnpDeleteMapping()
 	}
-	if conn := c.rawConn.Load(); conn != nil {
+	c.udpConnsMutex.RLock()
+	for _, conn := range c.udpConns {
 		conn.Close()
 	}
+	c.udpConnsMutex.RUnlock()
+
 	close(c.closedSig)
 	close(c.datagrams)
 	close(c.udpAddrSends)
@@ -105,21 +107,23 @@ func (c *UDPConn) Close() error {
 // SetReadBuffer sets the size of the operating system's
 // receive buffer associated with the connection.
 func (c *UDPConn) SetReadBuffer(bytes int) error {
-	udpConn := c.rawConn.Load()
-	if udpConn == nil {
-		return ErrUDPConnNotReady
+	c.udpConnsMutex.RLock()
+	defer c.udpConnsMutex.RUnlock()
+	for _, conn := range c.udpConns {
+		conn.SetReadBuffer(bytes)
 	}
-	return udpConn.SetReadBuffer(bytes)
+	return nil
 }
 
 // SetWriteBuffer sets the size of the operating system's
 // transmit buffer associated with the connection.
 func (c *UDPConn) SetWriteBuffer(bytes int) error {
-	udpConn := c.rawConn.Load()
-	if udpConn == nil {
-		return ErrUDPConnNotReady
+	c.udpConnsMutex.RLock()
+	defer c.udpConnsMutex.RUnlock()
+	for _, conn := range c.udpConns {
+		conn.SetWriteBuffer(bytes)
 	}
-	return udpConn.SetWriteBuffer(bytes)
+	return nil
 }
 
 func (c *UDPConn) Datagrams() <-chan *disco.Datagram {
@@ -143,13 +147,8 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 			slog.Debug("UPnP is disabled", "err", err)
 			return
 		}
-		udpConn := c.rawConn.Load()
-		if udpConn == nil {
-			slog.Error("UPnP discover", "err", ErrUDPConnNotReady)
-			return
-		}
-		udpPort := int(netip.MustParseAddrPort(udpConn.LocalAddr().String()).Port())
 
+		udpPort := c.cfg.Port
 		for i := 0; i < 20; i++ {
 			mappedPort, err := nat.AddPortMapping("udp", udpPort+i, udpPort, "peerguard", 24*3600)
 			if err != nil {
@@ -215,10 +214,11 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 }
 
 func (c *UDPConn) RoundTripSTUN(stunServer string) (*net.UDPAddr, error) {
-	udpConn := c.rawConn.Load()
-	if udpConn == nil {
-		return nil, errors.New("udp conn not ready yet")
+	udpConn, err := c.getMainUDPConn()
+	if err != nil {
+		return nil, err
 	}
+
 	txID := stun.NewTxID()
 	ch := make(chan stunResponse)
 	defer close(ch)
@@ -244,7 +244,20 @@ func (c *UDPConn) RoundTripSTUN(stunServer string) (*net.UDPAddr, error) {
 	}
 }
 
-func (c *UDPConn) DetectNAT(stunServers []string) NATInfo {
+func (c *UDPConn) DetectNAT(stunServers []string) (info NATInfo) {
+	defer func() {
+		slog.Log(context.Background(), -1, "[NAT] DetectNAT", "type", info.Type)
+		c.natInfo.Store(&info)
+		if info.Type == disco.Hard {
+			if lastNATInfo := c.natInfo.Load(); lastNATInfo == nil || lastNATInfo.Type != disco.Hard {
+				c.RestartListener()
+			}
+			return
+		}
+		if lastNATInfo := c.natInfo.Load(); lastNATInfo != nil && lastNATInfo.Type == disco.Hard {
+			c.RestartListener()
+		}
+	}()
 	var udpAddrs []*net.UDPAddr
 	var mutex sync.Mutex
 	var wg sync.WaitGroup
@@ -265,98 +278,98 @@ func (c *UDPConn) DetectNAT(stunServers []string) NATInfo {
 	wg.Wait()
 
 	if len(udpAddrs) <= 1 {
-		slog.Log(context.Background(), -1, "[NAT] TypeDetected", "type", disco.Unknown)
-		c.natInfo.Store(&NATInfo{Type: disco.Unknown, Addrs: udpAddrs})
-		return *c.natInfo.Load()
+		return NATInfo{Type: disco.Unknown, Addrs: udpAddrs}
 	}
 	lastAddr := udpAddrs[0].String()
 	for _, addr := range udpAddrs {
 		if lastAddr != addr.String() {
-			slog.Log(context.Background(), -1, "[NAT] TypeDetected", "type", disco.Hard)
-			c.natInfo.Store(&NATInfo{Type: disco.Hard, Addrs: udpAddrs})
-			return *c.natInfo.Load()
+			return NATInfo{Type: disco.Hard, Addrs: udpAddrs}
 		}
 	}
-	slog.Log(context.Background(), -1, "[NAT] TypeDetected", "type", disco.Easy)
-	c.natInfo.Store(&NATInfo{Type: disco.Easy, Addrs: udpAddrs})
-	return *c.natInfo.Load()
+	return NATInfo{Type: disco.Easy, Addrs: udpAddrs}
 }
 
 func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
-	udpConn := c.rawConn.Load()
-	if udpConn == nil {
-		return
-	}
 	slog.Log(context.Background(), -2, "RecvPeerAddr", "peer", udpAddr.ID, "udp", udpAddr.Addr, "nat", udpAddr.Type.String())
-	defer slog.Debug("[UDP] DiscoExit", "peer", udpAddr.ID, "addr", udpAddr.Addr)
-	c.discoPing(udpAddr.ID, udpAddr.Addr)
-	interval := defaultDiscoConfig.ChallengesInitialInterval + time.Duration(rand.Intn(50)*int(time.Millisecond))
-	for i := 0; i < defaultDiscoConfig.ChallengesRetry; i++ {
-		time.Sleep(interval)
-		select {
-		case <-c.closedSig:
-			return
-		default:
-		}
-		c.discoPing(udpAddr.ID, udpAddr.Addr)
-		interval = time.Duration(float64(interval) * defaultDiscoConfig.ChallengesBackoffRate)
-		if c.findPeerID(udpAddr.Addr) != "" {
-			return
-		}
-	}
 
-	if ctx, ok := c.findPeer(udpAddr.ID); (ok && ctx.ready()) || (udpAddr.Addr.IP.To4() == nil) || udpAddr.Addr.IP.IsPrivate() {
-		return
-	}
+	easyChallenges := func(udpConn *net.UDPConn, wg *sync.WaitGroup, packetCounter *int32) {
+		defer wg.Done()
+		atomic.AddInt32(packetCounter, 1)
+		c.discoPing(udpConn, udpAddr.ID, udpAddr.Addr)
+		randDelay, _ := rand.Int(rand.Reader, big.NewInt(50))
 
-	if slices.Contains([]disco.NATType{disco.Easy, disco.IP4, disco.IP6, disco.UPnP}, udpAddr.Type) {
-		return
-	}
-
-	slog.Info("[UDP] PortScanning", "peer", udpAddr.ID, "addr", udpAddr.Addr)
-	scan := func(round int) bool {
-		limit := defaultDiscoConfig.PortScanCount / max(1, int(defaultDiscoConfig.PortScanDuration.Seconds()))
-		rl := rate.NewLimiter(rate.Limit(limit), limit)
-		for port := udpAddr.Addr.Port + defaultDiscoConfig.PortScanOffset; port <= udpAddr.Addr.Port+defaultDiscoConfig.PortScanCount; port++ {
+		interval := defaultDiscoConfig.ChallengesInitialInterval + time.Duration(randDelay.Int64()*int64(time.Millisecond))
+		for i := 0; i < defaultDiscoConfig.ChallengesRetry; i++ {
+			time.Sleep(interval)
 			select {
 			case <-c.closedSig:
-				return false
+				return
 			default:
 			}
-			p := port % 65536
-			if p <= 1024 {
-				continue
+			c.discoPing(udpConn, udpAddr.ID, udpAddr.Addr)
+			atomic.AddInt32(packetCounter, 1)
+			interval = time.Duration(float64(interval) * defaultDiscoConfig.ChallengesBackoffRate)
+			if c.findPeerID(udpAddr.Addr) != "" {
+				return
+			}
+		}
+	}
+
+	hardChallenges := func(udpConn *net.UDPConn, packetCounter *int32) {
+		limit := defaultDiscoConfig.PortScanCount / max(1, int(defaultDiscoConfig.PortScanDuration.Seconds()))
+		rl := rate.NewLimiter(rate.Limit(limit), limit)
+		for range defaultDiscoConfig.PortScanCount {
+			select {
+			case <-c.closedSig:
+				return
+			default:
 			}
 			if ctx, ok := c.findPeer(udpAddr.ID); ok && ctx.ready() {
-				slog.Info("[UDP] PortScanHit", "peer", udpAddr.ID, "round", round, "port", p)
-				return true
+				slog.Info("[UDP] HardChallengesHit", "peer", udpAddr.ID)
+				return
 			}
 			if err := rl.Wait(context.Background()); err != nil {
-				slog.Error("[UDP] PortScanRateLimiter", "err", err)
-				return false
+				slog.Error("[UDP] HardChallengesRateLimiter", "err", err)
+				return
 			}
-			udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), &net.UDPAddr{IP: udpAddr.Addr.IP, Port: p})
-		}
-		return false
-	}
-	for i := range 2 {
-		if scan(i + 1) {
-			break
+			port, _ := rand.Int(rand.Reader, big.NewInt(65535-1024))
+			udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), &net.UDPAddr{IP: udpAddr.Addr.IP, Port: int(port.Int64())})
+			*packetCounter++
 		}
 	}
-	slog.Info("[UDP] PortScanExit", "peer", udpAddr.ID, "addr", udpAddr.Addr)
+
+	if udpAddr.Type == disco.Hard {
+		if info := c.natInfo.Load(); info != nil && info.Type == disco.Hard {
+			return
+		}
+		udpConn, err := c.getMainUDPConn()
+		if err != nil {
+			slog.Error("[UDP] HardChallenges", "err", err)
+			return
+		}
+		var packetCounter int32
+		slog.Info("[UDP] HardChallengesStarted", "peer", udpAddr.ID, "addr", udpAddr.Addr)
+		hardChallenges(udpConn, &packetCounter)
+		slog.Info("[UDP] HardChallengesStopped", "peer", udpAddr.ID, "addr", udpAddr.Addr, "packet_count", packetCounter)
+		return
+	}
+
+	slog.Log(context.Background(), -3, "[UDP] EasyChallengesStarted", "peer", udpAddr.ID, "addr", udpAddr.Addr)
+	var wg sync.WaitGroup
+	c.udpConnsMutex.RLock()
+	wg.Add(len(c.udpConns))
+	var packetCounter int32
+	for _, conn := range c.udpConns {
+		go easyChallenges(conn, &wg, &packetCounter)
+	}
+	c.udpConnsMutex.RUnlock()
+	wg.Wait()
+	slog.Log(context.Background(), -3, "[UDP] EasyChallengesStopped", "peer", udpAddr.ID, "addr", udpAddr.Addr, "packet_count", packetCounter)
 }
 
 func (c *UDPConn) WriteToUDP(p []byte, peerID disco.PeerID) (int, error) {
 	if peer, ok := c.findPeer(peerID); ok {
-		if addr := peer.selectUDPAddr(); addr != nil {
-			udpConn := c.rawConn.Load()
-			if udpConn == nil {
-				return 0, ErrUDPConnNotReady
-			}
-			slog.Log(context.Background(), -3, "[UDP] WriteTo", "peer", peerID, "addr", addr)
-			return udpConn.WriteToUDP(p, addr)
-		}
+		return peer.writeUDP(p)
 	}
 	return 0, net.ErrClosed
 }
@@ -398,22 +411,48 @@ func (c *UDPConn) Peers() (peers []PeerState) {
 }
 
 func (c *UDPConn) RestartListener() error {
-	if udpConn := c.rawConn.Load(); udpConn != nil {
-		udpConn.Close()
+	c.udpConnsMutex.Lock()
+	defer c.udpConnsMutex.Unlock()
+
+	// close the existing connection(s)
+	for _, conn := range c.udpConns {
+		conn.Close()
 	}
+	c.udpConns = c.udpConns[:0]
+
+	// listen new connection(s)
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: c.cfg.Port})
 	if err != nil {
 		return fmt.Errorf("listen udp error: %w", err)
 	}
-	c.rawConn.Store(conn)
+	go c.runPacketEventLoop(conn)
+	c.udpConns = append(c.udpConns, conn)
+
+	if info := c.natInfo.Load(); info != nil && info.Type == disco.Hard {
+		for i := range 255 {
+			conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: c.cfg.Port + 1 + i})
+			if err != nil {
+				slog.Warn("ListenPorts", "err", err)
+				continue
+			}
+			go c.runPacketEventLoop(conn)
+			c.udpConns = append(c.udpConns, conn)
+		}
+		slog.Info("ListenPorts 256 on hard side")
+	}
 	return nil
 }
 
-func (c *UDPConn) discoPing(peerID disco.PeerID, peerAddr *net.UDPAddr) {
-	udpConn := c.rawConn.Load()
-	if udpConn == nil {
-		return
+func (c *UDPConn) getMainUDPConn() (*net.UDPConn, error) {
+	c.udpConnsMutex.RLock()
+	defer c.udpConnsMutex.RUnlock()
+	if c.udpConns == nil {
+		return nil, errors.New("udp conn not ready yet")
 	}
+	return c.udpConns[0], nil
+}
+
+func (c *UDPConn) discoPing(udpConn *net.UDPConn, peerID disco.PeerID, peerAddr *net.UDPAddr) {
 	slog.Debug("[UDP] DiscoPing", "peer", peerID, "addr", peerAddr)
 	udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), peerAddr)
 }
@@ -445,7 +484,7 @@ func (c *UDPConn) localAddrs() []string {
 	return detectIPs
 }
 
-func (c *UDPConn) tryGetPeerkeeper(peerID disco.PeerID) *peerkeeper {
+func (c *UDPConn) tryGetPeerkeeper(udpConn *net.UDPConn, peerID disco.PeerID) *peerkeeper {
 	if !c.peersIndexMutex.TryRLock() {
 		return nil
 	}
@@ -460,6 +499,7 @@ func (c *UDPConn) tryGetPeerkeeper(peerID disco.PeerID) *peerkeeper {
 		return ctx
 	}
 	pkeeper := peerkeeper{
+		udpConn:    udpConn,
 		peerID:     peerID,
 		states:     make(map[string]*PeerState),
 		createTime: time.Now(),
@@ -473,7 +513,7 @@ func (c *UDPConn) tryGetPeerkeeper(peerID disco.PeerID) *peerkeeper {
 	return &pkeeper
 }
 
-func (c *UDPConn) runPacketEventLoop() {
+func (c *UDPConn) runPacketEventLoop(udpConn *net.UDPConn) {
 	buf := make([]byte, 65535)
 	for {
 		select {
@@ -481,22 +521,19 @@ func (c *UDPConn) runPacketEventLoop() {
 			return
 		default:
 		}
-		udpConn := c.rawConn.Load()
-		if udpConn == nil {
-			continue
-		}
 		n, peerAddr, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
-			if !strings.Contains(err.Error(), net.ErrClosed.Error()) {
-				slog.Error("read from udp error", "err", err)
+			if strings.Contains(err.Error(), net.ErrClosed.Error()) {
+				return
 			}
+			slog.Error("[UDP] ReadPacket", "err", err)
 			time.Sleep(10 * time.Millisecond) // avoid busy wait
 			continue
 		}
 
 		// ping
 		if peerID := c.disco.ParsePing(buf[:n]); peerID.Len() > 0 {
-			c.tryGetPeerkeeper(peerID).heartbeat(peerAddr)
+			c.tryGetPeerkeeper(udpConn, peerID).heartbeat(peerAddr)
 			continue
 		}
 
@@ -512,7 +549,7 @@ func (c *UDPConn) runPacketEventLoop() {
 			slog.Error("RecvButPeerNotReady", "addr", peerAddr)
 			continue
 		}
-		c.tryGetPeerkeeper(peerID).heartbeat(peerAddr)
+		c.tryGetPeerkeeper(udpConn, peerID).heartbeat(peerAddr)
 		b := make([]byte, n)
 		copy(b, buf[:n])
 		c.datagrams <- &disco.Datagram{PeerID: peerID, Data: b}
@@ -534,12 +571,15 @@ func (c *UDPConn) recvSTUNResponse(b []byte, peerAddr net.Addr) {
 			return
 		}
 		resp := stunResponse{txid: string(txid[:]), addr: addr}
-		r <- resp
-		slog.Log(context.Background(), -3, "[STUN] RecvResponse", "from", peerAddr, "pub_addr", addr)
+		select {
+		case r <- resp:
+		default:
+		}
+		slog.Log(context.Background(), -2, "[STUN] RecvResponse", "from", peerAddr, "pub_addr", addr)
 		return
 	}
 	c.stunResponseMapMutex.RUnlock()
-	slog.Log(context.Background(), -3, "[STUN] RecvResponse", "from", peerAddr)
+	slog.Log(context.Background(), -2, "[STUN] RecvResponse", "from", peerAddr)
 }
 
 func (c *UDPConn) runPeersHealthcheckLoop() {
@@ -627,7 +667,6 @@ func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 		return nil, err
 	}
 
-	go udpConn.runPacketEventLoop()
 	go udpConn.runPeersHealthcheckLoop()
 	return &udpConn, nil
 }
@@ -648,12 +687,13 @@ type stunResponse struct {
 }
 
 type peerkeeper struct {
+	udpConn    *net.UDPConn
 	peerID     disco.PeerID
 	states     map[string]*PeerState // key is udp addr
 	createTime time.Time
 
 	exitSig           chan struct{}
-	ping              func(peerID disco.PeerID, addr *net.UDPAddr)
+	ping              func(udpConn *net.UDPConn, peerID disco.PeerID, addr *net.UDPAddr)
 	keepaliveInterval time.Duration
 
 	statesMutex sync.RWMutex
@@ -673,7 +713,7 @@ func (peer *peerkeeper) heartbeat(addr *net.UDPAddr) {
 	}
 	slog.Info("[UDP] AddPeer", "peer", peer.peerID, "addr", addr)
 	peer.states[addr.String()] = &PeerState{Addr: addr, LastActiveTime: time.Now(), PeerID: peer.peerID}
-	peer.ping(peer.peerID, addr)
+	peer.ping(peer.udpConn, peer.peerID, addr)
 }
 
 func (peer *peerkeeper) healthcheck() {
@@ -722,6 +762,14 @@ func (peer *peerkeeper) selectUDPAddr() *net.UDPAddr {
 	return candidates[0].Addr
 }
 
+func (peer *peerkeeper) writeUDP(p []byte) (int, error) {
+	if addr := peer.selectUDPAddr(); addr != nil {
+		slog.Log(context.Background(), -3, "[UDP] WriteTo", "peer", peer.peerID, "addr", addr)
+		return peer.udpConn.WriteTo(p, addr)
+	}
+	return 0, net.ErrClosed
+}
+
 func (peer *peerkeeper) run() {
 	ticker := time.NewTicker(peer.keepaliveInterval)
 	ping := func() {
@@ -732,7 +780,7 @@ func (peer *peerkeeper) run() {
 		}
 		peer.statesMutex.RUnlock()
 		for _, addr := range addrs {
-			peer.ping(peer.peerID, addr)
+			peer.ping(peer.udpConn, peer.peerID, addr)
 		}
 	}
 	for {

@@ -4,7 +4,7 @@ Another p2p network library in Go. Committed to direct communication between dev
 [[简体中文]](https://github.com/rkonfj/peerguard/blob/main/README_zh_CN.md)
 ## Features
 - Elegantly simple architecture (pgcli & pgmap & OpenID Connect)
-- NAT traversal with high success rate (STUN & UPnP & PortScan)
+- NAT traversal with high success rate (STUN & UPnP & BirthdayParadox)
 - Full support for IPv4/IPv6 dual stack
 - Easy-to-use library (net.PacketConn) 
 - **Transport layer security (curve25519 & chacha20poly1305 for end-to-end encryption)**
