@@ -22,7 +22,8 @@ import (
 )
 
 var defaultDiscoConfig = DiscoConfig{
-	PortScanCount:             2000,
+	PortScanOffset:            -500,
+	PortScanCount:             3000,
 	PortScanDuration:          5 * time.Second,
 	ChallengesRetry:           5,
 	ChallengesInitialInterval: 200 * time.Millisecond,
@@ -30,6 +31,7 @@ var defaultDiscoConfig = DiscoConfig{
 }
 
 type DiscoConfig struct {
+	PortScanOffset            int
 	PortScanCount             int
 	PortScanDuration          time.Duration
 	ChallengesRetry           int
@@ -41,6 +43,7 @@ func SetModifyDiscoConfig(modify func(cfg *DiscoConfig)) {
 	if modify != nil {
 		modify(&defaultDiscoConfig)
 	}
+	defaultDiscoConfig.PortScanOffset = max(min(defaultDiscoConfig.PortScanOffset, 65535), -65535)
 	defaultDiscoConfig.PortScanCount = min(max(32, defaultDiscoConfig.PortScanCount), 65535-1024)
 	defaultDiscoConfig.PortScanDuration = max(time.Second, defaultDiscoConfig.PortScanDuration)
 	defaultDiscoConfig.ChallengesRetry = max(1, defaultDiscoConfig.ChallengesRetry)
@@ -316,9 +319,8 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 	}
 
 	hardChallenges := func(udpConn *net.UDPConn, packetCounter *int32) {
-		limit := defaultDiscoConfig.PortScanCount / max(1, int(defaultDiscoConfig.PortScanDuration.Seconds()))
-		rl := rate.NewLimiter(rate.Limit(limit), limit)
-		for range defaultDiscoConfig.PortScanCount {
+		rl := rate.NewLimiter(rate.Limit(256), 256)
+		for range 2000 {
 			select {
 			case <-c.closedSig:
 				return
@@ -365,6 +367,42 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 	c.udpConnsMutex.RUnlock()
 	wg.Wait()
 	slog.Log(context.Background(), -3, "[UDP] EasyChallengesStopped", "peer", udpAddr.ID, "addr", udpAddr.Addr, "packet_count", packetCounter)
+
+	if keeper, ok := c.findPeer(udpAddr.ID); (ok && keeper.ready()) || (udpAddr.Addr.IP.To4() == nil) || udpAddr.Addr.IP.IsPrivate() {
+		return
+	}
+
+	// use main udpConn do port-scan
+	udpConn, err := c.getMainUDPConn()
+	if err != nil {
+		return
+	}
+	packetCounter = 0
+	slog.Info("[UDP] PortScanningStarted", "peer", udpAddr.ID, "addr", udpAddr.Addr)
+	limit := defaultDiscoConfig.PortScanCount / max(1, int(defaultDiscoConfig.PortScanDuration.Seconds()))
+	rl := rate.NewLimiter(rate.Limit(limit), limit)
+	for port := udpAddr.Addr.Port + defaultDiscoConfig.PortScanOffset; port <= udpAddr.Addr.Port+defaultDiscoConfig.PortScanCount; port++ {
+		select {
+		case <-c.closedSig:
+			return
+		default:
+		}
+		p := port % 65536
+		if p <= 1024 {
+			continue
+		}
+		if keeper, ok := c.findPeer(udpAddr.ID); ok && keeper.ready() {
+			slog.Info("[UDP] PortScanHit", "peer", udpAddr.ID, "port", p)
+			return
+		}
+		if err := rl.Wait(context.Background()); err != nil {
+			slog.Error("[UDP] PortScanRateLimiter", "err", err)
+			return
+		}
+		udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), &net.UDPAddr{IP: udpAddr.Addr.IP, Port: p})
+		packetCounter++
+	}
+	slog.Info("[UDP] PortScanningStopped", "peer", udpAddr.ID, "addr", udpAddr.Addr, "packet_count", packetCounter)
 }
 
 func (c *UDPConn) WriteToUDP(p []byte, peerID disco.PeerID) (int, error) {
