@@ -529,6 +529,9 @@ func (c *UDPConn) tryGetPeerkeeper(udpConn *net.UDPConn, peerID disco.PeerID) *p
 	ctx, ok := c.peersIndex[peerID]
 	c.peersIndexMutex.RUnlock()
 	if ok {
+		if ctx.udpConn.Load() != udpConn {
+			ctx.udpConn.Store(udpConn)
+		}
 		return ctx
 	}
 	c.peersIndexMutex.Lock()
@@ -537,7 +540,6 @@ func (c *UDPConn) tryGetPeerkeeper(udpConn *net.UDPConn, peerID disco.PeerID) *p
 		return ctx
 	}
 	pkeeper := peerkeeper{
-		udpConn:    udpConn,
 		peerID:     peerID,
 		states:     make(map[string]*PeerState),
 		createTime: time.Now(),
@@ -546,6 +548,7 @@ func (c *UDPConn) tryGetPeerkeeper(udpConn *net.UDPConn, peerID disco.PeerID) *p
 		ping:              c.discoPing,
 		keepaliveInterval: c.cfg.PeerKeepaliveInterval,
 	}
+	pkeeper.udpConn.Store(udpConn)
 	c.peersIndex[peerID] = &pkeeper
 	go pkeeper.run()
 	return &pkeeper
@@ -725,7 +728,7 @@ type stunResponse struct {
 }
 
 type peerkeeper struct {
-	udpConn    *net.UDPConn
+	udpConn    atomic.Pointer[net.UDPConn]
 	peerID     disco.PeerID
 	states     map[string]*PeerState // key is udp addr
 	createTime time.Time
@@ -751,7 +754,7 @@ func (peer *peerkeeper) heartbeat(addr *net.UDPAddr) {
 	}
 	slog.Info("[UDP] AddPeer", "peer", peer.peerID, "addr", addr)
 	peer.states[addr.String()] = &PeerState{Addr: addr, LastActiveTime: time.Now(), PeerID: peer.peerID}
-	peer.ping(peer.udpConn, peer.peerID, addr)
+	peer.ping(peer.udpConn.Load(), peer.peerID, addr)
 }
 
 func (peer *peerkeeper) healthcheck() {
@@ -803,7 +806,7 @@ func (peer *peerkeeper) selectUDPAddr() *net.UDPAddr {
 func (peer *peerkeeper) writeUDP(p []byte) (int, error) {
 	if addr := peer.selectUDPAddr(); addr != nil {
 		slog.Log(context.Background(), -3, "[UDP] WriteTo", "peer", peer.peerID, "addr", addr)
-		return peer.udpConn.WriteTo(p, addr)
+		return peer.udpConn.Load().WriteTo(p, addr)
 	}
 	return 0, net.ErrClosed
 }
@@ -818,7 +821,7 @@ func (peer *peerkeeper) run() {
 		}
 		peer.statesMutex.RUnlock()
 		for _, addr := range addrs {
-			peer.ping(peer.udpConn, peer.peerID, addr)
+			peer.ping(peer.udpConn.Load(), peer.peerID, addr)
 		}
 	}
 	for {
