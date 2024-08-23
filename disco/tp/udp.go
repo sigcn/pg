@@ -350,13 +350,13 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 			return
 		}
 		var packetCounter int32
-		slog.Info("[UDP] HardChallengesStarted", "peer", udpAddr.ID, "addr", udpAddr.Addr)
+		slog.Info("[UDP] HardChallenges", "peer", udpAddr.ID, "addr", udpAddr.Addr)
 		hardChallenges(udpConn, &packetCounter)
-		slog.Info("[UDP] HardChallengesStopped", "peer", udpAddr.ID, "addr", udpAddr.Addr, "packet_count", packetCounter)
+		slog.Info("[UDP] HardChallenges", "peer", udpAddr.ID, "addr", udpAddr.Addr, "packet_count", packetCounter)
 		return
 	}
 
-	slog.Log(context.Background(), -3, "[UDP] EasyChallengesStarted", "peer", udpAddr.ID, "addr", udpAddr.Addr)
+	slog.Log(context.Background(), -3, "[UDP] EasyChallenges", "peer", udpAddr.ID, "addr", udpAddr.Addr)
 	var wg sync.WaitGroup
 	c.udpConnsMutex.RLock()
 	wg.Add(len(c.udpConns))
@@ -366,7 +366,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 	}
 	c.udpConnsMutex.RUnlock()
 	wg.Wait()
-	slog.Log(context.Background(), -3, "[UDP] EasyChallengesStopped", "peer", udpAddr.ID, "addr", udpAddr.Addr, "packet_count", packetCounter)
+	slog.Log(context.Background(), -3, "[UDP] EasyChallenges", "peer", udpAddr.ID, "addr", udpAddr.Addr, "packet_count", packetCounter)
 
 	if keeper, ok := c.findPeer(udpAddr.ID); (ok && keeper.ready()) || (udpAddr.Addr.IP.To4() == nil) || udpAddr.Addr.IP.IsPrivate() {
 		return
@@ -378,7 +378,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 		return
 	}
 	packetCounter = 0
-	slog.Info("[UDP] PortScanningStarted", "peer", udpAddr.ID, "addr", udpAddr.Addr)
+	slog.Log(context.Background(), -3, "[UDP] PortScanning", "peer", udpAddr.ID, "addr", udpAddr.Addr)
 	limit := defaultDiscoConfig.PortScanCount / max(1, int(defaultDiscoConfig.PortScanDuration.Seconds()))
 	rl := rate.NewLimiter(rate.Limit(limit), limit)
 	for port := udpAddr.Addr.Port + defaultDiscoConfig.PortScanOffset; port <= udpAddr.Addr.Port+defaultDiscoConfig.PortScanCount; port++ {
@@ -402,7 +402,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 		udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), &net.UDPAddr{IP: udpAddr.Addr.IP, Port: p})
 		packetCounter++
 	}
-	slog.Info("[UDP] PortScanningStopped", "peer", udpAddr.ID, "addr", udpAddr.Addr, "packet_count", packetCounter)
+	slog.Log(context.Background(), -3, "[UDP] PortScanning", "peer", udpAddr.ID, "addr", udpAddr.Addr, "packet_count", packetCounter)
 }
 
 func (c *UDPConn) WriteToUDP(p []byte, peerID disco.PeerID) (int, error) {

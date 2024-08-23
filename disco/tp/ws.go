@@ -211,13 +211,13 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 		return err
 	}
 	if httpResp != nil && httpResp.StatusCode == http.StatusTemporaryRedirect {
-		slog.Info("RedirectPeermap", "location", httpResp.Header.Get("Location"))
+		slog.Info("[WS] Redirect", "location", httpResp.Header.Get("Location"))
 		return c.dial(ctx, httpResp.Header.Get("Location"))
 	}
 	if err != nil {
 		return fmt.Errorf("dial server %s: %w", server, err)
 	}
-	slog.Info("PeermapConnected", "server", server, "latency", time.Since(t1))
+	slog.Info("[WS] Connect", "server", server, "latency", time.Since(t1))
 
 	if err := c.configureSTUNs(httpResp.Header); err != nil {
 		return err
@@ -232,7 +232,7 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 	c.connectedServer = server
 	c.activeTime.Store(time.Now().Unix())
 	conn.SetPingHandler(func(appData string) error {
-		slog.Debug("WebsocketRecvPing")
+		slog.Debug("[WS] RecvPing")
 		c.activeTime.Store(time.Now().Unix())
 		err := conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
 		if err == websocket.ErrCloseSent {
@@ -315,7 +315,7 @@ func (c *WSConn) runConnAliveDetector() {
 		}
 		time.Sleep(time.Second)
 		sec := time.Now().Unix()
-		slog.Log(context.Background(), -6, "CheckAlive", "sec", sec, "active", c.activeTime.Load())
+		slog.Log(context.Background(), -6, "[WS] CheckAlive", "sec", sec, "active", c.activeTime.Load())
 		if sec-c.activeTime.Load() > 25 {
 			c.RestartListener()
 		}
@@ -323,6 +323,35 @@ func (c *WSConn) runConnAliveDetector() {
 }
 
 func (c *WSConn) runEventsReadLoop() {
+	handleError := func(err error) {
+		if !websocket.IsCloseError(err,
+			websocket.CloseGoingAway,
+			websocket.CloseNormalClosure) &&
+			!websocket.IsUnexpectedCloseError(err,
+				websocket.CloseGoingAway,
+				websocket.CloseAbnormalClosure) &&
+			!strings.Contains(err.Error(), net.ErrClosed.Error()) {
+			slog.Error("[WS] ReadLoopExited", "details", err.Error())
+		}
+		c.RestartListener()
+		retryWaitDuration := 200 * time.Millisecond
+		retryMaxDuration := 5 * time.Second
+		retryRate := 2
+		for {
+			select {
+			case <-c.closedSig:
+				return
+			default:
+			}
+			time.Sleep(min(retryWaitDuration, retryMaxDuration))
+			if err := c.dial(context.Background(), ""); err != nil {
+				slog.Error("[WS] Connect", "err", err)
+				retryWaitDuration = retryWaitDuration * time.Duration(retryRate)
+				continue
+			}
+			break
+		}
+	}
 	for {
 		select {
 		case <-c.closedSig:
@@ -335,30 +364,7 @@ func (c *WSConn) runEventsReadLoop() {
 		}
 		mt, b, err := conn.ReadMessage()
 		if err != nil {
-			if !websocket.IsCloseError(err,
-				websocket.CloseGoingAway,
-				websocket.CloseNormalClosure) &&
-				!websocket.IsUnexpectedCloseError(err,
-					websocket.CloseGoingAway,
-					websocket.CloseAbnormalClosure) &&
-				!strings.Contains(err.Error(), net.ErrClosed.Error()) {
-				slog.Error("ReadLoopExited", "details", err.Error())
-			}
-			c.RestartListener()
-			for {
-				select {
-				case <-c.closedSig:
-					return
-				default:
-				}
-				time.Sleep(2 * time.Second)
-				if err := c.dial(context.Background(), ""); err != nil {
-					slog.Error("PeermapConnectFailed", "err", err)
-					time.Sleep(time.Second)
-					continue
-				}
-				break
-			}
+			handleError(err)
 			continue
 		}
 		c.activeTime.Store(time.Now().Unix())
@@ -404,7 +410,7 @@ func (c *WSConn) handleEvents(b []byte) {
 	case disco.CONTROL_UPDATE_NETWORK_SECRET:
 		var secret disco.NetworkSecret
 		if err := json.Unmarshal(b[1:], &secret); err != nil {
-			slog.Error("NetworkSecretUpdate", "err", err)
+			slog.Error("[WS] NetworkSecretUpdate", "err", err)
 			break
 		}
 		go c.updateNetworkSecret(secret)
@@ -439,13 +445,13 @@ func (c *WSConn) writeWS(messageType int, data []byte) error {
 func (c *WSConn) updateNetworkSecret(secret disco.NetworkSecret) {
 	for i := 0; i < 5; i++ {
 		if err := c.server.SecretStore().UpdateNetworkSecret(secret); err != nil {
-			slog.Error("NetworkSecretUpdate", "err", err)
+			slog.Error("[WS] NetworkSecretUpdate", "err", err)
 			time.Sleep(time.Second)
 			continue
 		}
 		return
 	}
-	slog.Error("NetworkSecretUpdate give up", "secret", secret)
+	slog.Error("[WS] NetworkSecretUpdate give up", "secret", secret)
 }
 
 func DialPeermap(ctx context.Context, server *disco.Peermap, peerID disco.PeerID, metadata url.Values) (*WSConn, error) {
