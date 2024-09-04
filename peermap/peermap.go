@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"math"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -216,6 +215,10 @@ func (p *peerConn) readMessageLoop() {
 			p.connData <- b[1:]
 			continue
 		}
+		if b[0] == disco.CONTROL_UPDATE_NAT_INFO.Byte() {
+			p.updateNATInfo(b)
+			continue
+		}
 		tgtPeerID := disco.PeerID(b[2 : b[1]+2])
 		slog.Debug("PeerEvent", "op", disco.ControlCode(b[0]), "from", p.id, "to", tgtPeerID)
 		tgtPeer, err := p.peerMap.getPeer(p.networkSecret.Network, tgtPeerID)
@@ -223,12 +226,9 @@ func (p *peerConn) readMessageLoop() {
 			slog.Debug("FindPeer failed", "detail", err)
 			continue
 		}
-		if disco.ControlCode(b[0]) == disco.CONTROL_LEAD_DISCO {
+		if b[0] == disco.CONTROL_LEAD_DISCO.Byte() {
 			p.leadDisco(tgtPeer)
 			continue
-		}
-		if disco.ControlCode(b[0]) == disco.CONTROL_NEW_PEER_UDP_ADDR {
-			p.updatePeerUDPAddr(b)
 		}
 		data := b[b[1]+2:]
 		bb := make([]byte, 2+len(p.id)+len(data))
@@ -241,26 +241,16 @@ func (p *peerConn) readMessageLoop() {
 	}
 }
 
-func (p *peerConn) updatePeerUDPAddr(b []byte) {
-	if b[b[1]+2] != 'a' {
+func (p *peerConn) updateNATInfo(b []byte) {
+	var natInfo disco.NATInfo
+	if err := json.Unmarshal(b[2:], &natInfo); err != nil {
+		slog.Error("UpdateNATInfo", "peer", p.id, "err", err)
 		return
 	}
-	addrLen := b[b[1]+3]
-	s := b[1] + 4
-	addr, err := net.ResolveUDPAddr("udp", string(b[s:s+addrLen]))
-	if err != nil {
-		slog.Error("Resolve udp addr error", "err", err)
-		return
-	}
-	natType := disco.NATType(b[s+addrLen:])
-	slog.Debug("ExchangeUDPAddr", "nat", natType, "addr", addr.String())
-	if slices.Contains([]disco.NATType{disco.Easy, disco.IP6, disco.IP4}, natType) {
-		if natType.AccurateThan(disco.NATType(p.metadata.Get("nat"))) {
-			p.metadata.Set("nat", natType.String())
-		}
-		if !slices.Contains(p.metadata["addr"], addr.String()) {
-			p.metadata.Add("addr", addr.String())
-		}
+	p.metadata.Del("addr")
+	p.metadata.Set("nat", natInfo.Type.String())
+	for _, addr := range natInfo.Addrs {
+		p.metadata.Add("addr", addr.String())
 	}
 }
 

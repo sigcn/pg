@@ -279,6 +279,11 @@ func (c *PeerPacketConn) runControlEventLoop() {
 			if onPeer := c.cfg.OnPeer; onPeer != nil {
 				go onPeer(peer.ID, peer.Metadata)
 			}
+		case natEvent, ok := <-c.udpConn.NATEvents():
+			if !ok {
+				return
+			}
+			go c.wsConn.UpdateNATInfo(*natEvent)
 		case revcUDPAddr, ok := <-c.wsConn.PeersUDPAddrs():
 			if !ok {
 				return

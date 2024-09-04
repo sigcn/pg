@@ -51,11 +51,6 @@ func SetModifyDiscoConfig(modify func(cfg *DiscoConfig)) {
 	defaultDiscoConfig.ChallengesBackoffRate = max(1, defaultDiscoConfig.ChallengesBackoffRate)
 }
 
-type NATInfo struct {
-	Type  disco.NATType
-	Addrs []*net.UDPAddr
-}
-
 var (
 	ErrUDPConnNotReady = errors.New("udpConn not ready yet")
 
@@ -79,6 +74,7 @@ type UDPConn struct {
 	disco        *disco.Disco
 	closedSig    chan int
 	datagrams    chan *disco.Datagram
+	natEvents    chan *disco.NATInfo
 	udpAddrSends chan *disco.PeerUDPAddr
 
 	peersIndex      map[disco.PeerID]*peerkeeper
@@ -86,7 +82,7 @@ type UDPConn struct {
 
 	stunResponseMapMutex sync.RWMutex
 	stunResponseMap      map[string]chan stunResponse // key is stun txid
-	natInfo              atomic.Pointer[NATInfo]
+	natInfo              atomic.Pointer[disco.NATInfo]
 
 	upnpDeleteMapping func()
 }
@@ -102,6 +98,7 @@ func (c *UDPConn) Close() error {
 	c.udpConnsMutex.RUnlock()
 
 	close(c.closedSig)
+	close(c.natEvents)
 	close(c.datagrams)
 	close(c.udpAddrSends)
 	return nil
@@ -127,6 +124,10 @@ func (c *UDPConn) SetWriteBuffer(bytes int) error {
 		conn.SetWriteBuffer(bytes)
 	}
 	return nil
+}
+
+func (c *UDPConn) NATEvents() <-chan *disco.NATInfo {
+	return c.natEvents
 }
 
 func (c *UDPConn) Datagrams() <-chan *disco.Datagram {
@@ -158,10 +159,15 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 				continue
 			}
 			c.upnpDeleteMapping = func() { nat.DeletePortMapping("udp", mappedPort, udpPort) }
+			addr := &net.UDPAddr{IP: externalIP, Port: mappedPort}
 			c.udpAddrSends <- &disco.PeerUDPAddr{
 				ID:   peerID,
-				Addr: &net.UDPAddr{IP: externalIP, Port: mappedPort},
+				Addr: addr,
 				Type: disco.UPnP,
+			}
+			select {
+			case c.natEvents <- &disco.NATInfo{Type: disco.UPnP, Addrs: []*net.UDPAddr{addr}}:
+			default:
 			}
 			return
 		}
@@ -180,6 +186,10 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 				natType = disco.IP4
 			} else {
 				natType = disco.IP6
+			}
+			select {
+			case c.natEvents <- &disco.NATInfo{Type: natType, Addrs: []*net.UDPAddr{uaddr}}:
+			default:
 			}
 		}
 		c.udpAddrSends <- &disco.PeerUDPAddr{
@@ -247,10 +257,14 @@ func (c *UDPConn) RoundTripSTUN(stunServer string) (*net.UDPAddr, error) {
 	}
 }
 
-func (c *UDPConn) DetectNAT(stunServers []string) (info NATInfo) {
+func (c *UDPConn) DetectNAT(stunServers []string) (info disco.NATInfo) {
 	defer func() {
 		slog.Log(context.Background(), -1, "[NAT] DetectNAT", "type", info.Type)
 		c.natInfo.Store(&info)
+		select {
+		case c.natEvents <- &info:
+		default:
+		}
 		if info.Type == disco.Hard {
 			if lastNATInfo := c.natInfo.Load(); lastNATInfo == nil || lastNATInfo.Type != disco.Hard {
 				c.RestartListener()
@@ -281,15 +295,15 @@ func (c *UDPConn) DetectNAT(stunServers []string) (info NATInfo) {
 	wg.Wait()
 
 	if len(udpAddrs) <= 1 {
-		return NATInfo{Type: disco.Unknown, Addrs: udpAddrs}
+		return disco.NATInfo{Type: disco.Unknown, Addrs: udpAddrs}
 	}
 	lastAddr := udpAddrs[0].String()
 	for _, addr := range udpAddrs {
 		if lastAddr != addr.String() {
-			return NATInfo{Type: disco.Hard, Addrs: udpAddrs}
+			return disco.NATInfo{Type: disco.Hard, Addrs: udpAddrs}
 		}
 	}
-	return NATInfo{Type: disco.Easy, Addrs: udpAddrs}
+	return disco.NATInfo{Type: disco.Easy, Addrs: udpAddrs}
 }
 
 func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
@@ -698,6 +712,7 @@ func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 		cfg:             cfg,
 		disco:           &disco.Disco{Magic: cfg.DiscoMagic},
 		closedSig:       make(chan int),
+		natEvents:       make(chan *disco.NATInfo),
 		datagrams:       make(chan *disco.Datagram),
 		udpAddrSends:    make(chan *disco.PeerUDPAddr, 10),
 		peersIndex:      make(map[disco.PeerID]*peerkeeper),

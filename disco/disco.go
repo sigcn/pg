@@ -26,6 +26,8 @@ func (code ControlCode) String() string {
 		return "LEAD_DISCO"
 	case CONTROL_UPDATE_NETWORK_SECRET:
 		return "UPDATE_NETWORK_SECRET"
+	case CONTROL_UPDATE_NAT_INFO:
+		return "UPDATE_NAT_INFO"
 	case CONTROL_CONN:
 		return "CONTROL_CONN"
 	default:
@@ -43,6 +45,7 @@ const (
 	CONTROL_NEW_PEER_UDP_ADDR     ControlCode = 2
 	CONTROL_LEAD_DISCO            ControlCode = 3
 	CONTROL_UPDATE_NETWORK_SECRET ControlCode = 20
+	CONTROL_UPDATE_NAT_INFO       ControlCode = 21
 	CONTROL_CONN                  ControlCode = 30
 )
 
@@ -97,6 +100,11 @@ const (
 	IP6      NATType = "ip6"
 	Internal NATType = "internal"
 )
+
+type NATInfo struct {
+	Type  NATType
+	Addrs []*net.UDPAddr
+}
 
 type Disco struct {
 	Magic func() []byte

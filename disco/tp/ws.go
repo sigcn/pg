@@ -139,6 +139,21 @@ func (c *WSConn) LeadDisco(peerID disco.PeerID) error {
 	return c.WriteTo(nil, peerID, disco.CONTROL_LEAD_DISCO)
 }
 
+func (c *WSConn) UpdateNATInfo(natInfo disco.NATInfo) error {
+	if natInfo.Type == disco.Hard {
+		return nil
+	}
+	if natInfo.Type == disco.Easy {
+		natInfo.Addrs = natInfo.Addrs[:1]
+	}
+	controlPacket := []byte{byte(disco.CONTROL_UPDATE_NAT_INFO), 0}
+	b, err := json.Marshal(natInfo)
+	if err != nil {
+		return fmt.Errorf("marshal nat info: %w", err)
+	}
+	return c.write(append(controlPacket, b...))
+}
+
 func (c *WSConn) Datagrams() <-chan *disco.Datagram {
 	return c.datagrams
 }
