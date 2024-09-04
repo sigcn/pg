@@ -25,6 +25,7 @@ type Config struct {
 	Metadata        url.Values
 	OnPeer          OnPeer
 	KeepAlivePeriod time.Duration
+	MinDiscoPeriod  time.Duration
 }
 
 type Option func(cfg *Config) error
@@ -149,6 +150,13 @@ func PeerMeta(key string, value string) Option {
 func KeepAlivePeriod(period time.Duration) Option {
 	return func(cfg *Config) error {
 		cfg.KeepAlivePeriod = period
+		return nil
+	}
+}
+
+func MinDiscoPeriod(period time.Duration) Option {
+	return func(cfg *Config) error {
+		cfg.MinDiscoPeriod = period
 		return nil
 	}
 }

@@ -179,7 +179,7 @@ func (c *PeerPacketConn) TryLeadDisco(peerID disco.PeerID) {
 	}
 	defer c.discoCoolingMutex.Unlock()
 	lastTime, ok := c.discoCooling.Get(peerID)
-	if !ok || time.Since(lastTime) > time.Minute {
+	if !ok || time.Since(lastTime) > c.cfg.MinDiscoPeriod {
 		c.wsConn.LeadDisco(peerID)
 		c.discoCooling.Put(peerID, time.Now())
 	}
@@ -320,6 +320,7 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Peermap, opts ...Op
 		UDPPort:         29877,
 		KeepAlivePeriod: 10 * time.Second,
 		PeerID:          disco.PeerID(base58.Encode(id)),
+		MinDiscoPeriod:  2 * time.Minute,
 	}
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
