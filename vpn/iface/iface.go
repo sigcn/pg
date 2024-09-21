@@ -28,7 +28,7 @@ var _ RoutingTable = (*TunInterface)(nil)
 type TunInterface struct {
 	dev        tun.Device
 	ifName     string
-	routing    *lru.Cache[string, net.Addr] // cidr as key
+	routing    *lru.Cache[string, string]   // cidr as key, via ip as value
 	peers      *lru.Cache[string, net.Addr] // ip as key
 	peersMutex sync.RWMutex
 }
@@ -51,7 +51,7 @@ func Create(tunName string, cfg Config) (*TunInterface, error) {
 	return &TunInterface{
 		dev:     device,
 		ifName:  deviceName,
-		routing: lru.New[string, net.Addr](512),
+		routing: lru.New[string, string](512),
 		peers:   lru.New[string, net.Addr](1024),
 	}, nil
 }
@@ -64,14 +64,18 @@ func (r *TunInterface) GetPeer(ip string) (net.Addr, bool) {
 		return peerID, true
 	}
 	dstIP := net.ParseIP(ip)
-	_, v, ok := r.routing.Find(func(k string, v net.Addr) bool {
+	_, v, _ := r.routing.Find(func(k string, v string) bool {
 		_, cidr, err := net.ParseCIDR(k)
 		if err != nil {
 			return false
 		}
 		return cidr.Contains(dstIP)
 	})
-	return v, ok && v != nil
+	peerID, ok = r.peers.Get(v)
+	if v == "" || !ok {
+		return nil, false
+	}
+	return peerID, true
 }
 
 func (r *TunInterface) AddPeer(peer net.Addr, ipv4, ipv6 string) {
@@ -86,26 +90,18 @@ func (r *TunInterface) AddPeer(peer net.Addr, ipv4, ipv6 string) {
 }
 
 func (r *TunInterface) AddRoute(dst *net.IPNet, via net.IP) bool {
-	addr, ok := r.GetPeer(via.String())
-	if !ok {
-		return false
-	}
 	r.peersMutex.Lock()
 	defer r.peersMutex.Unlock()
 	slog.Info("AddRoute", "dst", dst, "via", via)
-	r.routing.Put(dst.String(), addr)
+	r.routing.Put(dst.String(), via.String())
 	return true
 }
 
 func (r *TunInterface) DelRoute(dst *net.IPNet, via net.IP) bool {
-	_, ok := r.GetPeer(via.String())
-	if !ok {
-		return false
-	}
 	r.peersMutex.Lock()
 	defer r.peersMutex.Unlock()
 	slog.Info("DelRoute", "dst", dst, "via", via)
-	r.routing.Put(dst.String(), nil)
+	r.routing.Put(dst.String(), "")
 	return true
 }
 
