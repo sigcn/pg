@@ -47,7 +47,7 @@ github: clean all
 	gzip pgmap-${version}-linux*
 	git tag -d ${version} 2>/dev/null || true
 	gh release delete ${version} -y --cleanup-tag 2>/dev/null || true
-	gh release create ${version} --generate-notes --title "peerguard ${version}" pgcli-${version}*.gz pgcli-${version}*.zip pgmap-${version}*.gz
+	gh release create ${version} --generate-notes --title "pg ${version}" pgcli-${version}*.gz pgcli-${version}*.zip pgmap-${version}*.gz
 
 image:
 	docker build . -t rkonfj/peerguard:${version} --build-arg version=${version} --build-arg githash=${git_hash}
