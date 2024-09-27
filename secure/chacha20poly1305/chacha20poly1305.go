@@ -15,6 +15,12 @@ import (
 
 var _ secure.SymmAlgo = (*Chacha20Poly1305)(nil)
 
+var timeWindow int64 = 10
+
+func SetDefaultTimeWindow(seconds int64) {
+	timeWindow = seconds
+}
+
 type Chacha20Poly1305 struct {
 	mut              sync.RWMutex
 	cipher           *lru.Cache[string, cipher.AEAD]
@@ -30,7 +36,7 @@ func (s *Chacha20Poly1305) Encrypt(data []byte, pubKey string) ([]byte, error) {
 		return nil, err
 	}
 	nonce := make([]byte, aead.NonceSize())
-	binary.LittleEndian.PutUint64(nonce[aead.NonceSize()-8:], uint64(time.Now().Unix()/5))
+	binary.LittleEndian.PutUint64(nonce[aead.NonceSize()-8:], uint64(time.Now().Unix()/timeWindow))
 	return aead.Seal(nil, nonce, data, nil), nil
 }
 
@@ -46,13 +52,13 @@ func (s *Chacha20Poly1305) Decrypt(data []byte, pubKey string) ([]byte, error) {
 	startIndex := aead.NonceSize() - 8
 	nowUnix := time.Now().Unix()
 
-	binary.LittleEndian.PutUint64(nonce[startIndex:], uint64(nowUnix/5))
+	binary.LittleEndian.PutUint64(nonce[startIndex:], uint64(nowUnix/timeWindow))
 	plain, err := aead.Open(nil, nonce, data, nil)
 	if err != nil {
-		binary.LittleEndian.PutUint64(nonce[startIndex:], uint64(nowUnix/5+1))
+		binary.LittleEndian.PutUint64(nonce[startIndex:], uint64(nowUnix/timeWindow+1))
 		plain, err = aead.Open(nil, nonce, data, nil)
 		if err != nil {
-			binary.LittleEndian.PutUint64(nonce[startIndex:], uint64(nowUnix/5-1))
+			binary.LittleEndian.PutUint64(nonce[startIndex:], uint64(nowUnix/timeWindow-1))
 			plain, err = aead.Open(nil, nonce, data, nil)
 			if err != nil {
 				return nil, errors.New("invalid data")
