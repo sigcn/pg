@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	N "github.com/rkonfj/peerguard/net"
+	N "github.com/sigcn/pg/net"
 )
 
 const (

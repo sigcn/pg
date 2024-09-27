@@ -3,7 +3,7 @@ package curve25519
 import (
 	"fmt"
 
-	"github.com/rkonfj/peerguard/secure"
+	"github.com/sigcn/pg/secure"
 	"github.com/spf13/cobra"
 )
 

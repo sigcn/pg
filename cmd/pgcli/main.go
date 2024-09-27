@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/rkonfj/peerguard/cmd/pgcli/admin"
-	"github.com/rkonfj/peerguard/cmd/pgcli/curve25519"
-	"github.com/rkonfj/peerguard/cmd/pgcli/download"
-	"github.com/rkonfj/peerguard/cmd/pgcli/share"
-	"github.com/rkonfj/peerguard/cmd/pgcli/vpn"
+	"github.com/sigcn/pg/cmd/pgcli/admin"
+	"github.com/sigcn/pg/cmd/pgcli/curve25519"
+	"github.com/sigcn/pg/cmd/pgcli/download"
+	"github.com/sigcn/pg/cmd/pgcli/share"
+	"github.com/sigcn/pg/cmd/pgcli/vpn"
 	"github.com/spf13/cobra"
 )
 

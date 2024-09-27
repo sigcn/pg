@@ -5,9 +5,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/rkonfj/peerguard/disco"
-	"github.com/rkonfj/peerguard/secure"
-	"github.com/rkonfj/peerguard/secure/chacha20poly1305"
+	"github.com/sigcn/pg/disco"
+	"github.com/sigcn/pg/secure"
+	"github.com/sigcn/pg/secure/chacha20poly1305"
 )
 
 var defaultSymmAlgo func(secure.ProvideSecretKey) secure.SymmAlgo = chacha20poly1305.New

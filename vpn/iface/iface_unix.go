@@ -6,7 +6,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/rkonfj/peerguard/lru"
+	"github.com/sigcn/pg/lru"
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/tun"
 )

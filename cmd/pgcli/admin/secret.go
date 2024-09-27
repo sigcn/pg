@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/rkonfj/peerguard/disco"
-	"github.com/rkonfj/peerguard/peermap/auth"
+	"github.com/sigcn/pg/disco"
+	"github.com/sigcn/pg/peermap/auth"
 	"github.com/spf13/cobra"
 )
 

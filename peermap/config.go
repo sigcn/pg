@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/rkonfj/peerguard/peermap/oidc"
+	"github.com/sigcn/pg/peermap/oidc"
 	"gopkg.in/yaml.v2"
 )
 

@@ -15,8 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/rkonfj/peerguard/disco"
-	"github.com/rkonfj/peerguard/upnp"
+	"github.com/sigcn/pg/disco"
+	"github.com/sigcn/pg/upnp"
 	"golang.org/x/time/rate"
 	"tailscale.com/net/stun"
 )

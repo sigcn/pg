@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"path"
 
-	"github.com/rkonfj/peerguard/disco"
+	"github.com/sigcn/pg/disco"
 	"storj.io/common/base58"
 )
 

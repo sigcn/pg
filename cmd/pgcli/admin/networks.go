@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"os"
 
-	"github.com/rkonfj/peerguard/peermap/exporter"
+	"github.com/sigcn/pg/peermap/exporter"
 	"github.com/spf13/cobra"
 )
 

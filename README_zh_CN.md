@@ -7,7 +7,7 @@
 - 完全的 ipv4/ipv6 双栈支持
 - 很容易入手的 API （针对开发者）
 - 端到端加密
-- 用于可靠数据传输的 [RDT](https://github.com/rkonfj/peerguard/tree/main/rdt) 协议
+- 用于可靠数据传输的 [RDT](https://github.com/sigcn/pg/tree/main/rdt) 协议
 - 跨平台
 
 ## 快速开始
@@ -44,7 +44,7 @@ $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
     --stun stun.miwifi.com:3478 --stun stunserver.stunprotocol.org:3478
 ```
 >[!NOTE]
->`pgmap`支持配置文件（[查看所有配置项](https://github.com/rkonfj/peerguard/blob/main/peermap/config.go#L20)）。另外，命令行参数会覆盖配置文件参数
+>`pgmap`支持配置文件（[查看所有配置项](https://github.com/sigcn/pg/blob/main/peermap/config.go#L20)）。另外，命令行参数会覆盖配置文件参数
 
 #### 2. 上 https 更安全
 ```sh
@@ -62,7 +62,7 @@ $ pgcli admin secret --network "<email>" --duration 24h > psns.json
 sudo pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24 -f psns.json
 ```
 ## 许可证
-[GNU General Public License v3.0](https://github.com/rkonfj/peerguard/blob/main/LICENSE)
+[GNU General Public License v3.0](https://github.com/sigcn/pg/blob/main/LICENSE)
 
 ## 参与贡献
 非常欢迎参与项目的开发，如果有任何改善本项目的意图，请立即提交 PR

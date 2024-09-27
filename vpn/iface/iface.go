@@ -7,8 +7,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/rkonfj/peerguard/lru"
-	"github.com/rkonfj/peerguard/netlink"
+	"github.com/sigcn/pg/lru"
+	"github.com/sigcn/pg/netlink"
 	"golang.zx2c4.com/wireguard/tun"
 )
 

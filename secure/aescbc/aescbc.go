@@ -10,8 +10,8 @@ import (
 	"io"
 	"sync"
 
-	"github.com/rkonfj/peerguard/lru"
-	"github.com/rkonfj/peerguard/secure"
+	"github.com/sigcn/pg/lru"
+	"github.com/sigcn/pg/secure"
 )
 
 func PKCS7Padding(data []byte, blockSize int) []byte {

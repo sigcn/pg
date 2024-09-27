@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/rkonfj/peerguard/secure/aescbc"
+	"github.com/sigcn/pg/secure/aescbc"
 )
 
 var (

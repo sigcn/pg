@@ -9,8 +9,8 @@ import (
 
 	"golang.org/x/crypto/chacha20poly1305"
 
-	"github.com/rkonfj/peerguard/lru"
-	"github.com/rkonfj/peerguard/secure"
+	"github.com/sigcn/pg/lru"
+	"github.com/sigcn/pg/secure"
 )
 
 var _ secure.SymmAlgo = (*Chacha20Poly1305)(nil)

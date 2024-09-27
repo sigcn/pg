@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/rkonfj/peerguard/netlink"
-	"github.com/rkonfj/peerguard/vpn/iface"
+	"github.com/sigcn/pg/netlink"
+	"github.com/sigcn/pg/vpn/iface"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	"golang.zx2c4.com/wireguard/tun"

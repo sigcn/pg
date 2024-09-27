@@ -10,7 +10,7 @@ import (
 	"path"
 	"time"
 
-	"github.com/rkonfj/peerguard/peermap/exporter/auth"
+	"github.com/sigcn/pg/peermap/exporter/auth"
 )
 
 type peermapTransport struct {

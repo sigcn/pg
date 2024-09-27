@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/rkonfj/peerguard/disco"
+	"github.com/sigcn/pg/disco"
 	"golang.org/x/time/rate"
 )
 

@@ -17,8 +17,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/rkonfj/peerguard/disco"
-	"github.com/rkonfj/peerguard/rdt"
+	"github.com/sigcn/pg/disco"
+	"github.com/sigcn/pg/rdt"
 )
 
 type FileManager struct {

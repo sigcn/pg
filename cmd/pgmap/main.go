@@ -10,7 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/rkonfj/peerguard/peermap"
+	"github.com/sigcn/pg/peermap"
 	"github.com/spf13/cobra"
 )
 

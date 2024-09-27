@@ -20,11 +20,11 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/rkonfj/peerguard/disco"
-	"github.com/rkonfj/peerguard/peermap/auth"
-	"github.com/rkonfj/peerguard/peermap/exporter"
-	exporterauth "github.com/rkonfj/peerguard/peermap/exporter/auth"
-	"github.com/rkonfj/peerguard/peermap/oidc"
+	"github.com/sigcn/pg/disco"
+	"github.com/sigcn/pg/peermap/auth"
+	"github.com/sigcn/pg/peermap/exporter"
+	exporterauth "github.com/sigcn/pg/peermap/exporter/auth"
+	"github.com/sigcn/pg/peermap/oidc"
 	"golang.org/x/time/rate"
 )
 

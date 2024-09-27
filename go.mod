@@ -1,4 +1,4 @@
-module github.com/rkonfj/peerguard
+module github.com/sigcn/pg
 
 go 1.22
 

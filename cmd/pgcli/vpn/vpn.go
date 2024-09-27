@@ -18,12 +18,12 @@ import (
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
-	"github.com/rkonfj/peerguard/disco"
-	"github.com/rkonfj/peerguard/disco/tp"
-	"github.com/rkonfj/peerguard/p2p"
-	"github.com/rkonfj/peerguard/peermap/network"
-	"github.com/rkonfj/peerguard/vpn"
-	"github.com/rkonfj/peerguard/vpn/iface"
+	"github.com/sigcn/pg/disco"
+	"github.com/sigcn/pg/disco/tp"
+	"github.com/sigcn/pg/p2p"
+	"github.com/sigcn/pg/peermap/network"
+	"github.com/sigcn/pg/vpn"
+	"github.com/sigcn/pg/vpn/iface"
 	"github.com/spf13/cobra"
 )
 

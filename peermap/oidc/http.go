@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rkonfj/peerguard/disco"
+	"github.com/sigcn/pg/disco"
 )
 
 var (

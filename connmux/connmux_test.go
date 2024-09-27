@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rkonfj/peerguard/connmux"
+	"github.com/sigcn/pg/connmux"
 )
 
 type rwc struct {

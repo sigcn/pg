@@ -7,8 +7,8 @@ import (
 	"net"
 	"net/url"
 
-	"github.com/rkonfj/peerguard/disco"
-	"github.com/rkonfj/peerguard/p2p"
+	"github.com/sigcn/pg/disco"
+	"github.com/sigcn/pg/p2p"
 )
 
 type PublicNetwork struct {

@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"slices"
 
-	"github.com/rkonfj/peerguard/secure"
+	"github.com/sigcn/pg/secure"
 )
 
 type ControlCode uint8

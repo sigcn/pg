@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rkonfj/peerguard/disco"
-	"github.com/rkonfj/peerguard/disco/tp"
-	"github.com/rkonfj/peerguard/lru"
-	N "github.com/rkonfj/peerguard/net"
-	"github.com/rkonfj/peerguard/netlink"
+	"github.com/sigcn/pg/disco"
+	"github.com/sigcn/pg/disco/tp"
+	"github.com/sigcn/pg/lru"
+	N "github.com/sigcn/pg/net"
+	"github.com/sigcn/pg/netlink"
 	"storj.io/common/base58"
 )
 

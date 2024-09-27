@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rkonfj/peerguard/fileshare"
 	"github.com/schollz/progressbar/v3"
+	"github.com/sigcn/pg/fileshare"
 	"github.com/spf13/cobra"
 )
 

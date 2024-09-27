@@ -1,14 +1,14 @@
 # PeerGuard
 
 Another p2p network library in Go. Committed to direct communication between devices.  
-[[简体中文]](https://github.com/rkonfj/peerguard/blob/main/README_zh_CN.md)
+[[简体中文]](https://github.com/sigcn/pg/blob/main/README_zh_CN.md)
 ## Features
 - Elegantly simple architecture (pgcli & pgmap & OpenID Connect)
 - NAT traversal with high success rate (STUN & UPnP & PortScan & BirthdayParadox)
 - Full support for IPv4/IPv6 dual stack
 - Easy-to-use library (net.PacketConn) 
 - **Transport layer security (curve25519 & chacha20poly1305 for end-to-end encryption)**
-- [RDT](https://github.com/rkonfj/peerguard/tree/main/rdt) protocol for reliable data transfer  
+- [RDT](https://github.com/sigcn/pg/tree/main/rdt) protocol for reliable data transfer  
 - Cross-platform compatibility (linux/windows/macOS/iOS/android)
 
 ## Get Started
@@ -58,7 +58,7 @@ $ pgcli admin secret --network "<email>" --duration 24h > psns.json
 sudo pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24 -f psns.json
 ```
 ## License
-[GNU General Public License v3.0](https://github.com/rkonfj/peerguard/blob/main/LICENSE)
+[GNU General Public License v3.0](https://github.com/sigcn/pg/blob/main/LICENSE)
 
 ## Contributing
 Contributions welcome! Have an improvement? Submit a pull request. 

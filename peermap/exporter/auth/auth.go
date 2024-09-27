@@ -7,8 +7,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/rkonfj/peerguard/secure"
-	"github.com/rkonfj/peerguard/secure/aescbc"
+	"github.com/sigcn/pg/secure"
+	"github.com/sigcn/pg/secure/aescbc"
 )
 
 type Authenticator struct {
