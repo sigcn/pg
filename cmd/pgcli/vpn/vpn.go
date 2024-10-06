@@ -48,6 +48,7 @@ func init() {
 	Cmd.Flags().StringP("secret-file", "f", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
 	Cmd.Flags().StringP("server", "s", os.Getenv("PG_SERVER"), "peermap server url")
 	Cmd.Flags().StringSlice("peer", []string{}, "specify peers instead of auto-discovery (pg://<peerID>?alias1=<ipv4>&alias2=<ipv6>)")
+	Cmd.Flags().Int("port", 29877, "p2p udp listen port")
 
 	Cmd.Flags().Int("disco-port-scan-offset", -1000, "scan ports offset when disco")
 	Cmd.Flags().Int("disco-port-scan-count", 3000, "scan ports count when disco")
@@ -135,6 +136,10 @@ func createConfig(cmd *cobra.Command) (cfg Config, err error) {
 	if err != nil {
 		return
 	}
+	cfg.Port, err = cmd.Flags().GetInt("port")
+	if err != nil {
+		return
+	}
 	cfg.PrivateKey, err = cmd.Flags().GetString("key")
 	if err != nil {
 		return
@@ -169,6 +174,7 @@ type Config struct {
 	DiscoIgnoredInterfaces         []string
 	TunName                        string
 	Peers                          []string
+	Port                           int
 	PrivateKey                     string
 	SecretFile                     string
 	Server                         string
@@ -216,6 +222,9 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 	}
 	if len(v.Config.Peers) > 0 {
 		p2pOptions = append(p2pOptions, p2p.PeerSilenceMode())
+	}
+	if v.Config.Port > 0 {
+		p2pOptions = append(p2pOptions, p2p.ListenUDPPort(v.Config.Port))
 	}
 	for _, peerURL := range v.Config.Peers {
 		pgPeer, err := url.Parse(peerURL)
