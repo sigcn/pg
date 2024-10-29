@@ -24,11 +24,11 @@ type PacketBroadcaster interface {
 }
 
 var (
-	_ net.PacketConn    = (*PeerPacketConn)(nil)
-	_ PacketBroadcaster = (*PeerPacketConn)(nil)
+	_ net.PacketConn    = (*PacketConn)(nil)
+	_ PacketBroadcaster = (*PacketConn)(nil)
 )
 
-type PeerPacketConn struct {
+type PacketConn struct {
 	cfg               Config
 	closedSig         chan struct{}
 	udpConn           *tp.UDPConn
@@ -48,7 +48,7 @@ type PeerPacketConn struct {
 // the n > 0 bytes returned before considering the error err.
 // ReadFrom can be made to time out and return an error after a
 // fixed time limit; see SetDeadline and SetReadDeadline.
-func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
+func (c *PacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 	select {
 	case <-c.closedSig:
 		err = net.ErrClosed
@@ -75,7 +75,7 @@ func (c *PeerPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 // WriteTo can be made to time out and return an Error after a
 // fixed time limit; see SetDeadline and SetWriteDeadline.
 // On packet-oriented connections, write timeouts are rare.
-func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
+func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	if _, ok := addr.(disco.PeerID); !ok {
 		return 0, errors.New("not a p2p address")
 	}
@@ -96,7 +96,7 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 
 // Close closes the connection.
 // Any blocked ReadFrom or WriteTo operations will be unblocked and return errors.
-func (c *PeerPacketConn) Close() error {
+func (c *PacketConn) Close() error {
 	close(c.closedSig)
 	c.deadlineRead.Close()
 	var errs []error
@@ -110,7 +110,7 @@ func (c *PeerPacketConn) Close() error {
 }
 
 // LocalAddr returns the local network address, if known.
-func (c *PeerPacketConn) LocalAddr() net.Addr {
+func (c *PacketConn) LocalAddr() net.Addr {
 	return c.cfg.PeerID
 }
 
@@ -135,14 +135,14 @@ func (c *PeerPacketConn) LocalAddr() net.Addr {
 // the deadline after successful ReadFrom or WriteTo calls.
 //
 // A zero value for t means I/O operations will not time out.
-func (c *PeerPacketConn) SetDeadline(t time.Time) error {
+func (c *PacketConn) SetDeadline(t time.Time) error {
 	return c.SetReadDeadline(t)
 }
 
 // SetReadDeadline sets the deadline for future ReadFrom calls
 // and any currently-blocked ReadFrom call.
 // A zero value for t means ReadFrom will not time out.
-func (c *PeerPacketConn) SetReadDeadline(t time.Time) error {
+func (c *PacketConn) SetReadDeadline(t time.Time) error {
 	c.deadlineRead.SetDeadline(t)
 	return nil
 }
@@ -152,30 +152,30 @@ func (c *PeerPacketConn) SetReadDeadline(t time.Time) error {
 // Even if write times out, it may return n > 0, indicating that
 // some of the data was successfully written.
 // A zero value for t means WriteTo will not time out.
-func (c *PeerPacketConn) SetWriteDeadline(t time.Time) error {
+func (c *PacketConn) SetWriteDeadline(t time.Time) error {
 	return errors.ErrUnsupported
 }
 
 // SetReadBuffer sets the size of the operating system's
 // receive buffer associated with the connection.
-func (c *PeerPacketConn) SetReadBuffer(bytes int) error {
+func (c *PacketConn) SetReadBuffer(bytes int) error {
 	return c.udpConn.SetReadBuffer(bytes)
 }
 
 // SetWriteBuffer sets the size of the operating system's
 // transmit buffer associated with the connection.
-func (c *PeerPacketConn) SetWriteBuffer(bytes int) error {
+func (c *PacketConn) SetWriteBuffer(bytes int) error {
 	return c.udpConn.SetWriteBuffer(bytes)
 }
 
 // Broadcast broadcast packet to all found peers using direct udpConn
-func (c *PeerPacketConn) Broadcast(b []byte) (int, error) {
+func (c *PacketConn) Broadcast(b []byte) (int, error) {
 	return c.udpConn.Broadcast(b)
 }
 
 // TryLeadDisco try lead a peer discovery
 // disco as soon as every minute
-func (c *PeerPacketConn) TryLeadDisco(peerID disco.PeerID) {
+func (c *PacketConn) TryLeadDisco(peerID disco.PeerID) {
 	if !c.discoCoolingMutex.TryLock() {
 		return
 	}
@@ -188,27 +188,27 @@ func (c *PeerPacketConn) TryLeadDisco(peerID disco.PeerID) {
 }
 
 // ServerStream is the connection stream to the peermap server
-func (c *PeerPacketConn) ServerStream() io.ReadWriter {
+func (c *PacketConn) ServerStream() io.ReadWriter {
 	return c.wsConn
 }
 
 // ServerURL is the connected peermap server url
-func (c *PeerPacketConn) ServerURL() string {
+func (c *PacketConn) ServerURL() string {
 	return c.wsConn.ServerURL()
 }
 
 // ControllerManager makes changes attempting to move the current state towards the desired state
-func (c *PeerPacketConn) ControllerManager() disco.ControllerManager {
+func (c *PacketConn) ControllerManager() disco.ControllerManager {
 	return c.wsConn
 }
 
 // PeerStore stores the found peers
-func (c *PeerPacketConn) PeerStore() tp.PeerStore {
+func (c *PacketConn) PeerStore() tp.PeerStore {
 	return c.udpConn
 }
 
 // SharedKey get the key shared with the peer
-func (c *PeerPacketConn) SharedKey(peerID disco.PeerID) ([]byte, error) {
+func (c *PacketConn) SharedKey(peerID disco.PeerID) ([]byte, error) {
 	if c.cfg.SymmAlgo == nil {
 		return nil, errors.New("get shared key from plain conn")
 	}
@@ -216,7 +216,7 @@ func (c *PeerPacketConn) SharedKey(peerID disco.PeerID) ([]byte, error) {
 }
 
 // runNetworkChangeDetectLoop listen network change and restart udp and websocket listener
-func (c *PeerPacketConn) runNetworkChangeDetectLoop() {
+func (c *PacketConn) runNetworkChangeDetectLoop() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ch := make(chan netlink.AddrUpdate)
@@ -270,7 +270,7 @@ func (c *PeerPacketConn) runNetworkChangeDetectLoop() {
 }
 
 // runControlEventLoop events control loop
-func (c *PeerPacketConn) runControlEventLoop() {
+func (c *PacketConn) runControlEventLoop() {
 	for {
 		select {
 		case peer, ok := <-c.wsConn.Peers():
@@ -315,12 +315,12 @@ func (c *PeerPacketConn) runControlEventLoop() {
 }
 
 // ListenPacket same as ListenPacketContext, but no context required
-func ListenPacket(peermap *disco.Peermap, opts ...Option) (*PeerPacketConn, error) {
+func ListenPacket(peermap *disco.Peermap, opts ...Option) (*PacketConn, error) {
 	return ListenPacketContext(context.Background(), peermap, opts...)
 }
 
 // ListenPacketContext listen the p2p network for read/write packets
-func ListenPacketContext(ctx context.Context, peermap *disco.Peermap, opts ...Option) (*PeerPacketConn, error) {
+func ListenPacketContext(ctx context.Context, peermap *disco.Peermap, opts ...Option) (*PacketConn, error) {
 	id := make([]byte, 16)
 	rand.Read(id)
 	cfg := Config{
@@ -355,7 +355,7 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Peermap, opts ...Op
 	udpConn.DetectNAT(wsConn.STUNs())
 
 	slog.Info("ListenPeer", "addr", cfg.PeerID)
-	packetConn := PeerPacketConn{
+	packetConn := PacketConn{
 		cfg:          cfg,
 		closedSig:    make(chan struct{}),
 		udpConn:      udpConn,
