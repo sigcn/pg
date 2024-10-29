@@ -219,6 +219,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 	p2pOptions := []p2p.Option{
 		p2p.PeerMeta("version", fmt.Sprintf("%s-%s", Version, Commit)),
 		p2p.ListenPeerUp(v.addPeer),
+		p2p.KeepAlivePeriod(6 * time.Second),
 	}
 	if len(v.Config.Peers) > 0 {
 		p2pOptions = append(p2pOptions, p2p.PeerSilenceMode())
