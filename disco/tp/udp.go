@@ -53,6 +53,7 @@ func SetModifyDiscoConfig(modify func(cfg *DiscoConfig)) {
 
 var (
 	ErrUDPConnNotReady = errors.New("udpConn not ready yet")
+	ErrUDPConnInactive = errors.New("udpConn inactive")
 
 	_ PeerStore = (*UDPConn)(nil)
 )
@@ -802,11 +803,12 @@ func (peer *peerkeeper) ready() bool {
 	return false
 }
 
-func (peer *peerkeeper) selectUDPAddr() *net.UDPAddr {
+// selectPeerUDP select one of the multiple UDP addresses discovered by the peer
+func (peer *peerkeeper) selectPeerUDP() *PeerState {
 	candidates := make([]PeerState, 0, len(peer.states))
 	peer.statesMutex.RLock()
 	for _, state := range peer.states {
-		if time.Since(state.LastActiveTime) < peer.keepaliveInterval+2*time.Second {
+		if time.Since(state.LastActiveTime) < 2*(peer.keepaliveInterval+time.Second) {
 			candidates = append(candidates, *state)
 		}
 	}
@@ -820,13 +822,17 @@ func (peer *peerkeeper) selectUDPAddr() *net.UDPAddr {
 		}
 		return 1
 	})
-	return candidates[0].Addr
+	return &candidates[0]
 }
 
 func (peer *peerkeeper) writeUDP(p []byte) (int, error) {
-	if addr := peer.selectUDPAddr(); addr != nil {
-		slog.Log(context.Background(), -3, "[UDP] WriteTo", "peer", peer.peerID, "addr", addr)
-		return peer.udpConn.Load().WriteTo(p, addr)
+	if peerState := peer.selectPeerUDP(); p != nil {
+		slog.Log(context.Background(), -3, "[UDP] WriteTo", "peer", peer.peerID, "addr", peerState.Addr)
+		if time.Since(peerState.LastActiveTime) > peer.keepaliveInterval+200*time.Millisecond {
+			peer.udpConn.Load().WriteTo(p, peerState.Addr)
+			return 0, ErrUDPConnInactive
+		}
+		return peer.udpConn.Load().WriteTo(p, peerState.Addr)
 	}
 	return 0, net.ErrClosed
 }

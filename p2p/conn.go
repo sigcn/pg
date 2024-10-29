@@ -85,7 +85,9 @@ func (c *PeerPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 
 	n, err = c.udpConn.WriteToUDP(p, datagram.PeerID)
 	if err != nil {
-		c.TryLeadDisco(datagram.PeerID)
+		if !errors.Is(err, tp.ErrUDPConnInactive) {
+			c.TryLeadDisco(datagram.PeerID)
+		}
 		slog.Log(context.Background(), -3, "[Relay] WriteTo", "addr", datagram.PeerID)
 		return len(p), c.wsConn.WriteTo(p, datagram.PeerID, disco.CONTROL_RELAY)
 	}
