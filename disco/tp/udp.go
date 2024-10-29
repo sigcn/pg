@@ -259,6 +259,7 @@ func (c *UDPConn) RoundTripSTUN(stunServer string) (*net.UDPAddr, error) {
 
 func (c *UDPConn) DetectNAT(stunServers []string) (info disco.NATInfo) {
 	defer func() {
+		lastNATInfo := c.natInfo.Load()
 		slog.Log(context.Background(), -1, "[NAT] DetectNAT", "type", info.Type)
 		c.natInfo.Store(&info)
 		select {
@@ -266,13 +267,17 @@ func (c *UDPConn) DetectNAT(stunServers []string) (info disco.NATInfo) {
 		default:
 		}
 		if info.Type == disco.Hard {
-			if lastNATInfo := c.natInfo.Load(); lastNATInfo == nil || lastNATInfo.Type != disco.Hard {
-				c.RestartListener()
+			if lastNATInfo == nil || lastNATInfo.Type != disco.Hard {
+				if err := c.RestartListener(); err != nil {
+					slog.Error("[UDP] RestartListener", "event", "to_hard", "err", err)
+				}
 			}
 			return
 		}
-		if lastNATInfo := c.natInfo.Load(); lastNATInfo != nil && lastNATInfo.Type == disco.Hard {
-			c.RestartListener()
+		if lastNATInfo != nil && lastNATInfo.Type == disco.Hard {
+			if err := c.RestartListener(); err != nil {
+				slog.Error("[UDP] RestartListener", "event", "to_easy", "err", err)
+			}
 		}
 	}()
 	var udpAddrs []*net.UDPAddr
