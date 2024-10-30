@@ -11,14 +11,9 @@ import (
 	"sync"
 
 	"github.com/sigcn/pg/netlink"
-	"github.com/sigcn/pg/vpn/iface"
+	"github.com/sigcn/pg/vpn/nic"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
-	"golang.zx2c4.com/wireguard/tun"
-)
-
-const (
-	IPPacketOffset = 16
 )
 
 type Config struct {
@@ -30,7 +25,7 @@ type Config struct {
 }
 
 type VPN struct {
-	rt       iface.RoutingTable
+	nic      *nic.VirtualNIC
 	cfg      Config
 	outbound chan []byte
 	inbound  chan []byte
@@ -42,23 +37,23 @@ func New(cfg Config) *VPN {
 		cfg:      cfg,
 		outbound: make(chan []byte, 512),
 		inbound:  make(chan []byte, 512),
-		newBuf:   func() []byte { return make([]byte, cfg.MTU+IPPacketOffset+40) },
+		newBuf:   func() []byte { return make([]byte, cfg.MTU+nic.IPPacketOffset+40) },
 	}
 }
 
-func (vpn *VPN) Run(ctx context.Context, iface iface.Interface, packetConn net.PacketConn) error {
-	vpn.rt = iface
+func (vpn *VPN) Run(ctx context.Context, nic *nic.VirtualNIC, packetConn net.PacketConn) error {
+	vpn.nic = nic
 	var wg sync.WaitGroup
 	wg.Add(5)
 	go vpn.runRoutingTableUpdateEventLoop(ctx, &wg)
-	go vpn.runTunReadEventLoop(&wg, iface.Device())
-	go vpn.runTunWriteEventLoop(&wg, iface.Device())
+	go vpn.runNICReadEventLoop(&wg, nic)
+	go vpn.runNICWriteEventLoop(&wg, nic)
 	go vpn.runPacketConnReadEventLoop(&wg, packetConn)
 	go vpn.runPacketConnWriteEventLoop(&wg, packetConn)
 
 	<-ctx.Done()
 	packetConn.Close()
-	iface.Close()
+	nic.Close()
 	close(vpn.inbound)
 	close(vpn.outbound)
 	wg.Wait()
@@ -74,44 +69,32 @@ func (vpn *VPN) runRoutingTableUpdateEventLoop(ctx context.Context, wg *sync.Wai
 	}
 	for r := range ch {
 		if r.New {
-			if vpn.rt.AddRoute(r.Dst, r.Via) && vpn.cfg.OnRouteAdd != nil {
+			if vpn.nic.AddRoute(r.Dst, r.Via) && vpn.cfg.OnRouteAdd != nil {
 				vpn.cfg.OnRouteAdd(*r.Dst, r.Via)
 			}
 			continue
 		}
-		if vpn.rt.DelRoute(r.Dst, r.Via) && vpn.cfg.OnRouteRemove != nil {
+		if vpn.nic.DelRoute(r.Dst, r.Via) && vpn.cfg.OnRouteRemove != nil {
 			vpn.cfg.OnRouteRemove(*r.Dst, r.Via)
 		}
 	}
 }
 
-func (vpn *VPN) runTunReadEventLoop(wg *sync.WaitGroup, device tun.Device) {
+func (vpn *VPN) runNICReadEventLoop(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
 	defer wg.Done()
-
-	bufs := make([][]byte, device.BatchSize())
-	sizes := make([]int, device.BatchSize())
-
-	for i := range bufs {
-		bufs[i] = make([]byte, vpn.cfg.MTU+IPPacketOffset+40)
-	}
-
 	for {
-		n, err := device.Read(bufs, sizes, IPPacketOffset)
+		pkt, err := nic.Read()
 		if err != nil && strings.Contains(err.Error(), os.ErrClosed.Error()) {
 			return
 		}
 		if err != nil {
 			panic(err)
 		}
-		for i := 0; i < n; i++ {
-			packet := vpn.newBuf()
-			copy(packet, bufs[i][:sizes[i]+IPPacketOffset])
-			vpn.outbound <- packet[:sizes[i]+IPPacketOffset]
-		}
+		vpn.outbound <- pkt
 	}
 }
 
-func (vpn *VPN) runTunWriteEventLoop(wg *sync.WaitGroup, device tun.Device) {
+func (vpn *VPN) runNICWriteEventLoop(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
 	defer wg.Done()
 	handle := func(pkt []byte) []byte {
 		for _, in := range vpn.cfg.InboundHandlers {
@@ -130,7 +113,7 @@ func (vpn *VPN) runTunWriteEventLoop(wg *sync.WaitGroup, device tun.Device) {
 		if pkt = handle(pkt); pkt == nil {
 			continue
 		}
-		_, err := device.Write([][]byte{pkt}, IPPacketOffset)
+		err := nic.Write(pkt)
 		if err != nil {
 			slog.Debug("WriteToTunError", "detail", err.Error())
 		}
@@ -149,8 +132,8 @@ func (vpn *VPN) runPacketConnReadEventLoop(wg *sync.WaitGroup, packetConn net.Pa
 			panic(err)
 		}
 		pkt := vpn.newBuf()
-		copy(pkt[IPPacketOffset:], buf[:n])
-		vpn.inbound <- pkt[:n+IPPacketOffset]
+		copy(pkt[nic.IPPacketOffset:], buf[:n])
+		vpn.inbound <- pkt[:n+nic.IPPacketOffset]
 	}
 }
 
@@ -161,8 +144,8 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			slog.Log(context.Background(), -10, "DropMulticastIP", "dst", dstIP)
 			return
 		}
-		if peer, ok := vpn.rt.GetPeer(dstIP.String()); ok {
-			_, err := packetConn.WriteTo(packet[IPPacketOffset:], peer)
+		if peer, ok := vpn.nic.GetPeer(dstIP.String()); ok {
+			_, err := packetConn.WriteTo(packet[nic.IPPacketOffset:], peer)
 			if err != nil {
 				slog.Error("WriteTo peer failed", "peer", peer, "detail", err)
 			}
@@ -187,7 +170,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 		if packet = handle(packet); packet == nil {
 			continue
 		}
-		pkt := packet[IPPacketOffset:]
+		pkt := packet[nic.IPPacketOffset:]
 		if pkt[0]>>4 == 4 {
 			header, err := ipv4.ParseHeader(pkt)
 			if err != nil {

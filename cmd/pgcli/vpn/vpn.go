@@ -23,7 +23,8 @@ import (
 	"github.com/sigcn/pg/p2p"
 	"github.com/sigcn/pg/peermap/network"
 	"github.com/sigcn/pg/vpn"
-	"github.com/sigcn/pg/vpn/iface"
+	"github.com/sigcn/pg/vpn/nic"
+	"github.com/sigcn/pg/vpn/nic/tun"
 	"github.com/spf13/cobra"
 )
 
@@ -164,7 +165,7 @@ func createConfig(cmd *cobra.Command) (cfg Config, err error) {
 }
 
 type Config struct {
-	iface.Config
+	nic.Config
 	DiscoPortScanOffset            int
 	DiscoPortScanCount             int
 	DiscoPortScanDuration          time.Duration
@@ -183,25 +184,25 @@ type Config struct {
 
 type P2PVPN struct {
 	Config Config
-	iface  iface.Interface
+	nic    *nic.VirtualNIC
 }
 
 func (v *P2PVPN) Run(ctx context.Context) error {
-	iface, err := iface.Create(v.Config.TunName, v.Config.Config)
+	tunnic, err := tun.Create(v.Config.TunName, v.Config.Config)
 	if err != nil {
 		return err
 	}
-	v.iface = iface
 	c, err := v.listenPacketConn(ctx)
 	if err != nil {
-		err1 := iface.Close()
+		err1 := tunnic.Close()
 		return errors.Join(err, err1)
 	}
+	v.nic = &nic.VirtualNIC{NIC: tunnic}
 	return vpn.New(vpn.Config{
 		MTU:           v.Config.MTU,
 		OnRouteAdd:    func(dst net.IPNet, _ net.IP) { disco.AddIgnoredLocalCIDRs(dst.String()) },
 		OnRouteRemove: func(dst net.IPNet, _ net.IP) { disco.RemoveIgnoredLocalCIDRs(dst.String()) },
-	}).Run(ctx, iface, c)
+	}).Run(ctx, v.nic, c)
 }
 
 func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err error) {
@@ -276,7 +277,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err er
 }
 
 func (v *P2PVPN) addPeer(pi disco.PeerID, m url.Values) {
-	v.iface.AddPeer(pi, m.Get("alias1"), m.Get("alias2"))
+	v.nic.AddPeer(pi, m.Get("alias1"), m.Get("alias2"))
 }
 
 func (v *P2PVPN) loginIfNecessary(ctx context.Context) (disco.SecretStore, error) {

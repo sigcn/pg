@@ -1,17 +1,14 @@
-//go:build !windows
-
-package iface
+package tun
 
 import (
-	"net"
 	"os"
 
-	"github.com/sigcn/pg/lru"
+	"github.com/sigcn/pg/vpn/nic"
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-func CreateFD(tunFD int, cfg Config) (*TunInterface, error) {
+func CreateFD(tunFD int, cfg nic.Config) (*TUNIC, error) {
 	err := unix.SetNonblock(tunFD, true)
 	if err != nil {
 		return nil, err
@@ -21,9 +18,5 @@ func CreateFD(tunFD int, cfg Config) (*TunInterface, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &TunInterface{
-		dev:     device,
-		routing: lru.New[string, string](512),
-		peers:   lru.New[string, net.Addr](1024),
-	}, nil
+	return &TUNIC{dev: device, mtu: cfg.MTU}, nil
 }
