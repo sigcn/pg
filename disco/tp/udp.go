@@ -613,6 +613,7 @@ func (c *UDPConn) runPacketEventLoop(udpConn *net.UDPConn) {
 		c.tryGetPeerkeeper(udpConn, peerID).heartbeat(peerAddr)
 		b := make([]byte, n)
 		copy(b, buf[:n])
+		slog.Log(context.Background(), -3, "[UDP] ReadFrom", "peer", peerID, "addr", peerAddr)
 		c.datagrams <- &disco.Datagram{PeerID: peerID, Data: b}
 	}
 }

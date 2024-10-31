@@ -151,7 +151,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			}
 			return
 		}
-		slog.Log(context.Background(), -10, "DropPacketPeerNotFound", "ip", dstIP)
+		slog.Log(context.Background(), -1, "DropPacketPeerNotFound", "ip", dstIP)
 	}
 	handle := func(pkt []byte) []byte {
 		for _, out := range vpn.cfg.OutboundHandlers {
