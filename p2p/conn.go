@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/url"
 	"sync"
 	"time"
 
@@ -33,6 +34,7 @@ type PacketConn struct {
 	closedSig         chan struct{}
 	udpConn           *tp.UDPConn
 	wsConn            *tp.WSConn
+	peerMap           *lru.Cache[disco.PeerID, url.Values]
 	discoCooling      *lru.Cache[disco.PeerID, time.Time]
 	discoCoolingMutex sync.Mutex
 
@@ -215,6 +217,14 @@ func (c *PacketConn) SharedKey(peerID disco.PeerID) ([]byte, error) {
 	return c.cfg.SymmAlgo.SecretKey()(peerID.String())
 }
 
+// PeerMeta find peer metadata from all found peers
+func (c *PacketConn) PeerMeta(peerID disco.PeerID) url.Values {
+	if meta, ok := c.peerMap.Get(peerID); ok {
+		return meta
+	}
+	return nil
+}
+
 // runNetworkChangeDetectLoop listen network change and restart udp and websocket listener
 func (c *PacketConn) runNetworkChangeDetectLoop() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -277,6 +287,7 @@ func (c *PacketConn) runControlEventLoop() {
 			if !ok {
 				return
 			}
+			c.peerMap.Put(peer.ID, peer.Metadata)
 			go c.udpConn.GenerateLocalAddrsSends(peer.ID, c.wsConn.STUNs())
 			if onPeer := c.cfg.OnPeer; onPeer != nil {
 				go onPeer(peer.ID, peer.Metadata)
@@ -360,6 +371,7 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Peermap, opts ...Op
 		closedSig:    make(chan struct{}),
 		udpConn:      udpConn,
 		wsConn:       wsConn,
+		peerMap:      lru.New[disco.PeerID, url.Values](1024),
 		discoCooling: lru.New[disco.PeerID, time.Time](1024),
 	}
 	go packetConn.runControlEventLoop()
