@@ -37,6 +37,7 @@ type PacketConn struct {
 	peerMap           *lru.Cache[disco.PeerID, url.Values]
 	discoCooling      *lru.Cache[disco.PeerID, time.Time]
 	discoCoolingMutex sync.Mutex
+	transportMode     TransportMode
 
 	deadlineRead N.Deadline
 }
@@ -85,15 +86,18 @@ func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	datagram := disco.Datagram{PeerID: addr.(disco.PeerID), Data: p}
 	p = datagram.TryEncrypt(c.cfg.SymmAlgo)
 
-	n, err = c.udpConn.WriteToUDP(p, datagram.PeerID)
-	if err != nil {
-		if !errors.Is(err, tp.ErrUDPConnInactive) {
-			c.TryLeadDisco(datagram.PeerID)
-		}
-		slog.Log(context.Background(), -3, "[Relay] WriteTo", "addr", datagram.PeerID)
+	if c.transportMode == MODE_FORCE_RELAY {
 		return len(p), c.wsConn.WriteTo(p, datagram.PeerID, disco.CONTROL_RELAY)
 	}
-	return
+
+	if n, err = c.udpConn.WriteToUDP(p, datagram.PeerID); err == nil {
+		return
+	}
+
+	if !errors.Is(err, tp.ErrUDPConnInactive) {
+		c.TryLeadDisco(datagram.PeerID)
+	}
+	return len(p), c.wsConn.WriteTo(p, datagram.PeerID, disco.CONTROL_RELAY)
 }
 
 // Close closes the connection.
@@ -168,6 +172,13 @@ func (c *PacketConn) SetReadBuffer(bytes int) error {
 // transmit buffer associated with the connection.
 func (c *PacketConn) SetWriteBuffer(bytes int) error {
 	return c.udpConn.SetWriteBuffer(bytes)
+}
+
+// SetTransportMode sets func WriteTo underlying transport mode
+// p2p.MODE_DEFAULT            p2p > server_relay
+// p2p.MODE_FORCE_RELAY        force to server_relay
+func (c *PacketConn) SetTransportMode(mode TransportMode) {
+	c.transportMode = mode
 }
 
 // Broadcast broadcast packet to all found peers using direct udpConn

@@ -62,6 +62,8 @@ func init() {
 	Cmd.Flags().Bool("pprof", false, "enable http pprof server")
 	Cmd.Flags().Bool("auth-qr", false, "display the QR code when authentication is required")
 
+	Cmd.Flags().Bool("p2p-force-server-relay", false, "force to server relay transport mode")
+
 	Cmd.MarkFlagsOneRequired("ipv4", "ipv6")
 }
 
@@ -161,6 +163,13 @@ func createConfig(cmd *cobra.Command) (cfg Config, err error) {
 		err = errors.New("flag \"server\" not set")
 		return
 	}
+	forceServerRelay, err := cmd.Flags().GetBool("p2p-force-server-relay")
+	if err != nil {
+		return
+	}
+	if forceServerRelay {
+		cfg.P2pTransportMode = p2p.MODE_FORCE_RELAY
+	}
 	return
 }
 
@@ -180,6 +189,7 @@ type Config struct {
 	SecretFile                     string
 	Server                         string
 	AuthQR                         bool
+	P2pTransportMode               p2p.TransportMode
 }
 
 type P2PVPN struct {
@@ -197,6 +207,7 @@ func (v *P2PVPN) Run(ctx context.Context) error {
 		err1 := tunnic.Close()
 		return errors.Join(err, err1)
 	}
+	c.SetTransportMode(v.Config.P2pTransportMode)
 	v.nic = &nic.VirtualNIC{NIC: tunnic}
 	return vpn.New(vpn.Config{
 		MTU:           v.Config.MTU,
@@ -205,7 +216,7 @@ func (v *P2PVPN) Run(ctx context.Context) error {
 	}).Run(ctx, v.nic, c)
 }
 
-func (v *P2PVPN) listenPacketConn(ctx context.Context) (c net.PacketConn, err error) {
+func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err error) {
 	tp.SetModifyDiscoConfig(func(cfg *tp.DiscoConfig) {
 		cfg.PortScanOffset = v.Config.DiscoPortScanOffset
 		cfg.PortScanCount = v.Config.DiscoPortScanCount

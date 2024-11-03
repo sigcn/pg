@@ -131,11 +131,11 @@ func (c *WSConn) WriteTo(p []byte, peerID disco.PeerID, op disco.ControlCode) er
 	b = append(b, peerID.Len())      // addr length
 	b = append(b, peerID.Bytes()...) // addr
 	b = append(b, p...)              // data
+	slog.Log(context.Background(), -3, "[WS] WriteTo", "peer", peerID, "op", op)
 	return c.write(b)
 }
 
 func (c *WSConn) LeadDisco(peerID disco.PeerID) error {
-	slog.Log(context.Background(), -3, "LeadDisco", "peer", peerID)
 	return c.WriteTo(nil, peerID, disco.CONTROL_LEAD_DISCO)
 }
 
