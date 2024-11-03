@@ -29,7 +29,6 @@ type VPN struct {
 	cfg      Config
 	outbound chan []byte
 	inbound  chan []byte
-	newBuf   func() []byte
 }
 
 func New(cfg Config) *VPN {
@@ -37,7 +36,6 @@ func New(cfg Config) *VPN {
 		cfg:      cfg,
 		outbound: make(chan []byte, 512),
 		inbound:  make(chan []byte, 512),
-		newBuf:   func() []byte { return make([]byte, cfg.MTU+nic.IPPacketOffset+40) },
 	}
 }
 
@@ -131,9 +129,9 @@ func (vpn *VPN) runPacketConnReadEventLoop(wg *sync.WaitGroup, packetConn net.Pa
 			}
 			panic(err)
 		}
-		pkt := vpn.newBuf()
+		pkt := make([]byte, n+nic.IPPacketOffset)
 		copy(pkt[nic.IPPacketOffset:], buf[:n])
-		vpn.inbound <- pkt[:n+nic.IPPacketOffset]
+		vpn.inbound <- pkt
 	}
 }
 

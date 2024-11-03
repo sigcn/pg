@@ -54,7 +54,7 @@ func (tun *TUNIC) Read() ([]byte, error) {
 		}
 	})
 	if tun.read < tun.readTotal {
-		pkt := make([]byte, tun.mtu+nic.IPPacketOffset+40)
+		pkt := make([]byte, tun.readSizes[tun.read]+nic.IPPacketOffset)
 		tun.read++
 		copy(pkt, tun.readBufs[tun.read][:tun.readSizes[tun.read]+nic.IPPacketOffset])
 		return pkt, nil
@@ -66,7 +66,7 @@ func (tun *TUNIC) Read() ([]byte, error) {
 	tun.readTotal = n - 1
 	tun.read = 0
 
-	pkt := make([]byte, tun.mtu+nic.IPPacketOffset+40)
+	pkt := make([]byte, tun.readSizes[tun.read]+nic.IPPacketOffset)
 	copy(pkt, tun.readBufs[tun.read][:tun.readSizes[tun.read]+nic.IPPacketOffset])
 	return pkt, nil
 }
