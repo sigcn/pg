@@ -20,8 +20,8 @@ type Config struct {
 
 type NIC interface {
 	io.Closer
-	Write([]byte) error
-	Read() ([]byte, error)
+	Write(*Packet) error
+	Read() (*Packet, error)
 }
 
 type VirtualNIC struct {

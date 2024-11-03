@@ -28,15 +28,18 @@ type Config struct {
 type VPN struct {
 	nic      *nic.VirtualNIC
 	cfg      Config
-	outbound chan []byte
-	inbound  chan []byte
+	outbound chan *nic.Packet
+	inbound  chan *nic.Packet
 }
 
 func New(cfg Config) *VPN {
+	if cfg.MTU > 0 {
+		nic.IPPacketPool = &nic.PacketPool{MTU: cfg.MTU}
+	}
 	return &VPN{
 		cfg:      cfg,
-		outbound: make(chan []byte, 512),
-		inbound:  make(chan []byte, 512),
+		outbound: make(chan *nic.Packet, 512),
+		inbound:  make(chan *nic.Packet, 512),
 	}
 }
 
@@ -82,20 +85,20 @@ func (vpn *VPN) runRoutingTableUpdateEventLoop(ctx context.Context, wg *sync.Wai
 func (vpn *VPN) runNICReadEventLoop(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
 	defer wg.Done()
 	for {
-		pkt, err := nic.Read()
+		packet, err := nic.Read()
 		if err != nil && strings.Contains(err.Error(), os.ErrClosed.Error()) {
 			return
 		}
 		if err != nil {
 			panic(err)
 		}
-		vpn.outbound <- pkt
+		vpn.outbound <- packet
 	}
 }
 
-func (vpn *VPN) runNICWriteEventLoop(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
+func (vpn *VPN) runNICWriteEventLoop(wg *sync.WaitGroup, vnic *nic.VirtualNIC) {
 	defer wg.Done()
-	handle := func(pkt []byte) []byte {
+	handle := func(pkt *nic.Packet) *nic.Packet {
 		for _, in := range vpn.cfg.InboundHandlers {
 			if pkt = in.In(pkt); pkt == nil {
 				slog.Debug("DropInbound", "handler", in.Name())
@@ -105,17 +108,19 @@ func (vpn *VPN) runNICWriteEventLoop(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
 		return pkt
 	}
 	for {
-		pkt, ok := <-vpn.inbound
+		packet, ok := <-vpn.inbound
 		if !ok {
 			return
 		}
-		if pkt = handle(pkt); pkt == nil {
+		if packet = handle(packet); packet == nil {
+			nic.IPPacketPool.Put(packet)
 			continue
 		}
-		err := nic.Write(pkt)
+		err := vnic.Write(packet)
 		if err != nil {
 			slog.Debug("WriteToTunError", "detail", err.Error())
 		}
+		nic.IPPacketPool.Put(packet)
 	}
 }
 
@@ -130,21 +135,22 @@ func (vpn *VPN) runPacketConnReadEventLoop(wg *sync.WaitGroup, packetConn net.Pa
 			}
 			panic(err)
 		}
-		pkt := make([]byte, n+nic.IPPacketOffset)
-		copy(pkt[nic.IPPacketOffset:], buf[:n])
+		pkt := nic.IPPacketPool.Get()
+		pkt.Write(buf[:n])
 		vpn.inbound <- pkt
 	}
 }
 
 func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.PacketConn) {
 	defer wg.Done()
-	sendPacketToPeer := func(packet []byte, dstIP net.IP) {
+	sendPacketToPeer := func(packet *nic.Packet, dstIP net.IP) {
+		defer nic.IPPacketPool.Put(packet)
 		if dstIP.IsMulticast() {
 			slog.Log(context.Background(), -10, "DropMulticastIP", "dst", dstIP)
 			return
 		}
 		if peer, ok := vpn.nic.GetPeer(dstIP.String()); ok {
-			_, err := packetConn.WriteTo(packet[nic.IPPacketOffset:], peer)
+			_, err := packetConn.WriteTo(packet.AsBytes(), peer)
 			if err != nil {
 				slog.Error("WriteTo peer failed", "peer", peer, "detail", err)
 			}
@@ -152,7 +158,7 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 		}
 		slog.Log(context.Background(), -1, "DropPacketPeerNotFound", "ip", dstIP)
 	}
-	handle := func(pkt []byte) []byte {
+	handle := func(pkt *nic.Packet) *nic.Packet {
 		for _, out := range vpn.cfg.OutboundHandlers {
 			if pkt = out.Out(pkt); pkt == nil {
 				slog.Debug("DropOutbound", "handler", out.Name())
@@ -167,9 +173,10 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			return
 		}
 		if packet = handle(packet); packet == nil {
+			nic.IPPacketPool.Put(packet)
 			continue
 		}
-		pkt := packet[nic.IPPacketOffset:]
+		pkt := packet.AsBytes()
 		if pkt[0]>>4 == 4 {
 			header, err := ipv4.ParseHeader(pkt)
 			if err != nil {
@@ -195,5 +202,6 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 			continue
 		}
 		slog.Warn("Received invalid packet", "packet", hex.EncodeToString(pkt))
+		nic.IPPacketPool.Put(packet)
 	}
 }

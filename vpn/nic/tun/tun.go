@@ -45,7 +45,7 @@ func Create(tunName string, cfg nic.Config) (*TUNIC, error) {
 }
 
 // Read read ip packet from nic. no concurrency support
-func (tun *TUNIC) Read() ([]byte, error) {
+func (tun *TUNIC) Read() (*nic.Packet, error) {
 	tun.readInit.Do(func() {
 		tun.readBufs = make([][]byte, tun.dev.BatchSize())
 		tun.readSizes = make([]int, tun.dev.BatchSize())
@@ -54,10 +54,9 @@ func (tun *TUNIC) Read() ([]byte, error) {
 		}
 	})
 	if tun.read < tun.readTotal {
-		pkt := make([]byte, tun.readSizes[tun.read]+nic.IPPacketOffset)
+		pkt := nic.IPPacketPool.Get()
 		tun.read++
-		copy(pkt, tun.readBufs[tun.read][:tun.readSizes[tun.read]+nic.IPPacketOffset])
-		return pkt, nil
+		return pkt, pkt.Write(tun.readBufs[tun.read][nic.IPPacketOffset : tun.readSizes[tun.read]+nic.IPPacketOffset])
 	}
 	n, err := tun.dev.Read(tun.readBufs, tun.readSizes, nic.IPPacketOffset)
 	if err != nil {
@@ -66,14 +65,13 @@ func (tun *TUNIC) Read() ([]byte, error) {
 	tun.readTotal = n - 1
 	tun.read = 0
 
-	pkt := make([]byte, tun.readSizes[tun.read]+nic.IPPacketOffset)
-	copy(pkt, tun.readBufs[tun.read][:tun.readSizes[tun.read]+nic.IPPacketOffset])
-	return pkt, nil
+	pkt := nic.IPPacketPool.Get()
+	return pkt, pkt.Write(tun.readBufs[tun.read][nic.IPPacketOffset : tun.readSizes[tun.read]+nic.IPPacketOffset])
 }
 
 // Write write ip packet to nic
-func (tun *TUNIC) Write(p []byte) error {
-	_, err := tun.dev.Write([][]byte{p}, nic.IPPacketOffset)
+func (tun *TUNIC) Write(p *nic.Packet) error {
+	_, err := tun.dev.Write([][]byte{p.Bytes(0)}, nic.IPPacketOffset)
 	return err
 }
 
