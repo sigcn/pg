@@ -1,6 +1,7 @@
 package vpn
 
 import (
+	"cmp"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -120,7 +121,7 @@ func (vpn *VPN) runNICWriteEventLoop(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
 
 func (vpn *VPN) runPacketConnReadEventLoop(wg *sync.WaitGroup, packetConn net.PacketConn) {
 	defer wg.Done()
-	buf := make([]byte, vpn.cfg.MTU+40)
+	buf := make([]byte, cmp.Or(vpn.cfg.MTU, (2<<15)-8-40-40)+40)
 	for {
 		n, _, err := packetConn.ReadFrom(buf)
 		if err != nil {
