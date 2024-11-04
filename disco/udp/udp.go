@@ -1,4 +1,4 @@
-package tp
+package udp
 
 import (
 	"context"
@@ -71,12 +71,13 @@ type UDPConn struct {
 	udpConnsMutex sync.RWMutex
 	udpConns      []*net.UDPConn
 
-	cfg          UDPConfig
-	disco        *disco.Disco
-	closedSig    chan int
-	datagrams    chan *disco.Datagram
-	natEvents    chan *disco.NATInfo
-	udpAddrSends chan *disco.PeerUDPAddr
+	cfg           UDPConfig
+	disco         *disco.Disco
+	closedSig     chan int
+	datagrams     chan *disco.Datagram
+	natEvents     chan *disco.NATInfo
+	udpAddrSends  chan *disco.PeerUDPAddr
+	relayProtocol relayProtocol
 
 	peersIndex      map[disco.PeerID]*peerkeeper
 	peersIndexMutex sync.RWMutex
@@ -428,11 +429,15 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 	slog.Log(context.Background(), -3, "[UDP] PortScan", "peer", udpAddr.ID, "addr", udpAddr.Addr, "packet_count", packetCounter)
 }
 
-func (c *UDPConn) WriteToUDP(p []byte, peerID disco.PeerID) (int, error) {
+func (c *UDPConn) WriteTo(p []byte, peerID disco.PeerID) (int, error) {
 	if peer, ok := c.findPeer(peerID); ok {
 		return peer.writeUDP(p)
 	}
 	return 0, net.ErrClosed
+}
+
+func (c *UDPConn) RelayTo(relay disco.PeerID, p []byte, peerID disco.PeerID) (int, error) {
+	return c.WriteTo(c.relayProtocol.toRelay(p, peerID), relay)
 }
 
 func (c *UDPConn) Broadcast(b []byte) (peerCount int, err error) {
@@ -446,7 +451,7 @@ func (c *UDPConn) Broadcast(b []byte) (peerCount int, err error) {
 
 	var errs []error
 	for _, peer := range peers {
-		_, err := c.WriteToUDP(b, peer)
+		_, err := c.WriteTo(b, peer)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -617,6 +622,14 @@ func (c *UDPConn) runPacketEventLoop(udpConn *net.UDPConn) {
 		b := make([]byte, n)
 		copy(b, buf[:n])
 		slog.Log(context.Background(), -3, "[UDP] ReadFrom", "peer", peerID, "addr", peerAddr)
+		if pkt, dst := c.relayProtocol.tryToDst(buf[:n], peerID); pkt != nil {
+			c.WriteTo(pkt, dst)
+			continue
+		}
+		if pkt, src := c.relayProtocol.tryRecv(buf[:n]); pkt != nil {
+			c.datagrams <- &disco.Datagram{PeerID: src, Data: pkt}
+			continue
+		}
 		c.datagrams <- &disco.Datagram{PeerID: peerID, Data: b}
 	}
 }

@@ -28,6 +28,8 @@ func (code ControlCode) String() string {
 		return "UPDATE_NETWORK_SECRET"
 	case CONTROL_UPDATE_NAT_INFO:
 		return "UPDATE_NAT_INFO"
+	case CONTROL_UPDATE_META:
+		return "UPDATE_PEER"
 	case CONTROL_CONN:
 		return "CONTROL_CONN"
 	default:

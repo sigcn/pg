@@ -19,7 +19,7 @@ import (
 
 	"github.com/mdp/qrterminal/v3"
 	"github.com/sigcn/pg/disco"
-	"github.com/sigcn/pg/disco/tp"
+	"github.com/sigcn/pg/disco/udp"
 	"github.com/sigcn/pg/p2p"
 	"github.com/sigcn/pg/peermap/network"
 	"github.com/sigcn/pg/vpn"
@@ -43,7 +43,7 @@ func init() {
 	Cmd.Flags().StringP("ipv4", "4", "", "ipv4 address prefix (e.g. 100.99.0.1/24)")
 	Cmd.Flags().StringP("ipv6", "6", "", "ipv6 address prefix (e.g. fd00::1/64)")
 	Cmd.Flags().String("tun", defaultTunName, "tun device name")
-	Cmd.Flags().Int("mtu", 1428, "mtu")
+	Cmd.Flags().Int("mtu", 1391, "mtu")
 
 	Cmd.Flags().String("key", "", "curve25519 private key in base58 format (default generate a new one)")
 	Cmd.Flags().StringP("secret-file", "f", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
@@ -62,9 +62,11 @@ func init() {
 	Cmd.Flags().Bool("pprof", false, "enable http pprof server")
 	Cmd.Flags().Bool("auth-qr", false, "display the QR code when authentication is required")
 
+	Cmd.Flags().Bool("p2p-force-peer-relay", false, "force to peer relay transport mode")
 	Cmd.Flags().Bool("p2p-force-server-relay", false, "force to server relay transport mode")
 
 	Cmd.MarkFlagsOneRequired("ipv4", "ipv6")
+	Cmd.MarkFlagsMutuallyExclusive("p2p-force-peer-relay", "p2p-force-server-relay")
 }
 
 func run(cmd *cobra.Command, args []string) (err error) {
@@ -163,11 +165,18 @@ func createConfig(cmd *cobra.Command) (cfg Config, err error) {
 		err = errors.New("flag \"server\" not set")
 		return
 	}
+	forcePeerRelay, err := cmd.Flags().GetBool("p2p-force-peer-relay")
+	if err != nil {
+		return
+	}
+	if forcePeerRelay {
+		cfg.P2pTransportMode = p2p.MODE_FORCE_PEER_RELAY
+	}
 	forceServerRelay, err := cmd.Flags().GetBool("p2p-force-server-relay")
 	if err != nil {
 		return
 	}
-	if forceServerRelay {
+	if forceServerRelay && !forcePeerRelay {
 		cfg.P2pTransportMode = p2p.MODE_FORCE_RELAY
 	}
 	return
@@ -217,7 +226,7 @@ func (v *P2PVPN) Run(ctx context.Context) error {
 }
 
 func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err error) {
-	tp.SetModifyDiscoConfig(func(cfg *tp.DiscoConfig) {
+	udp.SetModifyDiscoConfig(func(cfg *udp.DiscoConfig) {
 		cfg.PortScanOffset = v.Config.DiscoPortScanOffset
 		cfg.PortScanCount = v.Config.DiscoPortScanCount
 		cfg.PortScanDuration = v.Config.DiscoPortScanDuration

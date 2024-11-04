@@ -1,4 +1,4 @@
-package tp
+package ws
 
 import (
 	"context"
@@ -401,6 +401,7 @@ func (c *WSConn) runEventsReadLoop() {
 }
 
 func (c *WSConn) handleEvents(b []byte) {
+	logger := slog.With("code", disco.ControlCode(b[0]))
 	switch disco.ControlCode(b[0]) {
 	case disco.CONTROL_RELAY:
 		c.datagrams <- &disco.Datagram{PeerID: disco.PeerID(b[2 : b[1]+2]), Data: b[b[1]+2:]}
@@ -408,10 +409,12 @@ func (c *WSConn) handleEvents(b []byte) {
 		meta, _ := url.ParseQuery(string(b[b[1]+2:]))
 		event := disco.Peer{ID: disco.PeerID(b[2 : b[1]+2]), Metadata: meta}
 		c.peers <- &event
+		logger.Log(context.Background(), -2, "[WS] Event", "peer", event.ID, "meta", event.Metadata.Encode())
 	case disco.CONTROL_UPDATE_META:
 		meta, _ := url.ParseQuery(string(b[b[1]+2:]))
 		event := disco.Peer{ID: disco.PeerID(b[2 : b[1]+2]), Metadata: meta}
 		c.peersMeta <- &event
+		logger.Log(context.Background(), -2, "[WS] Event", "peer", event.ID, "meta", event.Metadata.Encode())
 	case disco.CONTROL_NEW_PEER_UDP_ADDR:
 		if b[b[1]+2] != 'a' { // old version without nat type
 			slog.Error("IncompatiblePeerVersionFound(v0.7 is required)", "peer", disco.PeerID(b[2:b[1]+2]))

@@ -164,8 +164,9 @@ func MinDiscoPeriod(period time.Duration) Option {
 type TransportMode string
 
 const (
-	MODE_DEFAULT     TransportMode = ""
-	MODE_FORCE_RELAY TransportMode = "RELAY"
+	MODE_DEFAULT          TransportMode = ""
+	MODE_FORCE_PEER_RELAY TransportMode = "PEER_RELAY"
+	MODE_FORCE_RELAY      TransportMode = "RELAY"
 )
 
 func (mode TransportMode) String() string {

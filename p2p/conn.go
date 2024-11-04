@@ -13,7 +13,8 @@ import (
 	"time"
 
 	"github.com/sigcn/pg/disco"
-	"github.com/sigcn/pg/disco/tp"
+	"github.com/sigcn/pg/disco/udp"
+	"github.com/sigcn/pg/disco/ws"
 	"github.com/sigcn/pg/lru"
 	N "github.com/sigcn/pg/net"
 	"github.com/sigcn/pg/netlink"
@@ -27,13 +28,15 @@ type PacketBroadcaster interface {
 var (
 	_ net.PacketConn    = (*PacketConn)(nil)
 	_ PacketBroadcaster = (*PacketConn)(nil)
+
+	ErrNoRelayPeer = errors.New("no relay peer")
 )
 
 type PacketConn struct {
 	cfg               Config
 	closedSig         chan struct{}
-	udpConn           *tp.UDPConn
-	wsConn            *tp.WSConn
+	udpConn           *udp.UDPConn
+	wsConn            *ws.WSConn
 	peerMap           *lru.Cache[disco.PeerID, url.Values]
 	discoCooling      *lru.Cache[disco.PeerID, time.Time]
 	discoCoolingMutex sync.Mutex
@@ -90,11 +93,25 @@ func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		return len(p), c.wsConn.WriteTo(p, datagram.PeerID, disco.CONTROL_RELAY)
 	}
 
-	if n, err = c.udpConn.WriteToUDP(p, datagram.PeerID); err == nil {
+	if c.transportMode == MODE_FORCE_PEER_RELAY {
+		relay := c.relayPeer(datagram.PeerID)
+		if relay == "" {
+			return 0, ErrNoRelayPeer
+		}
+		return c.udpConn.RelayTo(relay, p, datagram.PeerID)
+	}
+
+	if n, err = c.udpConn.WriteTo(p, datagram.PeerID); err == nil {
 		return
 	}
 
-	if !errors.Is(err, tp.ErrUDPConnInactive) {
+	if relay := c.relayPeer(datagram.PeerID); relay != "" {
+		if n, err = c.udpConn.RelayTo(relay, p, datagram.PeerID); err == nil {
+			return
+		}
+	}
+
+	if !errors.Is(err, udp.ErrUDPConnInactive) {
 		c.TryLeadDisco(datagram.PeerID)
 	}
 	return len(p), c.wsConn.WriteTo(p, datagram.PeerID, disco.CONTROL_RELAY)
@@ -175,7 +192,8 @@ func (c *PacketConn) SetWriteBuffer(bytes int) error {
 }
 
 // SetTransportMode sets func WriteTo underlying transport mode
-// p2p.MODE_DEFAULT            p2p > server_relay
+// p2p.MODE_DEFAULT            p2p > peer_relay > server_relay
+// p2p.MODE_FORCE_PEER_RELAY   force to peer_relay
 // p2p.MODE_FORCE_RELAY        force to server_relay
 func (c *PacketConn) SetTransportMode(mode TransportMode) {
 	c.transportMode = mode
@@ -216,7 +234,7 @@ func (c *PacketConn) ControllerManager() disco.ControllerManager {
 }
 
 // PeerStore stores the found peers
-func (c *PacketConn) PeerStore() tp.PeerStore {
+func (c *PacketConn) PeerStore() udp.PeerStore {
 	return c.udpConn
 }
 
@@ -234,6 +252,24 @@ func (c *PacketConn) PeerMeta(peerID disco.PeerID) url.Values {
 		return meta
 	}
 	return nil
+}
+
+// relayPeer find the suitable relay peer
+func (c *PacketConn) relayPeer(peerID disco.PeerID) disco.PeerID {
+	for _, p := range c.PeerStore().Peers() {
+		if p.PeerID == peerID {
+			continue
+		}
+		meta := c.PeerMeta(p.PeerID)
+		if meta == nil {
+			continue
+		}
+		peerNAT := disco.NATType(meta.Get("nat"))
+		if peerNAT == disco.Easy || peerNAT == disco.IP4 {
+			return p.PeerID
+		}
+	}
+	return ""
 }
 
 // runNetworkChangeDetectLoop listen network change and restart udp and websocket listener
@@ -365,7 +401,7 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Peermap, opts ...Op
 		}
 	}
 
-	udpConn, err := tp.ListenUDP(tp.UDPConfig{
+	udpConn, err := udp.ListenUDP(udp.UDPConfig{
 		Port:                  cfg.UDPPort,
 		DisableIPv4:           cfg.DisableIPv4,
 		DisableIPv6:           cfg.DisableIPv6,
@@ -376,7 +412,7 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Peermap, opts ...Op
 		return nil, err
 	}
 
-	wsConn, err := tp.DialPeermap(ctx, peermap, cfg.PeerID, cfg.Metadata)
+	wsConn, err := ws.DialPeermap(ctx, peermap, cfg.PeerID, cfg.Metadata)
 	if err != nil {
 		udpConn.Close()
 		return nil, err
