@@ -329,12 +329,12 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 				return
 			default:
 			}
-			c.discoPing(udpConn, udpAddr.ID, udpAddr.Addr)
-			atomic.AddInt32(packetCounter, 1)
-			interval = time.Duration(float64(interval) * defaultDiscoConfig.ChallengesBackoffRate)
 			if c.findPeerID(udpAddr.Addr) != "" {
 				return
 			}
+			c.discoPing(udpConn, udpAddr.ID, udpAddr.Addr)
+			atomic.AddInt32(packetCounter, 1)
+			interval = time.Duration(float64(interval) * defaultDiscoConfig.ChallengesBackoffRate)
 		}
 	}
 
@@ -379,10 +379,13 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 	slog.Log(context.Background(), -3, "[UDP] EasyChallenges", "peer", udpAddr.ID, "addr", udpAddr.Addr)
 	var wg sync.WaitGroup
 	c.udpConnsMutex.RLock()
-	wg.Add(len(c.udpConns))
 	var packetCounter int32
 	for _, conn := range c.udpConns {
+		wg.Add(1)
 		go easyChallenges(conn, &wg, &packetCounter)
+		if udpAddr.Addr.IP.IsPrivate() {
+			break
+		}
 	}
 	c.udpConnsMutex.RUnlock()
 	wg.Wait()
