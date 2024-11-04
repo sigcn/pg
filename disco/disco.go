@@ -46,6 +46,7 @@ const (
 	CONTROL_LEAD_DISCO            ControlCode = 3
 	CONTROL_UPDATE_NETWORK_SECRET ControlCode = 20
 	CONTROL_UPDATE_NAT_INFO       ControlCode = 21
+	CONTROL_UPDATE_META           ControlCode = 22
 	CONTROL_CONN                  ControlCode = 30
 )
 

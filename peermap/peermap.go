@@ -184,6 +184,28 @@ func (p *peerConn) leadDisco(target *peerConn) {
 	p.write(b1)
 }
 
+func (p *peerConn) broadcastMeta() {
+	myMeta := []byte(p.metadata.Encode())
+	ctx, _ := p.peerMap.getNetwork(p.networkSecret.Network)
+	var peers []*peerConn
+	ctx.peersMutex.RLock()
+	for k, v := range ctx.peers {
+		if k == string(p.id) {
+			continue
+		}
+		peers = append(peers, v)
+	}
+	ctx.peersMutex.RUnlock()
+	slog.Debug("BroadcastMeta", "count", len(peers), "meta", p.metadata.Encode())
+	for _, target := range peers {
+		b := append([]byte(nil), disco.CONTROL_UPDATE_META.Byte())
+		b = append(b, p.id.Len())
+		b = append(b, p.id.Bytes()...)
+		b = append(b, myMeta...)
+		target.write(b)
+	}
+}
+
 func (p *peerConn) readMessageLoop() {
 	for {
 		select {
@@ -252,6 +274,7 @@ func (p *peerConn) updateNATInfo(b []byte) {
 	for _, addr := range natInfo.Addrs {
 		p.metadata.Add("addr", addr.String())
 	}
+	p.broadcastMeta()
 }
 
 func (p *peerConn) keepalive() {

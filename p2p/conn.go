@@ -298,8 +298,16 @@ func (c *PacketConn) runControlEventLoop() {
 			if !ok {
 				return
 			}
-			c.peerMap.Put(peer.ID, peer.Metadata)
 			go c.udpConn.GenerateLocalAddrsSends(peer.ID, c.wsConn.STUNs())
+			c.peerMap.Put(peer.ID, peer.Metadata)
+			if onPeer := c.cfg.OnPeer; onPeer != nil {
+				go onPeer(peer.ID, peer.Metadata)
+			}
+		case peer, ok := <-c.wsConn.PeersMeta():
+			if !ok {
+				return
+			}
+			c.peerMap.Put(peer.ID, peer.Metadata)
 			if onPeer := c.cfg.OnPeer; onPeer != nil {
 				go onPeer(peer.ID, peer.Metadata)
 			}

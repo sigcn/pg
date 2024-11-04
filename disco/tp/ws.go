@@ -36,6 +36,7 @@ type WSConn struct {
 	closed            atomic.Bool
 	datagrams         chan *disco.Datagram
 	peers             chan *disco.Peer
+	peersMeta         chan *disco.Peer
 	peersUDPAddrs     chan *disco.PeerUDPAddr
 	nonce             byte
 	stuns             []string
@@ -160,6 +161,10 @@ func (c *WSConn) Datagrams() <-chan *disco.Datagram {
 
 func (c *WSConn) Peers() <-chan *disco.Peer {
 	return c.peers
+}
+
+func (c *WSConn) PeersMeta() <-chan *disco.Peer {
+	return c.peersMeta
 }
 
 func (c *WSConn) PeersUDPAddrs() <-chan *disco.PeerUDPAddr {
@@ -403,6 +408,10 @@ func (c *WSConn) handleEvents(b []byte) {
 		meta, _ := url.ParseQuery(string(b[b[1]+2:]))
 		event := disco.Peer{ID: disco.PeerID(b[2 : b[1]+2]), Metadata: meta}
 		c.peers <- &event
+	case disco.CONTROL_UPDATE_META:
+		meta, _ := url.ParseQuery(string(b[b[1]+2:]))
+		event := disco.Peer{ID: disco.PeerID(b[2 : b[1]+2]), Metadata: meta}
+		c.peersMeta <- &event
 	case disco.CONTROL_NEW_PEER_UDP_ADDR:
 		if b[b[1]+2] != 'a' { // old version without nat type
 			slog.Error("IncompatiblePeerVersionFound(v0.7 is required)", "peer", disco.PeerID(b[2:b[1]+2]))
@@ -477,6 +486,7 @@ func DialPeermap(ctx context.Context, server *disco.Peermap, peerID disco.PeerID
 		closedSig:     make(chan int),
 		datagrams:     make(chan *disco.Datagram, 50),
 		peers:         make(chan *disco.Peer, 20),
+		peersMeta:     make(chan *disco.Peer, 20),
 		peersUDPAddrs: make(chan *disco.PeerUDPAddr, 20),
 		connData:      make(chan []byte, 128),
 		connEOF:       make(chan struct{}),
