@@ -3,6 +3,7 @@ package share
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,36 +13,21 @@ import (
 
 	"github.com/schollz/progressbar/v3"
 	"github.com/sigcn/pg/fileshare"
-	"github.com/spf13/cobra"
 )
 
-var Cmd *cobra.Command
-
-func init() {
-	Cmd = &cobra.Command{
-		Use:   "share <path> ...",
-		Short: "Share files to peers",
-		Args:  cobra.MinimumNArgs(1),
-		RunE:  execute,
-	}
-	Cmd.Flags().StringP("server", "s", "", "peermap server")
-	Cmd.Flags().StringP("pubnet", "n", "public", "peermap public network")
-	Cmd.Flags().String("key", "", "curve25519 private key in base58 format (default generate a new one)")
-	Cmd.Flags().IntP("verbose", "V", int(slog.LevelError), "log level")
-}
-
-func execute(cmd *cobra.Command, args []string) error {
-	verbose, err := cmd.Flags().GetInt("verbose")
-	if err != nil {
-		return err
-	}
-	slog.SetLogLoggerLevel(slog.Level(verbose))
-
+func Run() error {
+	flagSet := flag.NewFlagSet("share", flag.ExitOnError)
 	fileManager := fileshare.FileManager{ListenUDPPort: 29878, ProgressBar: createBar}
 
-	if fileManager.Server, err = cmd.Flags().GetString("server"); err != nil {
-		return err
-	}
+	flagSet.StringVar(&fileManager.Server, "server", "", "peermap server")
+	flagSet.StringVar(&fileManager.Network, "pubnet", "public", "peermap public network")
+	flagSet.StringVar(&fileManager.PrivateKey, "key", "", "curve25519 private key in base58 format (default generate a new one)")
+
+	var logLevel int
+	flagSet.IntVar(&logLevel, "loglevel", 0, "log level")
+	flagSet.Parse(flag.Args()[1:])
+	slog.SetLogLoggerLevel(slog.Level(logLevel))
+
 	if len(fileManager.Server) == 0 {
 		fileManager.Server = os.Getenv("PG_SERVER")
 		if len(fileManager.Server) == 0 {
@@ -49,19 +35,10 @@ func execute(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fileManager.PrivateKey, err = cmd.Flags().GetString("key")
-	if err != nil {
-		return err
-	}
-
-	if fileManager.Network, err = cmd.Flags().GetString("pubnet"); err != nil {
-		return err
-	}
-
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	for _, file := range args {
+	for _, file := range flagSet.Args() {
 		if err := fileManager.Add(file); err != nil {
 			slog.Warn("AddFile", "path", file, "err", err)
 		}

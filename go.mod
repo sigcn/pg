@@ -7,8 +7,6 @@ require (
 	github.com/gorilla/websocket v1.5.1
 	github.com/mdp/qrterminal/v3 v3.2.0
 	github.com/schollz/progressbar/v3 v3.14.2
-	github.com/spf13/cobra v1.8.0
-	github.com/spf13/pflag v1.0.5
 	github.com/vishvananda/netlink v1.2.1-beta.2
 	golang.org/x/crypto v0.19.0
 	golang.org/x/net v0.21.0
@@ -24,7 +22,6 @@ require (
 
 require (
 	github.com/go-jose/go-jose/v3 v3.0.1 // indirect
-	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/vishvananda/netns v0.0.4 // indirect

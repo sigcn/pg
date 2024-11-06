@@ -1,41 +1,47 @@
 package admin
 
 import (
+	"flag"
 	"fmt"
 	"os"
-	"strings"
-
-	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
-var Cmd *cobra.Command
+func Run() error {
+	admin := flag.NewFlagSet("admin", flag.ExitOnError)
+	admin.Parse(flag.Args()[1:])
 
-func init() {
-	Cmd = &cobra.Command{
-		Use:          "admin",
-		Short:        "The pgmap manager tool",
-		SilenceUsage: true,
+	switch admin.Arg(0) {
+	case "get-meta":
+		return getMeta(admin)
+	case "set-meta":
+		return setMeta(admin)
+	case "networks":
+		return listNetworks(admin)
+	case "peers":
+		return listPeers(admin)
+	case "secret":
+		return generateSecret(admin)
 	}
-	Cmd.PersistentFlags().String("secret-key", "", "key to generate network secret")
-	Cmd.AddCommand(secretCmd())
-	Cmd.AddCommand(networksCmd())
-	Cmd.AddCommand(peersCmd())
-	Cmd.AddCommand(putMetaCmd())
-	Cmd.AddCommand(getMetaCmd())
+	return fmt.Errorf("unknown command \"%s\" for \"%s\"", admin.Arg(0), flag.CommandLine.Name())
 }
 
-func requiredArg(flagSet *pflag.FlagSet, argName string) (string, error) {
-	value := os.Getenv(fmt.Sprintf("PG_%s", strings.ReplaceAll(strings.ToUpper(argName), "-", "_")))
-	arg, err := flagSet.GetString(argName)
-	if err != nil {
-		return "", err
+func parseSecretKeyAndServer(flagSet *flag.FlagSet, args []string) (secretKey string, server string, err error) {
+	flagSet.StringVar(&secretKey, "secret-key", "", "key to generate network secret")
+	flagSet.StringVar(&secretKey, "server", "", "peermap server url")
+	flagSet.Parse(args)
+
+	if secretKey == "" {
+		secretKey = os.Getenv("PG_SECRET_KEY")
 	}
-	if arg != "" {
-		value = arg
+
+	if secretKey == "" {
+		err = fmt.Errorf("flag \"secret-key\" is required")
+		return
 	}
-	if value == "" {
-		return value, fmt.Errorf("required flag \"%s\" not set", argName)
+
+	if server == "" {
+		err = fmt.Errorf("flag \"server\" is required")
+		server = os.Getenv("PG_SERVER")
 	}
-	return value, nil
+	return
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,36 +16,20 @@ import (
 
 	"github.com/schollz/progressbar/v3"
 	"github.com/sigcn/pg/fileshare"
-	"github.com/spf13/cobra"
 )
 
-var Cmd *cobra.Command
+func Run() error {
+	flagSet := flag.NewFlagSet("download", flag.ExitOnError)
+	downloader := fileshare.Downloader{ListenUDPPort: 28879}
 
-func init() {
-	Cmd = &cobra.Command{
-		Use:   "download <url>",
-		Short: "Download shared file from peer",
-		Args:  cobra.ExactArgs(1),
-		RunE:  execute,
-	}
-	Cmd.Flags().StringP("server", "s", "", "peermap server")
-	Cmd.Flags().StringP("pubnet", "n", "public", "peermap public network")
-	Cmd.Flags().IntP("verbose", "V", int(slog.LevelError), "log level")
-}
+	flagSet.StringVar(&downloader.Server, "server", "", "peermap server")
+	flagSet.StringVar(&downloader.Network, "pubnet", "public", "peermap public network")
 
-func execute(cmd *cobra.Command, args []string) error {
-	verbose, err := cmd.Flags().GetInt("verbose")
-	if err != nil {
-		return err
-	}
-	slog.SetLogLoggerLevel(slog.Level(verbose))
+	var logLevel int
+	flagSet.IntVar(&logLevel, "loglevel", 0, "log level")
+	flagSet.Parse(flag.Args()[1:])
+	slog.SetLogLoggerLevel(slog.Level(logLevel))
 
-	downloader := fileshare.Downloader{ListenUDPPort: 29879}
-
-	downloader.Server, err = cmd.Flags().GetString("server")
-	if err != nil {
-		return err
-	}
 	if len(downloader.Server) == 0 {
 		downloader.Server = os.Getenv("PG_SERVER")
 		if len(downloader.Server) == 0 {
@@ -52,13 +37,9 @@ func execute(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	downloader.Network, err = cmd.Flags().GetString("pubnet")
-	if err != nil {
-		return err
-	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	return downloader.Request(ctx, args[0], readFile)
+	return downloader.Request(ctx, flagSet.Arg(0), readFile)
 }
 
 func readFile(fh *fileshare.FileHandle) error {

@@ -3,6 +3,7 @@ package vpn
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,55 +27,33 @@ import (
 	"github.com/sigcn/pg/vpn"
 	"github.com/sigcn/pg/vpn/nic"
 	"github.com/sigcn/pg/vpn/nic/tun"
-	"github.com/spf13/cobra"
 )
 
 var (
-	Cmd = &cobra.Command{
-		Use:   "vpn",
-		Short: "Run a vpn daemon which backend is PeerGuard p2p network",
-		Args:  cobra.NoArgs,
-		RunE:  run,
-	}
-	Version = "dev"
-	Commit  string
+	Version string
 )
 
-func init() {
-	Cmd.Flags().StringP("ipv4", "4", "", "ipv4 address prefix (e.g. 100.99.0.1/24)")
-	Cmd.Flags().StringP("ipv6", "6", "", "ipv6 address prefix (e.g. fd00::1/64)")
-	Cmd.Flags().String("tun", defaultTunName, "tun device name")
-	Cmd.Flags().Int("mtu", 1391, "mtu")
+type stringSlice []string
 
-	Cmd.Flags().String("key", "", "curve25519 private key in base58 format (default generate a new one)")
-	Cmd.Flags().StringP("secret-file", "f", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
-	Cmd.Flags().StringP("server", "s", os.Getenv("PG_SERVER"), "peermap server url")
-	Cmd.Flags().StringSlice("peer", []string{}, "specify peers instead of auto-discovery (pg://<peerID>?alias1=<ipv4>&alias2=<ipv6>)")
-	Cmd.Flags().Int("port", 29877, "p2p udp listen port")
-
-	Cmd.Flags().Int("disco-port-scan-offset", -1000, "scan ports offset when disco")
-	Cmd.Flags().Int("disco-port-scan-count", 3000, "scan ports count when disco")
-	Cmd.Flags().Duration("disco-port-scan-duration", 6*time.Second, "scan ports duration when disco")
-	Cmd.Flags().Int("disco-challenges-retry", 5, "ping challenges retry count when disco")
-	Cmd.Flags().Duration("disco-challenges-initial-interval", 200*time.Millisecond, "ping challenges initial interval when disco")
-	Cmd.Flags().Float64("disco-challenges-backoff-rate", 1.65, "ping challenges backoff rate when disco")
-	Cmd.Flags().StringSlice("disco-ignored-interface", nil, "ignore interfaces prefix when disco")
-
-	Cmd.Flags().Bool("pprof", false, "enable http pprof server")
-	Cmd.Flags().Bool("auth-qr", false, "display the QR code when authentication is required")
-
-	Cmd.Flags().Bool("p2p-force-peer-relay", false, "force to peer relay transport mode")
-	Cmd.Flags().Bool("p2p-force-server-relay", false, "force to server relay transport mode")
-
-	Cmd.MarkFlagsOneRequired("ipv4", "ipv6")
-	Cmd.MarkFlagsMutuallyExclusive("p2p-force-peer-relay", "p2p-force-server-relay")
+func (s *stringSlice) String() string {
+	return strings.Join(*s, ",")
 }
 
-func run(cmd *cobra.Command, args []string) (err error) {
-	pprof, err := cmd.Flags().GetBool("pprof")
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
+func Run() error {
+	flagSet := flag.NewFlagSet("vpn", flag.ExitOnError)
+
+	var pprof bool
+	flagSet.BoolVar(&pprof, "pprof", false, "enable http pprof server")
+	cfg, err := createConfig(flagSet, flag.Args()[1:])
 	if err != nil {
-		return
+		return err
 	}
+
 	if pprof {
 		l, err := net.Listen("tcp", ":29800")
 		if err != nil {
@@ -83,98 +63,58 @@ func run(cmd *cobra.Command, args []string) (err error) {
 		defer l.Close()
 		go http.Serve(l, nil)
 	}
-	cfg, err := createConfig(cmd)
-	if err != nil {
-		return
-	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	return (&P2PVPN{Config: cfg}).Run(ctx)
 }
 
-func createConfig(cmd *cobra.Command) (cfg Config, err error) {
-	cfg.DiscoPortScanOffset, err = cmd.Flags().GetInt("disco-port-scan-offset")
-	if err != nil {
-		return
-	}
-	cfg.DiscoPortScanCount, err = cmd.Flags().GetInt("disco-port-scan-count")
-	if err != nil {
-		return
-	}
-	cfg.DiscoPortScanDuration, err = cmd.Flags().GetDuration("disco-port-scan-duration")
-	if err != nil {
-		return
-	}
-	cfg.DiscoChallengesRetry, err = cmd.Flags().GetInt("disco-challenges-retry")
-	if err != nil {
-		return
-	}
-	cfg.DiscoChallengesInitialInterval, err = cmd.Flags().GetDuration("disco-challenges-initial-interval")
-	if err != nil {
-		return
-	}
-	cfg.DiscoChallengesBackoffRate, err = cmd.Flags().GetFloat64("disco-challenges-backoff-rate")
-	if err != nil {
-		return
-	}
-	cfg.DiscoIgnoredInterfaces, err = cmd.Flags().GetStringSlice("disco-ignored-interface")
-	if err != nil {
-		return
-	}
-	cfg.IPv4, err = cmd.Flags().GetString("ipv4")
-	if err != nil {
-		return
-	}
-	cfg.IPv6, err = cmd.Flags().GetString("ipv6")
-	if err != nil {
-		return
-	}
-	cfg.MTU, err = cmd.Flags().GetInt("mtu")
-	if err != nil {
-		return
-	}
-	cfg.TunName, err = cmd.Flags().GetString("tun")
-	if err != nil {
-		return
-	}
-	cfg.Peers, err = cmd.Flags().GetStringSlice("peer")
-	if err != nil {
-		return
-	}
-	cfg.Port, err = cmd.Flags().GetInt("port")
-	if err != nil {
-		return
-	}
-	cfg.PrivateKey, err = cmd.Flags().GetString("key")
-	if err != nil {
-		return
-	}
-	cfg.SecretFile, err = cmd.Flags().GetString("secret-file")
-	if err != nil {
-		return
-	}
-	cfg.AuthQR, err = cmd.Flags().GetBool("auth-qr")
-	if err != nil {
-		return
-	}
-	cfg.Server, err = cmd.Flags().GetString("server")
-	if err != nil {
-		return
-	}
+func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) {
+	var forcePeerRelay, forceServerRelay bool
+	var ignoredInterfaces, peers stringSlice
+
+	flagSet.IntVar(&cfg.DiscoPortScanOffset, "disco-port-scan-offset", -1000, "scan ports offset when disco")
+	flagSet.IntVar(&cfg.DiscoPortScanCount, "disco-port-scan-count", 3000, "scan ports count when disco")
+	flagSet.DurationVar(&cfg.DiscoPortScanDuration, "disco-port-scan-duration", 6*time.Second, "scan ports duration when disco")
+	flagSet.IntVar(&cfg.DiscoChallengesRetry, "disco-challenges-retry", 5, "ping challenges retry count when disco")
+	flagSet.DurationVar(&cfg.DiscoChallengesInitialInterval, "disco-challenges-initial-interval", 200*time.Millisecond, "ping challenges initial interval when disco")
+	flagSet.Float64Var(&cfg.DiscoChallengesBackoffRate, "disco-challenges-backoff-rate", 1.65, "ping challenges backoff rate when disco")
+	flagSet.Var(&ignoredInterfaces, "disco-ignored-interface", "ignore interfaces prefix when disco")
+
+	flagSet.StringVar(&cfg.IPv4, "ipv4", "", "")
+	flagSet.StringVar(&cfg.IPv4, "4", "", "ipv4 address prefix (e.g. 100.99.0.1/24)")
+	flagSet.StringVar(&cfg.IPv6, "ipv6", "", "")
+	flagSet.StringVar(&cfg.IPv6, "6", "", "ipv6 address prefix (e.g. fd00::1/64)")
+	flagSet.IntVar(&cfg.MTU, "mtu", 1411, "nic mtu")
+	flagSet.StringVar(&cfg.TunName, "tun", defaultTunName, "nic name")
+
+	flagSet.StringVar(&cfg.PrivateKey, "key", "", "curve25519 private key in base58 format (default generate a new one)")
+	flagSet.StringVar(&cfg.SecretFile, "secret-file", "", "")
+	flagSet.StringVar(&cfg.SecretFile, "f", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
+	flagSet.BoolVar(&cfg.AuthQR, "auth-qr", false, "display the QR code when authentication is required")
+	flagSet.StringVar(&cfg.Server, "server", os.Getenv("PG_SERVER"), "")
+	flagSet.StringVar(&cfg.Server, "s", os.Getenv("PG_SERVER"), "peermap server")
+	flagSet.Var(&peers, "peer", "specify peers instead of auto-discovery (pg://<peerID>?alias1=<ipv4>&alias2=<ipv6>)")
+
+	flagSet.IntVar(&cfg.Port, "udp-port", 29877, "p2p udp listen port")
+	flagSet.BoolVar(&forcePeerRelay, "force-peer-relay", false, "force to peer relay transport mode")
+	flagSet.BoolVar(&forceServerRelay, "force-server-relay", false, "force to server relay transport mode")
+
+	flagSet.Parse(args)
+
+	cfg.DiscoIgnoredInterfaces = ignoredInterfaces
+	cfg.Peers = peers
+
 	if cfg.Server == "" {
 		err = errors.New("flag \"server\" not set")
 		return
 	}
-	forcePeerRelay, err := cmd.Flags().GetBool("p2p-force-peer-relay")
-	if err != nil {
+	if cfg.IPv4 == "" && cfg.IPv6 == "" {
+		err = errors.New("at least one of the flags in the group [ipv4 ipv6] is required")
 		return
 	}
 	if forcePeerRelay {
 		cfg.P2pTransportMode = p2p.MODE_FORCE_PEER_RELAY
-	}
-	forceServerRelay, err := cmd.Flags().GetBool("p2p-force-server-relay")
-	if err != nil {
-		return
 	}
 	if forceServerRelay && !forcePeerRelay {
 		cfg.P2pTransportMode = p2p.MODE_FORCE_RELAY
@@ -238,7 +178,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err e
 	disco.SetIgnoredLocalInterfaceNamePrefixs(v.Config.DiscoIgnoredInterfaces...)
 
 	p2pOptions := []p2p.Option{
-		p2p.PeerMeta("version", fmt.Sprintf("%s-%s", Version, Commit)),
+		p2p.PeerMeta("version", Version),
 		p2p.ListenPeerUp(v.addPeer),
 		p2p.KeepAlivePeriod(6 * time.Second),
 	}
