@@ -370,18 +370,20 @@ func (c *PacketConn) runControlEventLoop() {
 				return
 			}
 			go func() {
-				for i := 0; i < 3; i++ {
-					data := []byte{'a'}
-					addr := []byte(sendUDPAddr.Addr.String())
-					data = append(data, byte(len(addr)))
-					data = append(data, addr...)
-					data = append(data, []byte(sendUDPAddr.Type)...)
-					err := c.wsConn.WriteTo(data, sendUDPAddr.ID, disco.CONTROL_NEW_PEER_UDP_ADDR)
-					if err == nil {
-						slog.Debug("ListenUDP", "addr", sendUDPAddr.Addr, "for", sendUDPAddr.ID)
-						break
-					}
-					time.Sleep(200 * time.Millisecond)
+				data := []byte{'a'}
+				addr := []byte(sendUDPAddr.Addr.String())
+				data = append(data, byte(len(addr)))
+				data = append(data, addr...)
+				data = append(data, []byte(sendUDPAddr.Type)...)
+				logger := slog.With("addr", sendUDPAddr.Addr, "peer", sendUDPAddr.ID)
+				if err := c.wsConn.WriteTo(data, sendUDPAddr.ID, disco.CONTROL_NEW_PEER_UDP_ADDR); err != nil {
+					logger.Warn("UDPAddrSend", "err", err)
+					return
+				}
+				if meta := c.PeerMeta(sendUDPAddr.ID); meta != nil && meta.Get("alias1") != "" {
+					logger.Debug("UDPAddrSend", "alias1", meta.Get("alias1"))
+				} else {
+					logger.Debug("UDPAddrSend")
 				}
 			}()
 		}
