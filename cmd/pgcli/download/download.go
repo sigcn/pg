@@ -20,6 +20,11 @@ import (
 
 func Run() error {
 	flagSet := flag.NewFlagSet("download", flag.ExitOnError)
+	flagSet.Usage = func() {
+		fmt.Printf("Usage: %s [flags] [url]\n\n", flagSet.Name())
+		fmt.Printf("Flags:\n")
+		flagSet.PrintDefaults()
+	}
 	downloader := fileshare.Downloader{ListenUDPPort: 28879}
 
 	flagSet.StringVar(&downloader.Server, "server", "", "peermap server")

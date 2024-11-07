@@ -46,13 +46,17 @@ func (s *stringSlice) Set(v string) error {
 
 func Run() error {
 	flagSet := flag.NewFlagSet("vpn", flag.ExitOnError)
+	flagSet.Usage = func() { usage(flagSet) }
 
 	var pprof bool
+	var logLevel int
 	flagSet.BoolVar(&pprof, "pprof", false, "enable http pprof server")
+	flagSet.IntVar(&logLevel, "loglevel", 0, "log level")
 	cfg, err := createConfig(flagSet, flag.Args()[1:])
 	if err != nil {
 		return err
 	}
+	slog.SetLogLoggerLevel(slog.Level(logLevel))
 
 	if pprof {
 		l, err := net.Listen("tcp", ":29800")
@@ -67,6 +71,56 @@ func Run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	return (&P2PVPN{Config: cfg}).Run(ctx)
+}
+
+func usage(flagSet *flag.FlagSet) {
+	fmt.Printf("Run a vpn daemon which backend is PeerGuard p2p network\n\n")
+	fmt.Printf("Usage: %s [flags]\n\n", flagSet.Name())
+	fmt.Printf("Flags:\n")
+
+	ipv4 := flagSet.Lookup("4")
+	ipv6 := flagSet.Lookup("6")
+	authQR := flagSet.Lookup("auth-qr")
+	discoChallengesBackoffRate := flagSet.Lookup("disco-challenges-backoff-rate")
+	discoChallengesInitialInterval := flagSet.Lookup("disco-challenges-initial-interval")
+	discoChallengesRetry := flagSet.Lookup("disco-challenges-retry")
+	discoIgnoredInterface := flagSet.Lookup("disco-ignored-interface")
+	discoPortScanCount := flagSet.Lookup("disco-port-scan-count")
+	discoPortScanDuration := flagSet.Lookup("disco-port-scan-duration")
+	discoPortScanOffset := flagSet.Lookup("disco-port-scan-offset")
+	secretFile := flagSet.Lookup("f")
+	forcePeerRelay := flagSet.Lookup("force-peer-relay")
+	forceServerRelay := flagSet.Lookup("force-server-relay")
+	key := flagSet.Lookup("key")
+	logLevel := flagSet.Lookup("loglevel")
+	mtu := flagSet.Lookup("mtu")
+	peer := flagSet.Lookup("peer")
+	pprof := flagSet.Lookup("pprof")
+	server := flagSet.Lookup("s")
+	tun := flagSet.Lookup("tun")
+	udpPort := flagSet.Lookup("udp-port")
+
+	fmt.Printf("  -4, --ipv4 string\n\t%s\n", ipv4.Usage)
+	fmt.Printf("  -6, --ipv6 string\n\t%s\n", ipv6.Usage)
+	fmt.Printf("  --auth-qr\n\t%s\n", authQR.Usage)
+	fmt.Printf("  --disco-challenges-backoff-rate float\n\t%s (default %s)\n", discoChallengesBackoffRate.Usage, discoChallengesBackoffRate.DefValue)
+	fmt.Printf("  --disco-challenges-initial-interval duration\n\t%s (default %s)\n", discoChallengesInitialInterval.Usage, discoChallengesInitialInterval.DefValue)
+	fmt.Printf("  --disco-challenges-retry int\n\t%s (default %s)\n", discoChallengesRetry.Usage, discoChallengesRetry.DefValue)
+	fmt.Printf("  --disco-ignored-interface []string\n\t%s\n", discoIgnoredInterface.Usage)
+	fmt.Printf("  --disco-port-scan-count int\n\t%s (default %s)\n", discoPortScanCount.Usage, discoPortScanCount.DefValue)
+	fmt.Printf("  --disco-port-scan-duration duration\n\t%s (default %s)\n", discoPortScanDuration.Usage, discoPortScanDuration.DefValue)
+	fmt.Printf("  --disco-port-scan-offset int\n\t%s (default %s)\n", discoPortScanOffset.Usage, discoPortScanOffset.DefValue)
+	fmt.Printf("  -f, --secret-file string\n\t%s\n", secretFile.Usage)
+	fmt.Printf("  --force-peer-relay \n\t%s\n", forcePeerRelay.Usage)
+	fmt.Printf("  --force-server-relay \n\t%s\n", forceServerRelay.Usage)
+	fmt.Printf("  --key string\n\t%s\n", key.Usage)
+	fmt.Printf("  --loglevel int\n\t%s (default %s)\n", logLevel.Usage, logLevel.DefValue)
+	fmt.Printf("  --mtu int\n\t%s (default %s)\n", mtu.Usage, mtu.DefValue)
+	fmt.Printf("  --peer []string\n\t%s\n", peer.Usage)
+	fmt.Printf("  --pprof \n\t%s\n", pprof.Usage)
+	fmt.Printf("  -s, --server string\n\t%s\n", server.Usage)
+	fmt.Printf("  --tun string\n\t%s (default %s)\n", tun.Usage, tun.DefValue)
+	fmt.Printf("  --udp-port int\n\t%s (default %s)\n", udpPort.Usage, udpPort.DefValue)
 }
 
 func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) {

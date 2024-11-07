@@ -40,6 +40,10 @@ func parseSecretKeyAndServer(flagSet *flag.FlagSet, args []string) (secretKey st
 	}
 
 	if server == "" {
+		server = os.Getenv("PG_SERVER")
+	}
+
+	if server == "" {
 		err = fmt.Errorf("flag \"server\" is required")
 		server = os.Getenv("PG_SERVER")
 	}

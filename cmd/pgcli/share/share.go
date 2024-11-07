@@ -17,7 +17,12 @@ import (
 
 func Run() error {
 	flagSet := flag.NewFlagSet("share", flag.ExitOnError)
-	fileManager := fileshare.FileManager{ListenUDPPort: 29878, ProgressBar: createBar}
+	flagSet.Usage = func() {
+		fmt.Printf("Usage: %s [flags] [files...]\n\n", flagSet.Name())
+		fmt.Printf("Flags:\n")
+		flagSet.PrintDefaults()
+	}
+	fileManager := fileshare.FileManager{ListenUDPPort: 28878, ProgressBar: createBar}
 
 	flagSet.StringVar(&fileManager.Server, "server", "", "peermap server")
 	flagSet.StringVar(&fileManager.Network, "pubnet", "public", "peermap public network")
