@@ -66,11 +66,19 @@ func (c *PacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 		}
 		err = N.ErrDeadline
 		return
-	case datagram := <-c.wsConn.Datagrams():
+	case datagram, ok := <-c.wsConn.Datagrams():
+		if !ok {
+			err = net.ErrClosed
+			return
+		}
 		addr = datagram.PeerID
 		n = copy(p, datagram.TryDecrypt(c.cfg.SymmAlgo))
 		return
-	case datagram := <-c.udpConn.Datagrams():
+	case datagram, ok := <-c.udpConn.Datagrams():
+		if !ok {
+			err = net.ErrClosed
+			return
+		}
 		addr = datagram.PeerID
 		n = copy(p, datagram.TryDecrypt(c.cfg.SymmAlgo))
 		return

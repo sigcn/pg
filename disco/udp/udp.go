@@ -630,6 +630,7 @@ func (c *UDPConn) runPacketEventLoop(udpConn *net.UDPConn) {
 			c.datagrams <- &disco.Datagram{PeerID: src, Data: pkt}
 			continue
 		}
+		defer func() { recover() }()
 		c.datagrams <- &disco.Datagram{PeerID: peerID, Data: b}
 	}
 }
