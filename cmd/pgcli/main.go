@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime/debug"
 
 	"github.com/sigcn/pg/cmd/pgcli/admin"
 	"github.com/sigcn/pg/cmd/pgcli/curve25519"
@@ -21,6 +22,7 @@ func main() {
 	var logLevel int
 	flag.Usage = usage
 	flag.IntVar(&logLevel, "loglevel", 0, "log level")
+	flag.BoolFunc("v", "print binary version", printVersion)
 	flag.Parse()
 	slog.SetLogLoggerLevel(slog.Level(logLevel))
 	if err := run(); err != nil {
@@ -40,7 +42,12 @@ func run() error {
 	case "share":
 		return share.Run()
 	case "vpn":
-		vpn.Version = Version
+		commit, _, _ := readBinaryInfo()
+		if len(commit) < 7 {
+			vpn.Version = Version
+		} else {
+			vpn.Version = fmt.Sprintf("%s-%s", Version, commit[:7])
+		}
 		return vpn.Run()
 	default:
 		usage()
@@ -58,6 +65,32 @@ func usage() {
 	fmt.Printf("  share\t\tShare files to peers\n")
 	fmt.Printf("  vpn\t\tRun a vpn daemon which backend is PeerGuard p2p network\n\n")
 	fmt.Printf("Flags:\n")
-	fmt.Printf("  --loglevel\n\tlog level\n")
 	fmt.Printf("  -v, --version\n\tprint binary version\n")
+}
+
+func readBinaryInfo() (commit, buildTime, goVersion string) {
+	info, ok := debug.ReadBuildInfo()
+	goVersion = info.GoVersion
+	if ok {
+		for _, kv := range info.Settings {
+			if kv.Key == "vcs.revision" {
+				commit = kv.Value
+				continue
+			}
+			if kv.Key == "vcs.time" {
+				buildTime = kv.Value
+			}
+		}
+	}
+	return
+}
+
+func printVersion(string) error {
+	commit, buildTime, goVersion := readBinaryInfo()
+	fmt.Println(goVersion)
+	fmt.Printf("version\t\t%s\n", Version)
+	fmt.Printf("build_time\t%s\n", buildTime)
+	fmt.Printf("commit\t\t%s\n", commit)
+	os.Exit(0)
+	return nil
 }

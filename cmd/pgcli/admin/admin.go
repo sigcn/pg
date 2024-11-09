@@ -27,7 +27,7 @@ func Run() error {
 
 func parseSecretKeyAndServer(flagSet *flag.FlagSet, args []string) (secretKey string, server string, err error) {
 	flagSet.StringVar(&secretKey, "secret-key", "", "key to generate network secret")
-	flagSet.StringVar(&secretKey, "server", "", "peermap server url")
+	flagSet.StringVar(&secretKey, "s", "", "peermap server url")
 	flagSet.Parse(args)
 
 	if secretKey == "" {

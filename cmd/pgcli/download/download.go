@@ -27,7 +27,7 @@ func Run() error {
 	}
 	downloader := fileshare.Downloader{ListenUDPPort: 28879}
 
-	flagSet.StringVar(&downloader.Server, "server", "", "peermap server")
+	flagSet.StringVar(&downloader.Server, "s", "", "peermap server")
 	flagSet.StringVar(&downloader.Network, "pubnet", "public", "peermap public network")
 
 	var logLevel int

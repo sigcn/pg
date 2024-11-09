@@ -52,6 +52,7 @@ func Run() error {
 	var logLevel int
 	flagSet.BoolVar(&pprof, "pprof", false, "enable http pprof server")
 	flagSet.IntVar(&logLevel, "loglevel", 0, "log level")
+	flagSet.IntVar(&logLevel, "V", 0, "")
 	cfg, err := createConfig(flagSet, flag.Args()[1:])
 	if err != nil {
 		return err

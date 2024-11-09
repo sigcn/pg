@@ -24,7 +24,7 @@ func Run() error {
 	}
 	fileManager := fileshare.FileManager{ListenUDPPort: 28878, ProgressBar: createBar}
 
-	flagSet.StringVar(&fileManager.Server, "server", "", "peermap server")
+	flagSet.StringVar(&fileManager.Server, "s", "", "peermap server")
 	flagSet.StringVar(&fileManager.Network, "pubnet", "public", "peermap public network")
 	flagSet.StringVar(&fileManager.PrivateKey, "key", "", "curve25519 private key in base58 format (default generate a new one)")
 
