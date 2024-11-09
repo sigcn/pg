@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -13,11 +14,10 @@ import (
 
 func generateSecret(admin *flag.FlagSet) error {
 	flagSet := flag.NewFlagSet("secret", flag.ExitOnError)
-	var secretKey, network, alias, duration string
+	var secretKey, network, duration string
 	flagSet.StringVar(&secretKey, "secret-key", "", "key to generate network secret")
-	flagSet.StringVar(&network, "network", "", "peermap server url")
-	flagSet.StringVar(&alias, "alias", "", "network alias")
-	flagSet.StringVar(&duration, "duration", "", "secret duration to expire")
+	flagSet.StringVar(&network, "network", "default", "peermap server url")
+	flagSet.StringVar(&duration, "duration", "24h", "secret duration to expire")
 
 	flagSet.Parse(admin.Args()[1:])
 
@@ -26,10 +26,11 @@ func generateSecret(admin *flag.FlagSet) error {
 		return fmt.Errorf("parse duration: %w", err)
 	}
 
-	secret, err := auth.NewAuthenticator(secretKey).GenerateSecret(auth.Net{
-		Alias: alias,
-		ID:    network,
-	}, validDuration)
+	if secretKey == "" {
+		return errors.New("flag \"secret-key\" is required")
+	}
+
+	secret, err := auth.NewAuthenticator(secretKey).GenerateSecret(auth.Net{ID: network}, validDuration)
 	if err != nil {
 		return err
 	}
