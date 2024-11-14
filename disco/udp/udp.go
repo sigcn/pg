@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/sigcn/pg/disco"
-	"github.com/sigcn/pg/upnp"
 	"golang.org/x/time/rate"
 	"tailscale.com/net/stun"
 )
@@ -71,13 +70,14 @@ type UDPConn struct {
 	udpConnsMutex sync.RWMutex
 	udpConns      []*net.UDPConn
 
-	cfg           UDPConfig
-	disco         *disco.Disco
-	closedSig     chan int
-	datagrams     chan *disco.Datagram
-	natEvents     chan *disco.NATInfo
-	udpAddrSends  chan *disco.PeerUDPAddr
-	relayProtocol relayProtocol
+	cfg             UDPConfig
+	disco           *disco.Disco
+	closedSig       chan int
+	datagrams       chan *disco.Datagram
+	natEvents       chan *disco.NATInfo
+	udpAddrSends    chan *disco.PeerUDPAddr
+	relayProtocol   relayProtocol
+	upnpPortMapping upnpPortMapping
 
 	peersIndex      map[disco.PeerID]*peerkeeper
 	peersIndexMutex sync.RWMutex
@@ -85,14 +85,10 @@ type UDPConn struct {
 	stunResponseMapMutex sync.RWMutex
 	stunResponseMap      map[string]chan stunResponse // key is stun txid
 	natInfo              atomic.Pointer[disco.NATInfo]
-
-	upnpDeleteMapping func()
 }
 
 func (c *UDPConn) Close() error {
-	if c.upnpDeleteMapping != nil {
-		c.upnpDeleteMapping()
-	}
+	c.upnpPortMapping.close()
 	c.udpConnsMutex.RLock()
 	for _, conn := range c.udpConns {
 		conn.Close()
@@ -143,37 +139,14 @@ func (c *UDPConn) UDPAddrSends() <-chan *disco.PeerUDPAddr {
 func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []string) {
 	// UPnP
 	go func() {
-		nat, err := upnp.Discover()
-		if err != nil {
-			slog.Debug("UPnP is disabled", "err", err)
-			return
-		}
-		externalIP, err := nat.GetExternalAddress()
-		if err != nil {
-			slog.Debug("UPnP is disabled", "err", err)
-			return
-		}
-
-		udpPort := c.cfg.Port
-		for i := 0; i < 20; i++ {
-			mappedPort, err := nat.AddPortMapping("udp", udpPort+i, udpPort, "peerguard", 24*3600)
-			if err != nil {
-				continue
-			}
-			c.upnpDeleteMapping = func() { nat.DeletePortMapping("udp", mappedPort, udpPort) }
-			addr := &net.UDPAddr{IP: externalIP, Port: mappedPort}
-			c.udpAddrSends <- &disco.PeerUDPAddr{
-				ID:   peerID,
-				Addr: addr,
-				Type: disco.UPnP,
-			}
-			select {
-			case c.natEvents <- &disco.NATInfo{Type: disco.UPnP, Addrs: []*net.UDPAddr{addr}}:
-			default:
-			}
-			return
+		addr := c.upnpPortMapping.mappingAddress(c.cfg.Port)
+		c.udpAddrSends <- &disco.PeerUDPAddr{ID: peerID, Addr: addr, Type: disco.UPnP}
+		select {
+		case c.natEvents <- &disco.NATInfo{Type: disco.UPnP, Addrs: []*net.UDPAddr{addr}}:
+		default:
 		}
 	}()
+
 	// LAN
 	for _, addr := range c.localAddrs() {
 		uaddr, err := net.ResolveUDPAddr("udp", addr)
