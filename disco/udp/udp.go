@@ -345,29 +345,6 @@ func (c *UDPConn) RelayTo(relay disco.PeerID, p []byte, peerID disco.PeerID) (in
 	return c.WriteTo(c.relayProtocol.toRelay(p, peerID), relay)
 }
 
-func (c *UDPConn) Broadcast(b []byte) (peerCount int, err error) {
-	c.peersIndexMutex.RLock()
-	peerCount = len(c.peersIndex)
-	peers := make([]disco.PeerID, 0, peerCount)
-	for k := range c.peersIndex {
-		peers = append(peers, k)
-	}
-	c.peersIndexMutex.RUnlock()
-
-	var errs []error
-	for _, peer := range peers {
-		_, err := c.WriteTo(b, peer)
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	if len(errs) > 0 {
-		err = errors.Join(errs...)
-	}
-	return
-}
-
 func (c *UDPConn) Peers() (peers []PeerState) {
 	c.peersIndexMutex.RLock()
 	defer c.peersIndexMutex.RUnlock()

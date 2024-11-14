@@ -21,13 +21,8 @@ import (
 	"storj.io/common/base58"
 )
 
-type PacketBroadcaster interface {
-	Broadcast([]byte) (int, error)
-}
-
 var (
-	_ net.PacketConn    = (*PacketConn)(nil)
-	_ PacketBroadcaster = (*PacketConn)(nil)
+	_ net.PacketConn = (*PacketConn)(nil)
 
 	ErrNoRelayPeer = errors.New("no relay peer")
 )
@@ -205,11 +200,6 @@ func (c *PacketConn) SetWriteBuffer(bytes int) error {
 // p2p.MODE_FORCE_RELAY        force to server_relay
 func (c *PacketConn) SetTransportMode(mode TransportMode) {
 	c.transportMode = mode
-}
-
-// Broadcast broadcast packet to all found peers using direct udpConn
-func (c *PacketConn) Broadcast(b []byte) (int, error) {
-	return c.udpConn.Broadcast(b)
 }
 
 // TryLeadDisco try lead a peer discovery
