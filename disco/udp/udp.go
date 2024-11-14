@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"math/big"
 	"net"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -20,36 +19,6 @@ import (
 	"tailscale.com/net/stun"
 )
 
-var defaultDiscoConfig = DiscoConfig{
-	PortScanOffset:            -1000,
-	PortScanCount:             3000,
-	PortScanDuration:          5 * time.Second,
-	ChallengesRetry:           5,
-	ChallengesInitialInterval: 200 * time.Millisecond,
-	ChallengesBackoffRate:     1.65,
-}
-
-type DiscoConfig struct {
-	PortScanOffset            int
-	PortScanCount             int
-	PortScanDuration          time.Duration
-	ChallengesRetry           int
-	ChallengesInitialInterval time.Duration
-	ChallengesBackoffRate     float64
-}
-
-func SetModifyDiscoConfig(modify func(cfg *DiscoConfig)) {
-	if modify != nil {
-		modify(&defaultDiscoConfig)
-	}
-	defaultDiscoConfig.PortScanOffset = max(min(defaultDiscoConfig.PortScanOffset, 65535), -65535)
-	defaultDiscoConfig.PortScanCount = min(max(32, defaultDiscoConfig.PortScanCount), 65535-1024)
-	defaultDiscoConfig.PortScanDuration = max(time.Second, defaultDiscoConfig.PortScanDuration)
-	defaultDiscoConfig.ChallengesRetry = max(1, defaultDiscoConfig.ChallengesRetry)
-	defaultDiscoConfig.ChallengesInitialInterval = max(10*time.Millisecond, defaultDiscoConfig.ChallengesInitialInterval)
-	defaultDiscoConfig.ChallengesBackoffRate = max(1, defaultDiscoConfig.ChallengesBackoffRate)
-}
-
 var (
 	ErrUDPConnNotReady = errors.New("udpConn not ready yet")
 	ErrUDPConnInactive = errors.New("udpConn inactive")
@@ -57,34 +26,24 @@ var (
 	_ PeerStore = (*UDPConn)(nil)
 )
 
-type UDPConfig struct {
-	Port                  int
-	DisableIPv4           bool
-	DisableIPv6           bool
-	ID                    disco.PeerID
-	PeerKeepaliveInterval time.Duration
-	DiscoMagic            func() []byte
-}
-
 type UDPConn struct {
 	udpConnsMutex sync.RWMutex
 	udpConns      []*net.UDPConn
 
-	cfg             UDPConfig
-	disco           *disco.Disco
-	closedSig       chan int
-	datagrams       chan *disco.Datagram
-	natEvents       chan *disco.NATInfo
-	udpAddrSends    chan *disco.PeerUDPAddr
-	relayProtocol   relayProtocol
-	upnpPortMapping upnpPortMapping
+	cfg              UDPConfig
+	disco            *disco.Disco
+	closedSig        chan int
+	datagrams        chan *disco.Datagram
+	natEvents        chan *disco.NATInfo
+	udpAddrSends     chan *disco.PeerUDPAddr
+	relayProtocol    relayProtocol
+	upnpPortMapping  upnpPortMapping
+	stunRoundTripper stunRoundTripper
 
 	peersIndex      map[disco.PeerID]*peerkeeper
 	peersIndexMutex sync.RWMutex
 
-	stunResponseMapMutex sync.RWMutex
-	stunResponseMap      map[string]chan stunResponse // key is stun txid
-	natInfo              atomic.Pointer[disco.NATInfo]
+	natInfo atomic.Pointer[disco.NATInfo]
 }
 
 func (c *UDPConn) Close() error {
@@ -201,37 +160,6 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 	})
 }
 
-func (c *UDPConn) RoundTripSTUN(stunServer string) (*net.UDPAddr, error) {
-	udpConn, err := c.getMainUDPConn()
-	if err != nil {
-		return nil, err
-	}
-
-	txID := stun.NewTxID()
-	ch := make(chan stunResponse)
-	defer close(ch)
-	c.stunResponseMapMutex.Lock()
-	c.stunResponseMap[string(txID[:])] = ch
-	c.stunResponseMapMutex.Unlock()
-	uaddr, err := net.ResolveUDPAddr("udp", stunServer)
-	if err != nil {
-		return nil, fmt.Errorf("resolve stun addr: %w", err)
-	}
-	_, err = udpConn.WriteToUDP(stun.Request(txID), uaddr)
-	if err != nil {
-		return nil, fmt.Errorf("write udp: %w", err)
-	}
-
-	timeout := time.NewTimer(3 * time.Second)
-	defer timeout.Stop()
-	select {
-	case r := <-ch:
-		return r.addr, nil
-	case <-timeout.C:
-		return nil, os.ErrDeadlineExceeded
-	}
-}
-
 func (c *UDPConn) DetectNAT(stunServers []string) (info disco.NATInfo) {
 	defer func() {
 		lastNATInfo := c.natInfo.Load()
@@ -255,6 +183,10 @@ func (c *UDPConn) DetectNAT(stunServers []string) (info disco.NATInfo) {
 			}
 		}
 	}()
+	udpConn, err := c.getMainUDPConn()
+	if err != nil {
+		return
+	}
 	var udpAddrs []*net.UDPAddr
 	var mutex sync.Mutex
 	var wg sync.WaitGroup
@@ -262,7 +194,7 @@ func (c *UDPConn) DetectNAT(stunServers []string) (info disco.NATInfo) {
 	for _, server := range stunServers {
 		go func() {
 			defer wg.Done()
-			udpAddr, err := c.RoundTripSTUN(server)
+			udpAddr, err := c.stunRoundTripper.roundTrip(udpConn, server)
 			if err != nil {
 				slog.Log(context.Background(), -3, "[UDP] RoundTripSTUN", "server", server, "err", err)
 				return
@@ -581,7 +513,7 @@ func (c *UDPConn) runPacketEventLoop(udpConn *net.UDPConn) {
 
 		// stun response
 		if stun.Is(buf[:n]) {
-			c.recvSTUNResponse(buf[:n], peerAddr)
+			c.stunRoundTripper.recvResponse(buf[:n], peerAddr)
 			continue
 		}
 
@@ -606,32 +538,6 @@ func (c *UDPConn) runPacketEventLoop(udpConn *net.UDPConn) {
 		defer func() { recover() }()
 		c.datagrams <- &disco.Datagram{PeerID: peerID, Data: b}
 	}
-}
-
-func (c *UDPConn) recvSTUNResponse(b []byte, peerAddr net.Addr) {
-	txid, saddr, err := stun.ParseResponse(b)
-	if err != nil {
-		slog.Error("[STUN] ParseResponse", "stun", peerAddr, "err", fmt.Errorf("parse: %w", err))
-		return
-	}
-	c.stunResponseMapMutex.RLock()
-	if r, ok := c.stunResponseMap[string(txid[:])]; ok {
-		c.stunResponseMapMutex.RUnlock()
-		addr, err := net.ResolveUDPAddr("udp", saddr.String())
-		if err != nil {
-			slog.Error("[STUN] ParseResponse", "stun", peerAddr, "err", fmt.Errorf("resolve udp addr: %w", err))
-			return
-		}
-		resp := stunResponse{txid: string(txid[:]), addr: addr}
-		select {
-		case r <- resp:
-		default:
-		}
-		slog.Log(context.Background(), -2, "[STUN] RecvResponse", "from", peerAddr, "pub_addr", addr)
-		return
-	}
-	c.stunResponseMapMutex.RUnlock()
-	slog.Log(context.Background(), -2, "[STUN] RecvResponse", "from", peerAddr)
 }
 
 func (c *UDPConn) runPeersHealthcheckLoop() {
@@ -706,14 +612,13 @@ func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 	}
 
 	udpConn := UDPConn{
-		cfg:             cfg,
-		disco:           &disco.Disco{Magic: cfg.DiscoMagic},
-		closedSig:       make(chan int),
-		natEvents:       make(chan *disco.NATInfo),
-		datagrams:       make(chan *disco.Datagram),
-		udpAddrSends:    make(chan *disco.PeerUDPAddr, 10),
-		peersIndex:      make(map[disco.PeerID]*peerkeeper),
-		stunResponseMap: make(map[string]chan stunResponse),
+		cfg:          cfg,
+		disco:        &disco.Disco{Magic: cfg.DiscoMagic},
+		closedSig:    make(chan int),
+		natEvents:    make(chan *disco.NATInfo),
+		datagrams:    make(chan *disco.Datagram),
+		udpAddrSends: make(chan *disco.PeerUDPAddr, 10),
+		peersIndex:   make(map[disco.PeerID]*peerkeeper),
 	}
 
 	if err := udpConn.RestartListener(); err != nil {
@@ -737,123 +642,4 @@ type PeerState struct {
 type stunResponse struct {
 	txid string
 	addr *net.UDPAddr
-}
-
-type peerkeeper struct {
-	udpConn    atomic.Pointer[net.UDPConn]
-	peerID     disco.PeerID
-	states     map[string]*PeerState // key is udp addr
-	createTime time.Time
-
-	exitSig           chan struct{}
-	ping              func(udpConn *net.UDPConn, peerID disco.PeerID, addr *net.UDPAddr)
-	keepaliveInterval time.Duration
-
-	statesMutex sync.RWMutex
-}
-
-func (peer *peerkeeper) heartbeat(addr *net.UDPAddr) {
-	if peer == nil || !peer.statesMutex.TryLock() {
-		return
-	}
-	defer peer.statesMutex.Unlock()
-	slog.Log(context.Background(), -5, "[UDP] Heartbeat", "peer", peer.peerID, "addr", addr)
-	for _, state := range peer.states {
-		if state.Addr.IP.Equal(addr.IP) && state.Addr.Port == addr.Port {
-			state.LastActiveTime = time.Now()
-			return
-		}
-	}
-	slog.Info("[UDP] AddPeer", "peer", peer.peerID, "addr", addr)
-	peer.states[addr.String()] = &PeerState{Addr: addr, LastActiveTime: time.Now(), PeerID: peer.peerID}
-	peer.ping(peer.udpConn.Load(), peer.peerID, addr)
-}
-
-func (peer *peerkeeper) healthcheck() {
-	if time.Since(peer.createTime) > 3*peer.keepaliveInterval {
-		for addr, state := range peer.states {
-			if time.Since(state.LastActiveTime) > 2*peer.keepaliveInterval+time.Second {
-				slog.Info("[UDP] RemovePeer", "peer", peer.peerID, "addr", state.Addr)
-				peer.statesMutex.Lock()
-				delete(peer.states, addr)
-				peer.statesMutex.Unlock()
-			}
-		}
-	}
-}
-
-// ready when peer context has at least one active udp address
-func (peer *peerkeeper) ready() bool {
-	peer.statesMutex.RLock()
-	defer peer.statesMutex.RUnlock()
-	for _, state := range peer.states {
-		if time.Since(state.LastActiveTime) <= peer.keepaliveInterval+2*time.Second {
-			return true
-		}
-	}
-	return false
-}
-
-// selectPeerUDP select one of the multiple UDP addresses discovered by the peer
-func (peer *peerkeeper) selectPeerUDP() *PeerState {
-	candidates := make([]PeerState, 0, len(peer.states))
-	peer.statesMutex.RLock()
-	for _, state := range peer.states {
-		if time.Since(state.LastActiveTime) < 2*(peer.keepaliveInterval+time.Second) {
-			candidates = append(candidates, *state)
-		}
-	}
-	peer.statesMutex.RUnlock()
-	if len(candidates) == 0 {
-		return nil
-	}
-	slices.SortFunc(candidates, func(c1, c2 PeerState) int {
-		if c1.LastActiveTime.After(c2.LastActiveTime) {
-			return -1
-		}
-		return 1
-	})
-	return &candidates[0]
-}
-
-func (peer *peerkeeper) writeUDP(p []byte) (int, error) {
-	if peerState := peer.selectPeerUDP(); p != nil {
-		slog.Log(context.Background(), -3, "[UDP] WriteTo", "peer", peer.peerID, "addr", peerState.Addr)
-		if time.Since(peerState.LastActiveTime) > peer.keepaliveInterval+200*time.Millisecond {
-			peer.udpConn.Load().WriteTo(p, peerState.Addr)
-			return 0, ErrUDPConnInactive
-		}
-		return peer.udpConn.Load().WriteTo(p, peerState.Addr)
-	}
-	return 0, net.ErrClosed
-}
-
-func (peer *peerkeeper) run() {
-	ticker := time.NewTicker(peer.keepaliveInterval)
-	ping := func() {
-		addrs := make([]*net.UDPAddr, 0, len(peer.states))
-		peer.statesMutex.RLock()
-		for _, v := range peer.states {
-			addrs = append(addrs, v.Addr)
-		}
-		peer.statesMutex.RUnlock()
-		for _, addr := range addrs {
-			peer.ping(peer.udpConn.Load(), peer.peerID, addr)
-		}
-	}
-	for {
-		select {
-		case <-peer.exitSig:
-			ticker.Stop()
-			slog.Debug("[UDP] KeepaliveExit", "peer", peer.peerID)
-			return
-		case <-ticker.C:
-			ping()
-		}
-	}
-}
-
-func (peer *peerkeeper) close() error {
-	close(peer.exitSig)
-	return nil
 }
