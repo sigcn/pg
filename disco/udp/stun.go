@@ -68,6 +68,7 @@ func (c *stunRoundTripper) recvResponse(b []byte, peerAddr net.Addr) {
 			return
 		}
 		resp := stunResponse{txid: string(txid[:]), addr: addr}
+		defer func() { recover() }()
 		select {
 		case r <- resp:
 		default:
