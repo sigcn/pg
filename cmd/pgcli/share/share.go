@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/schollz/progressbar/v3"
 	"github.com/sigcn/pg/fileshare"
@@ -29,7 +28,7 @@ func Run() error {
 	flagSet.StringVar(&fileManager.PrivateKey, "key", "", "curve25519 private key in base58 format (default generate a new one)")
 
 	var logLevel int
-	flagSet.IntVar(&logLevel, "loglevel", 0, "log level")
+	flagSet.IntVar(&logLevel, "loglevel", 1, "log level")
 	flagSet.Parse(flag.Args()[1:])
 	slog.SetLogLoggerLevel(slog.Level(logLevel))
 
@@ -66,27 +65,7 @@ func Run() error {
 }
 
 func createBar(total int64, desc string) fileshare.ProgressBar {
-	return progressbar.NewOptions64(
-		total,
-		progressbar.OptionSetDescription(desc),
-		progressbar.OptionSetWriter(os.Stderr),
-		progressbar.OptionShowBytes(true),
-		progressbar.OptionSetWidth(10),
-		progressbar.OptionThrottle(200*time.Millisecond),
-		progressbar.OptionShowCount(),
-		progressbar.OptionShowElapsedTimeOnFinish(),
-		progressbar.OptionOnCompletion(func() {
-			fmt.Fprint(os.Stderr, "\n")
-		}),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "=",
-			SaucerHead:    ">",
-			SaucerPadding: " ",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
-		progressbar.OptionSpinnerType(14),
-		progressbar.OptionFullWidth(),
-		progressbar.OptionSetRenderBlankState(true),
-	)
+	bar := progressbar.DefaultBytes(total, desc)
+	progressbar.OptionSetTheme(progressbar.ThemeASCII)(bar)
+	return bar
 }

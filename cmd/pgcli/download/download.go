@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/schollz/progressbar/v3"
 	"github.com/sigcn/pg/fileshare"
@@ -31,7 +30,7 @@ func Run() error {
 	flagSet.StringVar(&downloader.Network, "pubnet", "public", "peermap public network")
 
 	var logLevel int
-	flagSet.IntVar(&logLevel, "loglevel", 0, "log level")
+	flagSet.IntVar(&logLevel, "loglevel", 1, "log level")
 	flagSet.Parse(flag.Args()[1:])
 	slog.SetLogLoggerLevel(slog.Level(logLevel))
 
@@ -73,7 +72,7 @@ func readFile(fh *fileshare.FileHandle) error {
 		return err
 	}
 	r, fileSize, _ := fh.File()
-	bar := createBar(int64(fileSize), fh.Filename)
+	bar := progressbar.DefaultBytes(int64(fileSize), fh.Filename)
 	bar.Add(int(partSize))
 	if _, err = io.Copy(io.MultiWriter(f, bar, sha256Checksum), r); err != nil {
 		return fmt.Errorf("download file falied: %w", err)
@@ -89,21 +88,4 @@ func readFile(fh *fileshare.FileHandle) error {
 	}
 	fmt.Printf("sha256: %x\n", checksum)
 	return nil
-}
-
-func createBar(total int64, desc string) fileshare.ProgressBar {
-	return progressbar.NewOptions64(
-		total,
-		progressbar.OptionSetDescription(desc),
-		progressbar.OptionSetWriter(os.Stderr),
-		progressbar.OptionShowBytes(true),
-		progressbar.OptionThrottle(500*time.Millisecond),
-		progressbar.OptionShowCount(),
-		progressbar.OptionShowElapsedTimeOnFinish(),
-		progressbar.OptionOnCompletion(func() {
-			fmt.Fprint(os.Stderr, "\n")
-		}),
-		progressbar.OptionSpinnerType(14),
-		progressbar.OptionSetRenderBlankState(true),
-	)
 }
