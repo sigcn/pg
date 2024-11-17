@@ -592,7 +592,7 @@ func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 		cfg:          cfg,
 		disco:        &disco.Disco{Magic: cfg.DiscoMagic},
 		closedSig:    make(chan int),
-		natEvents:    make(chan *disco.NATInfo),
+		natEvents:    make(chan *disco.NATInfo, 3),
 		datagrams:    make(chan *disco.Datagram),
 		udpAddrSends: make(chan *disco.PeerUDPAddr, 10),
 		peersIndex:   make(map[disco.PeerID]*peerkeeper),
