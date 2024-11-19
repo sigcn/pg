@@ -89,6 +89,13 @@ func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		return 0, errors.New("not a p2p address")
 	}
 
+	select {
+	case <-c.closedSig:
+		err = net.ErrClosed
+		return
+	default:
+	}
+
 	datagram := disco.Datagram{PeerID: addr.(disco.PeerID), Data: p}
 	p = datagram.TryEncrypt(c.cfg.SymmAlgo)
 

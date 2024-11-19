@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -464,7 +465,11 @@ func (c *WSConn) writeWS(messageType int, data []byte) error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 	if wsConn := c.rawConn.Load(); wsConn != nil {
-		return wsConn.WriteMessage(messageType, data)
+		err := wsConn.WriteMessage(messageType, data)
+		if errors.Is(err, websocket.ErrCloseSent) {
+			return net.ErrClosed
+		}
+		return err
 	}
 	return net.ErrClosed
 }

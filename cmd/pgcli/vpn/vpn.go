@@ -136,12 +136,12 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	flagSet.Float64Var(&cfg.DiscoChallengesBackoffRate, "disco-challenges-backoff-rate", 1.65, "ping challenges backoff rate when disco")
 	flagSet.Var(&ignoredInterfaces, "disco-ignored-interface", "ignore interfaces prefix when disco")
 
-	flagSet.StringVar(&cfg.IPv4, "ipv4", "", "")
-	flagSet.StringVar(&cfg.IPv4, "4", "", "ipv4 address prefix (e.g. 100.99.0.1/24)")
-	flagSet.StringVar(&cfg.IPv6, "ipv6", "", "")
-	flagSet.StringVar(&cfg.IPv6, "6", "", "ipv6 address prefix (e.g. fd00::1/64)")
-	flagSet.IntVar(&cfg.MTU, "mtu", 1411, "nic mtu")
-	flagSet.StringVar(&cfg.TunName, "tun", defaultTunName, "nic name")
+	flagSet.StringVar(&cfg.NICConfig.IPv4, "ipv4", "", "")
+	flagSet.StringVar(&cfg.NICConfig.IPv4, "4", "", "ipv4 address prefix (e.g. 100.99.0.1/24)")
+	flagSet.StringVar(&cfg.NICConfig.IPv6, "ipv6", "", "")
+	flagSet.StringVar(&cfg.NICConfig.IPv6, "6", "", "ipv6 address prefix (e.g. fd00::1/64)")
+	flagSet.IntVar(&cfg.NICConfig.MTU, "mtu", 1411, "nic mtu")
+	flagSet.StringVar(&cfg.NICConfig.Name, "tun", defaultTunName, "nic name")
 
 	flagSet.StringVar(&cfg.PrivateKey, "key", "", "curve25519 private key in base58 format (default generate a new one)")
 	flagSet.StringVar(&cfg.SecretFile, "secret-file", "", "")
@@ -164,7 +164,7 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 		err = errors.New("flag \"server\" not set")
 		return
 	}
-	if cfg.IPv4 == "" && cfg.IPv6 == "" {
+	if cfg.NICConfig.IPv4 == "" && cfg.NICConfig.IPv6 == "" {
 		err = errors.New("at least one of the flags in the group [ipv4 ipv6] is required")
 		return
 	}
@@ -178,7 +178,7 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 }
 
 type Config struct {
-	nic.Config
+	NICConfig                      nic.Config
 	DiscoPortScanOffset            int
 	DiscoPortScanCount             int
 	DiscoPortScanDuration          time.Duration
@@ -186,7 +186,6 @@ type Config struct {
 	DiscoChallengesInitialInterval time.Duration
 	DiscoChallengesBackoffRate     float64
 	DiscoIgnoredInterfaces         []string
-	TunName                        string
 	Peers                          []string
 	Port                           int
 	PrivateKey                     string
@@ -202,7 +201,7 @@ type P2PVPN struct {
 }
 
 func (v *P2PVPN) Run(ctx context.Context) error {
-	tunnic, err := tun.Create(v.Config.TunName, v.Config.Config)
+	tunnic, err := tun.Create(v.Config.NICConfig)
 	if err != nil {
 		return err
 	}
@@ -214,7 +213,7 @@ func (v *P2PVPN) Run(ctx context.Context) error {
 	c.SetTransportMode(v.Config.P2pTransportMode)
 	v.nic = &nic.VirtualNIC{NIC: tunnic}
 	return vpn.New(vpn.Config{
-		MTU:           v.Config.MTU,
+		MTU:           v.Config.NICConfig.MTU,
 		OnRouteAdd:    func(dst net.IPNet, _ net.IP) { disco.AddIgnoredLocalCIDRs(dst.String()) },
 		OnRouteRemove: func(dst net.IPNet, _ net.IP) { disco.RemoveIgnoredLocalCIDRs(dst.String()) },
 	}).Run(ctx, v.nic, c)
@@ -253,20 +252,20 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err e
 		}
 		v.addPeer(disco.PeerID(pgPeer.Host), pgPeer.Query())
 	}
-	if v.Config.IPv4 != "" {
-		ipv4, err := netip.ParsePrefix(v.Config.IPv4)
+	if v.Config.NICConfig.IPv4 != "" {
+		ipv4, err := netip.ParsePrefix(v.Config.NICConfig.IPv4)
 		if err != nil {
 			return nil, err
 		}
-		disco.AddIgnoredLocalCIDRs(v.Config.IPv4)
+		disco.AddIgnoredLocalCIDRs(v.Config.NICConfig.IPv4)
 		p2pOptions = append(p2pOptions, p2p.PeerAlias1(ipv4.Addr().String()))
 	}
-	if v.Config.IPv6 != "" {
-		ipv6, err := netip.ParsePrefix(v.Config.IPv6)
+	if v.Config.NICConfig.IPv6 != "" {
+		ipv6, err := netip.ParsePrefix(v.Config.NICConfig.IPv6)
 		if err != nil {
 			return nil, err
 		}
-		disco.AddIgnoredLocalCIDRs(v.Config.IPv6)
+		disco.AddIgnoredLocalCIDRs(v.Config.NICConfig.IPv6)
 		p2pOptions = append(p2pOptions, p2p.PeerAlias2(ipv6.Addr().String()))
 	}
 	if v.Config.PrivateKey != "" {

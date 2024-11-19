@@ -26,10 +26,10 @@ type TUNIC struct {
 	readTotal, read int
 }
 
-func Create(tunName string, cfg nic.Config) (*TUNIC, error) {
-	device, err := tun.CreateTUN(tunName, cfg.MTU)
+func Create(cfg nic.Config) (*TUNIC, error) {
+	device, err := tun.CreateTUN(cfg.Name, cfg.MTU)
 	if err != nil {
-		return nil, fmt.Errorf("create tun device (%s): %w", tunName, err)
+		return nil, fmt.Errorf("create tun device (%s): %w", cfg.Name, err)
 	}
 	deviceName, err := device.Name()
 	if err != nil {
@@ -41,7 +41,7 @@ func Create(tunName string, cfg nic.Config) (*TUNIC, error) {
 	if cfg.IPv6 != "" {
 		netlink.SetupLink(deviceName, cfg.IPv6)
 	}
-	return &TUNIC{dev: device, ifName: tunName, mtu: cfg.MTU}, nil
+	return &TUNIC{dev: device, ifName: cfg.Name, mtu: cfg.MTU}, nil
 }
 
 // Read read ip packet from nic. no concurrency support

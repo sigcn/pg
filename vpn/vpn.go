@@ -47,11 +47,11 @@ func (vpn *VPN) Run(ctx context.Context, nic *nic.VirtualNIC, packetConn net.Pac
 	vpn.nic = nic
 	var wg sync.WaitGroup
 	wg.Add(5)
-	go vpn.runRoutingTableUpdateEventLoop(ctx, &wg)
-	go vpn.runNICReadEventLoop(&wg, nic)
-	go vpn.runNICWriteEventLoop(&wg, nic)
-	go vpn.runPacketConnReadEventLoop(&wg, packetConn)
-	go vpn.runPacketConnWriteEventLoop(&wg, packetConn)
+	go vpn.routingTableUpdate(ctx, &wg)
+	go vpn.nicRead(&wg, nic)
+	go vpn.nicWrite(&wg, nic)
+	go vpn.packetConnRead(&wg, packetConn)
+	go vpn.packetConnWrite(&wg, packetConn)
 
 	<-ctx.Done()
 	packetConn.Close()
@@ -62,7 +62,7 @@ func (vpn *VPN) Run(ctx context.Context, nic *nic.VirtualNIC, packetConn net.Pac
 	return nil
 }
 
-func (vpn *VPN) runRoutingTableUpdateEventLoop(ctx context.Context, wg *sync.WaitGroup) {
+func (vpn *VPN) routingTableUpdate(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	ch := make(chan netlink.RouteUpdate)
 	if err := netlink.RouteSubscribe(ctx, ch); err != nil {
@@ -82,7 +82,7 @@ func (vpn *VPN) runRoutingTableUpdateEventLoop(ctx context.Context, wg *sync.Wai
 	}
 }
 
-func (vpn *VPN) runNICReadEventLoop(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
+func (vpn *VPN) nicRead(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
 	defer wg.Done()
 	for {
 		packet, err := nic.Read()
@@ -96,7 +96,7 @@ func (vpn *VPN) runNICReadEventLoop(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
 	}
 }
 
-func (vpn *VPN) runNICWriteEventLoop(wg *sync.WaitGroup, vnic *nic.VirtualNIC) {
+func (vpn *VPN) nicWrite(wg *sync.WaitGroup, vnic *nic.VirtualNIC) {
 	defer wg.Done()
 	handle := func(pkt *nic.Packet) *nic.Packet {
 		for _, in := range vpn.cfg.InboundHandlers {
@@ -124,7 +124,7 @@ func (vpn *VPN) runNICWriteEventLoop(wg *sync.WaitGroup, vnic *nic.VirtualNIC) {
 	}
 }
 
-func (vpn *VPN) runPacketConnReadEventLoop(wg *sync.WaitGroup, packetConn net.PacketConn) {
+func (vpn *VPN) packetConnRead(wg *sync.WaitGroup, packetConn net.PacketConn) {
 	defer wg.Done()
 	buf := make([]byte, cmp.Or(vpn.cfg.MTU, (2<<15)-8-40-40)+40)
 	for {
@@ -141,7 +141,7 @@ func (vpn *VPN) runPacketConnReadEventLoop(wg *sync.WaitGroup, packetConn net.Pa
 	}
 }
 
-func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.PacketConn) {
+func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 	defer wg.Done()
 	sendPacketToPeer := func(packet *nic.Packet, dstIP net.IP) {
 		defer nic.IPPacketPool.Put(packet)
@@ -151,8 +151,8 @@ func (vpn *VPN) runPacketConnWriteEventLoop(wg *sync.WaitGroup, packetConn net.P
 		}
 		if peer, ok := vpn.nic.GetPeer(dstIP.String()); ok {
 			_, err := packetConn.WriteTo(packet.AsBytes(), peer)
-			if err != nil {
-				slog.Error("WriteTo peer failed", "peer", peer, "detail", err)
+			if err != nil && !errors.Is(err, net.ErrClosed) {
+				slog.Error("PacketConnWrite", "peer", peer, "err", err)
 			}
 			return
 		}

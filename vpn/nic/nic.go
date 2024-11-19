@@ -14,6 +14,7 @@ const (
 )
 
 type Config struct {
+	Name       string
 	MTU        int
 	IPv4, IPv6 string
 }
