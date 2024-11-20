@@ -1,6 +1,7 @@
 package tun
 
 import (
+	"cmp"
 	"fmt"
 	"sync"
 
@@ -27,6 +28,7 @@ type TUNIC struct {
 }
 
 func Create(cfg nic.Config) (*TUNIC, error) {
+	cfg.Name = cmp.Or(cfg.Name, "tun0")
 	device, err := tun.CreateTUN(cfg.Name, cfg.MTU)
 	if err != nil {
 		return nil, fmt.Errorf("create tun device (%s): %w", cfg.Name, err)

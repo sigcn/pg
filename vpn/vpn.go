@@ -107,11 +107,7 @@ func (vpn *VPN) nicWrite(wg *sync.WaitGroup, vnic *nic.VirtualNIC) {
 		}
 		return pkt
 	}
-	for {
-		packet, ok := <-vpn.inbound
-		if !ok {
-			return
-		}
+	for packet := range vpn.inbound {
 		if packet = handle(packet); packet == nil {
 			nic.IPPacketPool.Put(packet)
 			continue
@@ -167,11 +163,7 @@ func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 		}
 		return pkt
 	}
-	for {
-		packet, ok := <-vpn.outbound
-		if !ok {
-			return
-		}
+	for packet := range vpn.outbound {
 		if packet = handle(packet); packet == nil {
 			nic.IPPacketPool.Put(packet)
 			continue

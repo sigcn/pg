@@ -8,7 +8,7 @@ if err != nil {
     panic(err)
 }
 
-tunic, err := tun.Create("tun1", nic.Config{MTU: 1428, IPv4: "10.10.10.2/24"})
+tunic, err := tun.Create(nic.Config{MTU: 1428, IPv4: "10.10.10.2/24"})
 if err != nil {
     panic(err)
 }
@@ -30,7 +30,7 @@ if err != nil {
     panic(err)
 }
 
-tunic, err := tun.Create("tun1", nic.Config{MTU: 1428, IPv4: "10.10.10.1/24"})
+tunic, err := tun.Create(nic.Config{MTU: 1428, IPv4: "10.10.10.1/24"})
 if err != nil {
     panic(err)
 }
