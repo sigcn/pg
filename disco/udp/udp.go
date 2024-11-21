@@ -30,9 +30,11 @@ type UDPConn struct {
 	udpConnsMutex sync.RWMutex
 	udpConns      []*net.UDPConn
 
+	closedSig chan int
+	closedWG  sync.WaitGroup
+
 	cfg              UDPConfig
 	disco            *disco.Disco
-	closedSig        chan int
 	datagrams        chan *disco.Datagram
 	natEvents        chan *disco.NATInfo
 	udpAddrSends     chan *disco.PeerUDPAddr
@@ -48,13 +50,13 @@ type UDPConn struct {
 
 func (c *UDPConn) Close() error {
 	c.upnpPortMapping.close()
+	close(c.closedSig)
 	c.udpConnsMutex.RLock()
 	for _, conn := range c.udpConns {
 		conn.Close()
 	}
 	c.udpConnsMutex.RUnlock()
-
-	close(c.closedSig)
+	c.closedWG.Wait()
 	close(c.natEvents)
 	close(c.datagrams)
 	close(c.udpAddrSends)
@@ -373,7 +375,7 @@ func (c *UDPConn) RestartListener() error {
 	if err != nil {
 		return fmt.Errorf("listen udp error: %w", err)
 	}
-	go c.runPacketEventLoop(conn)
+	go c.udpRead(conn)
 	c.udpConns = append(c.udpConns, conn)
 
 	if info := c.natInfo.Load(); info != nil && info.Type == disco.Hard {
@@ -383,7 +385,7 @@ func (c *UDPConn) RestartListener() error {
 				slog.Warn("[UDP] Listen", "err", err)
 				continue
 			}
-			go c.runPacketEventLoop(conn)
+			go c.udpRead(conn)
 			c.udpConns = append(c.udpConns, conn)
 		}
 		slog.Info("[UDP] Listen 256 ports on hard side")
@@ -464,7 +466,9 @@ func (c *UDPConn) tryGetPeerkeeper(udpConn *net.UDPConn, peerID disco.PeerID) *p
 	return &pkeeper
 }
 
-func (c *UDPConn) runPacketEventLoop(udpConn *net.UDPConn) {
+func (c *UDPConn) udpRead(udpConn *net.UDPConn) {
+	c.closedWG.Add(1)
+	defer c.closedWG.Done()
 	buf := make([]byte, 65535)
 	for {
 		select {
@@ -512,7 +516,6 @@ func (c *UDPConn) runPacketEventLoop(udpConn *net.UDPConn) {
 			c.datagrams <- &disco.Datagram{PeerID: src, Data: pkt}
 			continue
 		}
-		defer func() { recover() }()
 		c.datagrams <- &disco.Datagram{PeerID: peerID, Data: b}
 	}
 }
