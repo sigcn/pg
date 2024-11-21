@@ -1,7 +1,7 @@
 package udp
 
 import (
-	"log/slog"
+	"errors"
 	"net"
 
 	"github.com/sigcn/pg/upnp"
@@ -11,21 +11,18 @@ type upnpPortMapping struct {
 	upnpDeleteMapping func()
 }
 
-func (m *upnpPortMapping) mappingAddress(udpPort int) *net.UDPAddr {
+func (m *upnpPortMapping) mappingAddress(udpPort int) (*net.UDPAddr, error) {
 	nat, err := upnp.Discover()
 	if err != nil {
-		slog.Debug("[UPnP] Disabled", "reason", err)
-		return nil
+		return nil, err
 	}
 	externalIP, err := nat.GetExternalAddress()
 	if err != nil {
-		slog.Debug("[UPnP] Disabled", "reason", err)
-		return nil
+		return nil, err
 	}
 
 	if externalIP.IsUnspecified() {
-		slog.Debug("[UPnP] Disabled", "reason", "invalid external ip")
-		return nil
+		return nil, errors.New("invalid external ip")
 	}
 
 	for i := 0; i < 20; i++ {
@@ -34,9 +31,9 @@ func (m *upnpPortMapping) mappingAddress(udpPort int) *net.UDPAddr {
 			continue
 		}
 		m.upnpDeleteMapping = func() { nat.DeletePortMapping("udp", mappedPort, udpPort) }
-		return &net.UDPAddr{IP: externalIP, Port: mappedPort}
+		return &net.UDPAddr{IP: externalIP, Port: mappedPort}, nil
 	}
-	return nil
+	return nil, errors.New("add port mapping failed")
 }
 
 func (m *upnpPortMapping) close() {

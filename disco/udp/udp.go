@@ -100,7 +100,11 @@ func (c *UDPConn) UDPAddrSends() <-chan *disco.PeerUDPAddr {
 func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []string) {
 	// UPnP
 	go func() {
-		addr := c.upnpPortMapping.mappingAddress(c.cfg.Port)
+		addr, err := c.upnpPortMapping.mappingAddress(c.cfg.Port)
+		if err != nil {
+			slog.Debug("[UPnP] Disabled", "reason", err)
+			return
+		}
 		c.udpAddrSends <- &disco.PeerUDPAddr{ID: peerID, Addr: addr, Type: disco.UPnP}
 		select {
 		case c.natEvents <- &disco.NATInfo{Type: disco.UPnP, Addrs: []*net.UDPAddr{addr}}:
