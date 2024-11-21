@@ -16,23 +16,23 @@
 ### p2p vpn
 ```sh
 # 节点1
-sudo pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
+pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24
 ```
 ```sh
 # 节点2
-sudo pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.2/24 --ipv6 fd00::2/64
+pgcli vpn -s wss://synf.in/pg -4 100.64.0.2/24
 ```
 >[!NOTE]
 >使用`github`认证时要求帐号绑定已验证的邮箱 (https://github.com/settings/emails)
 ### p2p 文件分享
 ```sh
 # 分享
-$ PG_SERVER=wss://synf.in/pg pgcli share ~/my-show.pptx
+$ pgcli share -s wss://synf.in/pg ~/my-show.pptx
 ShareURL: pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
 ```
 ```sh
 # 下载
-$ PG_SERVER=wss://synf.in/pg pgcli download pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
+$ pgcli download -s wss://synf.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
 ```
 
 ## 高级用法

@@ -17,21 +17,21 @@ Another p2p network library in Go. Committed to direct communication between dev
 ### p2p vpn
 ```sh
 # node1
-sudo pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.1/24 --ipv6 fd00::1/64
+pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24
 ```
 ```sh
 # node2
-sudo pgcli vpn -s wss://synf.in/pg --ipv4 100.64.0.2/24 --ipv6 fd00::2/64
+pgcli vpn -s wss://synf.in/pg -4 100.64.0.2/24
 ```
 ### p2p file sharing
 ```sh
 # share
-$ PG_SERVER=wss://synf.in/pg pgcli share ~/my-show.pptx
+$ pgcli share -s wss://synf.in/pg ~/my-show.pptx
 ShareURL: pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
 ```
 ```sh
 # download
-$ PG_SERVER=wss://synf.in/pg pgcli download pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
+$ pgcli download -s wss://synf.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
 ```
 
 ## Advanced
