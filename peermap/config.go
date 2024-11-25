@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/sigcn/pg/peermap/oidc"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type RateLimiter struct {
