@@ -1,9 +1,11 @@
 # p2p library
 
 ### Example
+
 ### Peer1 (act as echo server)
+
 ```go
-peermapURL := "wss://synf.in/pg"
+serverURL := "wss://synf.in/pg"
 
 intent, err := network.JoinOIDC(oidc.ProviderGoogle, peermapURL)
 if err != nil {
@@ -15,19 +17,14 @@ if err != nil {
     panic(err)
 }
 
-pmServer, err := peer.NewPeermapURL(peermapURL, networkSecret)
-if err != nil {
-    panic(err)
-}
-
 // peerID is a unique string (less than 256bytes)
-packetConn, err := p2p.ListenPacket(pmServer, p2p.ListenPeerID("uniqueString"))
+packetConn, err := p2p.ListenPacket(disco.NewServer(serverURL, networkSecret), p2p.ListenPeerID("uniqueString"))
 if err != nil {
     panic(err)
 }
 
 // unreliability echo server
-buf := make([]byte, 1024) 
+buf := make([]byte, 1024)
 for {
     n, peerID, err := packetConn.ReadFrom(buf)
     if err != nil {
@@ -41,11 +38,12 @@ for {
 }
 ```
 
-### Peer2 
+### Peer2
+
 ```go
 ...
 
-packetConn, err := p2p.ListenPacket(pmServer)
+packetConn, err := p2p.ListenPacket(disco.NewServer(serverURL, networkSecret))
 if err != nil {
     panic(err)
 }

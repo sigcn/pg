@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/url"
 
 	"github.com/sigcn/pg/disco"
 	"github.com/sigcn/pg/p2p"
@@ -18,12 +17,8 @@ type PublicNetwork struct {
 }
 
 func (pn *PublicNetwork) ListenPacket(udpPort int) (net.PacketConn, error) {
-	pmapURL, err := url.Parse(pn.Server)
-	if err != nil {
-		return nil, fmt.Errorf("invalid peermap URL: %w", err)
-	}
 	network := cmp.Or(pn.Name, "pubnet")
-	pmap, err := disco.NewPeermap(pmapURL, &disco.NetworkSecret{Network: network, Secret: network})
+	pmap, err := disco.NewServer(pn.Server, &disco.NetworkSecret{Network: network, Secret: network})
 	if err != nil {
 		return nil, fmt.Errorf("create peermap failed: %w", err)
 	}

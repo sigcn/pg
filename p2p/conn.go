@@ -388,12 +388,12 @@ func (c *PacketConn) runControlEventLoop() {
 }
 
 // ListenPacket same as ListenPacketContext, but no context required
-func ListenPacket(peermap *disco.Peermap, opts ...Option) (*PacketConn, error) {
+func ListenPacket(peermap *disco.Server, opts ...Option) (*PacketConn, error) {
 	return ListenPacketContext(context.Background(), peermap, opts...)
 }
 
 // ListenPacketContext listen the p2p network for read/write packets
-func ListenPacketContext(ctx context.Context, peermap *disco.Peermap, opts ...Option) (*PacketConn, error) {
+func ListenPacketContext(ctx context.Context, peermap *disco.Server, opts ...Option) (*PacketConn, error) {
 	id := make([]byte, 16)
 	rand.Read(id)
 	cfg := Config{

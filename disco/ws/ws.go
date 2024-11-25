@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -29,7 +30,7 @@ var (
 
 type WSConn struct {
 	rawConn           atomic.Pointer[websocket.Conn]
-	server            *disco.Peermap
+	server            *disco.Server
 	connectedServer   string
 	peerID            disco.PeerID
 	metadata          url.Values
@@ -197,7 +198,7 @@ func (c *WSConn) Unregister(ctr disco.Controller) {
 }
 
 func (c *WSConn) dial(ctx context.Context, server string) error {
-	networkSecret, err := c.server.SecretStore().NetworkSecret()
+	networkSecret, err := cmp.Or[disco.SecretStore](c.server.Secret, &disco.NetworkSecret{}).NetworkSecret()
 	if err != nil {
 		return fmt.Errorf("get network secret failed: %w", err)
 	}
@@ -207,7 +208,7 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 	handshake.Set("X-Nonce", disco.NewNonce())
 	handshake.Set("X-Metadata", c.metadata.Encode())
 	if server == "" {
-		server = c.server.String()
+		server = c.server.URL
 	}
 	peermap, err := url.Parse(server)
 	if err != nil {
@@ -474,7 +475,7 @@ func (c *WSConn) writeWS(messageType int, data []byte) error {
 
 func (c *WSConn) updateNetworkSecret(secret disco.NetworkSecret) {
 	for i := 0; i < 5; i++ {
-		if err := c.server.SecretStore().UpdateNetworkSecret(secret); err != nil {
+		if err := c.server.Secret.UpdateNetworkSecret(secret); err != nil {
 			slog.Error("[WS] NetworkSecretUpdate", "err", err)
 			time.Sleep(time.Second)
 			continue
@@ -484,7 +485,7 @@ func (c *WSConn) updateNetworkSecret(secret disco.NetworkSecret) {
 	slog.Error("[WS] NetworkSecretUpdate give up", "secret", secret)
 }
 
-func DialPeermap(ctx context.Context, server *disco.Peermap, peerID disco.PeerID, metadata url.Values) (*WSConn, error) {
+func DialPeermap(ctx context.Context, server *disco.Server, peerID disco.PeerID, metadata url.Values) (*WSConn, error) {
 	wsConn := &WSConn{
 		server:        server,
 		peerID:        peerID,

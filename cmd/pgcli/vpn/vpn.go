@@ -278,11 +278,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err e
 	if err != nil {
 		return
 	}
-	peermapURL, err := url.Parse(v.Config.Server)
-	if err != nil {
-		return
-	}
-	peermap, err := disco.NewPeermap(peermapURL, secretStore)
+	peermap, err := disco.NewServer(v.Config.Server, secretStore)
 	if err != nil {
 		return
 	}
