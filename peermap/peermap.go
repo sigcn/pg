@@ -4,19 +4,15 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
-	"os"
-	"os/signal"
 	"slices"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -503,74 +499,13 @@ func (pm *PeerMap) Serve(ctx context.Context) error {
 		<-ctx.Done()
 		slog.Info("Graceful shutdown")
 		pm.httpServer.Shutdown(context.Background())
-		if err := pm.Save(); err != nil {
-			slog.Error("Save networks", "err", err)
-		}
 	}()
-	// load networks
-	if err := pm.Load(); err != nil {
-		slog.Error("Load networks", "err", err)
-	}
-	// watch sighup for save networks
-	go pm.watchSaveCycle(ctx)
+
 	// serving http
 	slog.Info("Serving for http now", "listen", pm.cfg.Listen)
 	err := pm.httpServer.ListenAndServe()
 	wg.Wait()
 	return err
-}
-
-// Load networks state
-func (pm *PeerMap) Load() error {
-	f, err := os.Open(pm.cfg.StateFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("load: open state file: %w", err)
-	}
-	defer f.Close()
-	var nets []NetState
-	if err := json.NewDecoder(f).Decode(&nets); err != nil && !errors.Is(err, io.EOF) {
-		return fmt.Errorf("load: decode state: %w", err)
-	}
-	pm.networkMapMutex.Lock()
-	defer pm.networkMapMutex.Unlock()
-	for _, n := range nets {
-		pm.networkMap[n.ID] = pm.newNetworkContext(n)
-	}
-	slog.Info("Load networks", "count", len(nets))
-	return nil
-}
-
-// Save networks state
-func (pm *PeerMap) Save() error {
-	var nets []NetState
-	pm.networkMapMutex.RLock()
-	for _, v := range pm.networkMap {
-		nets = append(nets, NetState{
-			ID:         v.id,
-			Alias:      v.alias,
-			Neighbors:  v.neighbors,
-			CreateTime: v.createTime,
-			UpdateTime: v.updateTime})
-	}
-	pm.networkMapMutex.RUnlock()
-	if nets == nil {
-		return nil
-	}
-	f, err := os.Create(pm.cfg.StateFile)
-	if err != nil {
-		return fmt.Errorf("save: open state file: %w", err)
-	}
-	if err := json.NewEncoder(f).Encode(nets); err != nil {
-		return fmt.Errorf("save: encode state: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("save: close state file: %w", err)
-	}
-	slog.Info("Save networks", "count", len(nets))
-	return nil
 }
 
 func (pm *PeerMap) HandleQueryNetworks(w http.ResponseWriter, r *http.Request) {
@@ -792,23 +727,6 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	peer.conn = wsConn
 	peer.start()
 	slog.Debug("PeerConnected", "network", jsonSecret.Network, "peer", peerID)
-}
-
-func (pm *PeerMap) watchSaveCycle(ctx context.Context) {
-	for {
-		sig := make(chan os.Signal, 2)
-		signal.Notify(sig, syscall.SIGHUP)
-		select {
-		case <-ctx.Done():
-			close(sig)
-			return
-		case <-sig:
-			close(sig)
-			if err := pm.Save(); err != nil {
-				slog.Error("Save networks", "err", err)
-			}
-		}
-	}
 }
 
 func (pm *PeerMap) newNetworkContext(state NetState) *networkContext {
