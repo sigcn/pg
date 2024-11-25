@@ -142,12 +142,10 @@ func (c *WSConn) LeadDisco(peerID disco.PeerID) error {
 }
 
 func (c *WSConn) UpdateNATInfo(natInfo disco.NATInfo) error {
-	if natInfo.Type == disco.Hard {
+	if natInfo.Addrs == nil {
 		return nil
 	}
-	if natInfo.Type == disco.Easy {
-		natInfo.Addrs = natInfo.Addrs[:1]
-	}
+	natInfo.Addrs = natInfo.Addrs[:1]
 	controlPacket := []byte{byte(disco.CONTROL_UPDATE_NAT_INFO), 0}
 	b, err := json.Marshal(natInfo)
 	if err != nil {
