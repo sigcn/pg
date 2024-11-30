@@ -22,6 +22,7 @@ import (
 
 var (
 	ErrPermissionDenied error = errors.New("ipc: permission denied")
+	ErrNoDaemon         error = errors.New("ipc: no daemon")
 )
 
 func getDefaultUnixSocketPath() string {
@@ -128,7 +129,16 @@ func (c *ApiClient) init() {
 		c.httpClient = &http.Client{
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-					return dialer.DialContext(ctx, "unix", getDefaultUnixSocketPath())
+					c, err := dialer.DialContext(ctx, "unix", getDefaultUnixSocketPath())
+					if err != nil {
+						if strings.Contains(err.Error(), "permission denied") || strings.Contains(err.Error(), "forbidden by its access permissions") {
+							return nil, ErrPermissionDenied
+						}
+						if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such file or directory") {
+							return nil, ErrNoDaemon
+						}
+					}
+					return c, err
 				},
 			},
 		}
@@ -139,10 +149,7 @@ func (c *ApiClient) QueryPeers() ([]PeerState, error) {
 	c.init()
 	r, err := c.httpClient.Get("http://_/apis/p2p/v1alpha1/peers")
 	if err != nil {
-		if strings.Contains(err.Error(), "permission denied") || strings.Contains(err.Error(), "forbidden by its access permissions") {
-			return nil, ErrPermissionDenied
-		}
-		return nil, err
+		return nil, errors.Unwrap(err)
 	}
 	var queryPeersResp response[[]PeerState]
 	json.NewDecoder(r.Body).Decode(&queryPeersResp)
