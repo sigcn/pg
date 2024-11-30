@@ -44,7 +44,7 @@ func (s *stringSlice) Set(v string) error {
 	return nil
 }
 
-func Run() error {
+func Run(args []string) error {
 	flagSet := flag.NewFlagSet("vpn", flag.ExitOnError)
 	flagSet.Usage = func() { usage(flagSet) }
 
@@ -53,7 +53,7 @@ func Run() error {
 	flagSet.BoolVar(&pprof, "pprof", false, "enable http pprof server")
 	flagSet.IntVar(&logLevel, "loglevel", 0, "log level")
 	flagSet.IntVar(&logLevel, "V", 0, "")
-	cfg, err := createConfig(flagSet, flag.Args()[1:])
+	cfg, err := createConfig(flagSet, args)
 	if err != nil {
 		return err
 	}

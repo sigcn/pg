@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 
 	"github.com/sigcn/pg/cmd/pgcli/admin"
@@ -16,22 +17,37 @@ import (
 
 var (
 	Version = "dev"
+
+	funcMap map[string]func([]string) error = map[string]func([]string) error{
+		"pgvpn": vpn.Run,
+	}
 )
 
 func main() {
-	var logLevel int
-	flag.Usage = usage
-	flag.IntVar(&logLevel, "loglevel", 0, "log level")
-	flag.BoolFunc("v", "print binary version", printVersion)
-	flag.Parse()
-	slog.SetLogLoggerLevel(slog.Level(logLevel))
-	if err := run(); err != nil {
+	commit, _, _ := readBinaryInfo()
+	if len(commit) < 7 {
+		vpn.Version = Version
+	} else {
+		vpn.Version = fmt.Sprintf("%s-%s", Version, commit[:7])
+	}
+
+	f, ok := funcMap[filepath.Base(os.Args[0])]
+	if !ok {
+		var logLevel int
+		flag.Usage = usage
+		flag.IntVar(&logLevel, "loglevel", 0, "log level")
+		flag.BoolFunc("v", "print binary version", printVersion)
+		flag.Parse()
+		slog.SetLogLoggerLevel(slog.Level(logLevel))
+		f = run
+	}
+	if err := f(os.Args[1:]); err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(args []string) error {
 	switch flag.Arg(0) {
 	case "admin":
 		return admin.Run()
@@ -42,13 +58,7 @@ func run() error {
 	case "share":
 		return share.Run()
 	case "vpn":
-		commit, _, _ := readBinaryInfo()
-		if len(commit) < 7 {
-			vpn.Version = Version
-		} else {
-			vpn.Version = fmt.Sprintf("%s-%s", Version, commit[:7])
-		}
-		return vpn.Run()
+		return vpn.Run(args[1:])
 	default:
 		usage()
 		return nil
