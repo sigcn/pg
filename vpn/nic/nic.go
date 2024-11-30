@@ -88,6 +88,19 @@ func (r *VirtualNIC) AddPeer(peer Peer) {
 	}
 }
 
+func (r *VirtualNIC) RemovePeer(addr net.Addr) {
+	r.init()
+	r.peersMutex.Lock()
+	defer r.peersMutex.Unlock()
+	_, v, ok := r.peers.Find(func(s string, p *Peer) bool {
+		return p.Addr == addr
+	})
+	if ok {
+		r.peers.Del(v.IPv4)
+		r.peers.Del(v.IPv6)
+	}
+}
+
 func (r *VirtualNIC) AddRoute(dst *net.IPNet, via net.IP) bool {
 	r.init()
 	r.peersMutex.Lock()

@@ -63,6 +63,13 @@ func (c *Cache[K, V]) Put(key K, value V) {
 	c.cache[key] = elem
 }
 
+func (c *Cache[K, V]) Del(key K) {
+	if v, ok := c.cache[key]; ok {
+		c.list.Remove(v)
+		delete(c.cache, key)
+	}
+}
+
 func (c *Cache[K, V]) Clear() {
 	clear(c.cache)
 	c.list.Init()
