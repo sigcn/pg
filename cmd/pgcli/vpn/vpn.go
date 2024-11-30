@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"net/http"
-	_ "net/http/pprof"
 	"net/netip"
 	"net/url"
 	"os"
@@ -16,10 +14,13 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
+	"github.com/sigcn/pg/cmd/pgcli/vpn/ipc/client"
+	"github.com/sigcn/pg/cmd/pgcli/vpn/ipc/server"
 	"github.com/sigcn/pg/disco"
 	"github.com/sigcn/pg/disco/udp"
 	"github.com/sigcn/pg/p2p"
@@ -48,26 +49,19 @@ func Run(args []string) error {
 	flagSet := flag.NewFlagSet("vpn", flag.ExitOnError)
 	flagSet.Usage = func() { usage(flagSet) }
 
-	var pprof bool
 	var logLevel int
-	flagSet.BoolVar(&pprof, "pprof", false, "enable http pprof server")
 	flagSet.IntVar(&logLevel, "loglevel", 0, "log level")
 	flagSet.IntVar(&logLevel, "V", 0, "")
 	cfg, err := createConfig(flagSet, args)
 	if err != nil {
 		return err
 	}
-	slog.SetLogLoggerLevel(slog.Level(logLevel))
 
-	if pprof {
-		l, err := net.Listen("tcp", ":29800")
-		if err != nil {
-			return fmt.Errorf("pprof: %w", err)
-		}
-		slog.Info("Serving pprof server", "addr", "http://0.0.0.0:29800")
-		defer l.Close()
-		go http.Serve(l, nil)
+	if cfg.QueryPeers {
+		return client.PrintPeers()
 	}
+
+	slog.SetLogLoggerLevel(slog.Level(logLevel))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -77,7 +71,7 @@ func Run(args []string) error {
 func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("Run a vpn daemon which backend is PeerGuard p2p network\n\n")
 	fmt.Printf("Usage: %s [flags]\n\n", flagSet.Name())
-	fmt.Printf("Flags:\n")
+	fmt.Printf("Daemon flags:\n")
 
 	ipv4 := flagSet.Lookup("4")
 	ipv6 := flagSet.Lookup("6")
@@ -95,7 +89,7 @@ func usage(flagSet *flag.FlagSet) {
 	key := flagSet.Lookup("key")
 	logLevel := flagSet.Lookup("loglevel")
 	mtu := flagSet.Lookup("mtu")
-	peer := flagSet.Lookup("peer")
+	peers := flagSet.Lookup("peers")
 	pprof := flagSet.Lookup("pprof")
 	server := flagSet.Lookup("s")
 	tun := flagSet.Lookup("tun")
@@ -117,16 +111,21 @@ func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("  --key string\n\t%s\n", key.Usage)
 	fmt.Printf("  --loglevel int\n\t%s (default %s)\n", logLevel.Usage, logLevel.DefValue)
 	fmt.Printf("  --mtu int\n\t%s (default %s)\n", mtu.Usage, mtu.DefValue)
-	fmt.Printf("  --peer []string\n\t%s\n", peer.Usage)
 	fmt.Printf("  --pprof \n\t%s\n", pprof.Usage)
 	fmt.Printf("  -s, --server string\n\t%s\n", server.Usage)
 	fmt.Printf("  --tun string\n\t%s (default %s)\n", tun.Usage, tun.DefValue)
 	fmt.Printf("  --udp-port int\n\t%s (default %s)\n", udpPort.Usage, udpPort.DefValue)
+	fmt.Printf("IPC flags:\n")
+	fmt.Printf("  --peers \n\t%s\n", peers.Usage)
 }
 
 func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) {
+	// ipc flags
+	var queryPeers bool
+
+	// daemon flags
 	var forcePeerRelay, forceServerRelay bool
-	var ignoredInterfaces, peers stringSlice
+	var ignoredInterfaces stringSlice
 
 	flagSet.IntVar(&cfg.DiscoPortScanOffset, "disco-port-scan-offset", -1000, "scan ports offset when disco")
 	flagSet.IntVar(&cfg.DiscoPortScanCount, "disco-port-scan-count", 3000, "scan ports count when disco")
@@ -147,9 +146,10 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	flagSet.StringVar(&cfg.SecretFile, "secret-file", "", "")
 	flagSet.StringVar(&cfg.SecretFile, "f", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
 	flagSet.BoolVar(&cfg.AuthQR, "auth-qr", false, "display the QR code when authentication is required")
+	flagSet.BoolVar(&cfg.PProf, "pprof", false, "enable http pprof server")
 	flagSet.StringVar(&cfg.Server, "server", os.Getenv("PG_SERVER"), "")
 	flagSet.StringVar(&cfg.Server, "s", os.Getenv("PG_SERVER"), "peermap server")
-	flagSet.Var(&peers, "peer", "specify peers instead of auto-discovery (pg://<peerID>?alias1=<ipv4>&alias2=<ipv6>)")
+	flagSet.BoolVar(&queryPeers, "peers", false, "query found peers")
 
 	flagSet.IntVar(&cfg.Port, "udp-port", 29877, "p2p udp listen port")
 	flagSet.BoolVar(&forcePeerRelay, "force-peer-relay", false, "force to peer relay transport mode")
@@ -158,7 +158,11 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	flagSet.Parse(args)
 
 	cfg.DiscoIgnoredInterfaces = ignoredInterfaces
-	cfg.Peers = peers
+	cfg.QueryPeers = queryPeers
+
+	if cfg.QueryPeers {
+		return
+	}
 
 	if cfg.Server == "" {
 		err = errors.New("flag \"server\" not set")
@@ -186,12 +190,13 @@ type Config struct {
 	DiscoChallengesInitialInterval time.Duration
 	DiscoChallengesBackoffRate     float64
 	DiscoIgnoredInterfaces         []string
-	Peers                          []string
+	QueryPeers                     bool
 	Port                           int
 	PrivateKey                     string
 	SecretFile                     string
 	Server                         string
 	AuthQR                         bool
+	PProf                          bool
 	P2pTransportMode               p2p.TransportMode
 }
 
@@ -212,6 +217,15 @@ func (v *P2PVPN) Run(ctx context.Context) error {
 	}
 	c.SetTransportMode(v.Config.P2pTransportMode)
 	v.nic = &nic.VirtualNIC{NIC: tunnic}
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	if err := (&server.Server{
+		EnablePProf: v.Config.PProf,
+		Vnic:        v.nic,
+		PeerStore:   c.PeerStore(),
+		Meta:        c.PeerMeta}).Start(ctx, &wg); err != nil {
+		slog.Warn("[IPC] RunServer", "err", err)
+	}
 	return vpn.New(vpn.Config{
 		MTU:           v.Config.NICConfig.MTU,
 		OnRouteAdd:    func(dst net.IPNet, _ net.IP) { disco.AddIgnoredLocalCIDRs(dst.String()) },
@@ -236,21 +250,8 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err e
 		p2p.ListenPeerUp(v.addPeer),
 		p2p.KeepAlivePeriod(6 * time.Second),
 	}
-	if len(v.Config.Peers) > 0 {
-		p2pOptions = append(p2pOptions, p2p.PeerSilenceMode())
-	}
 	if v.Config.Port > 0 {
 		p2pOptions = append(p2pOptions, p2p.ListenUDPPort(v.Config.Port))
-	}
-	for _, peerURL := range v.Config.Peers {
-		pgPeer, err := url.Parse(peerURL)
-		if err != nil {
-			continue
-		}
-		if pgPeer.Scheme != "pg" {
-			return nil, fmt.Errorf("unsupport scheme %s", pgPeer.Scheme)
-		}
-		v.addPeer(disco.PeerID(pgPeer.Host), pgPeer.Query())
 	}
 	if v.Config.NICConfig.IPv4 != "" {
 		ipv4, err := netip.ParsePrefix(v.Config.NICConfig.IPv4)
@@ -287,7 +288,7 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err e
 }
 
 func (v *P2PVPN) addPeer(pi disco.PeerID, m url.Values) {
-	v.nic.AddPeer(pi, m.Get("alias1"), m.Get("alias2"))
+	v.nic.AddPeer(nic.Peer{Addr: pi, IPv4: m.Get("alias1"), IPv6: m.Get("alias2"), Meta: m})
 }
 
 func (v *P2PVPN) loginIfNecessary(ctx context.Context) (disco.SecretStore, error) {

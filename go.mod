@@ -5,6 +5,7 @@ go 1.23
 require (
 	github.com/coreos/go-oidc/v3 v3.11.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/jedib0t/go-pretty/v6 v6.6.3
 	github.com/mdp/qrterminal/v3 v3.2.0
 	github.com/schollz/progressbar/v3 v3.17.1
 	github.com/vishvananda/netlink v1.3.0
@@ -22,6 +23,7 @@ require (
 
 require (
 	github.com/go-jose/go-jose/v4 v4.0.2 // indirect
+	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/vishvananda/netns v0.0.4 // indirect
