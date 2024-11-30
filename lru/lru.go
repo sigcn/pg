@@ -67,3 +67,11 @@ func (c *Cache[K, V]) Clear() {
 	clear(c.cache)
 	c.list.Init()
 }
+
+func (c *Cache[K, V]) Dump() map[K]V {
+	dump := make(map[K]V)
+	for k, v := range c.cache {
+		dump[k] = v.Value.(*entry[K, V]).value
+	}
+	return dump
+}

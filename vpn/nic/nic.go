@@ -4,6 +4,9 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/url"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/sigcn/pg/lru"
@@ -25,11 +28,17 @@ type NIC interface {
 	Read() (*Packet, error)
 }
 
+type Peer struct {
+	Addr       net.Addr
+	IPv4, IPv6 string
+	Meta       url.Values
+}
+
 type VirtualNIC struct {
 	NIC
 
-	routing    *lru.Cache[string, string]   // cidr as key, via ip as value
-	peers      *lru.Cache[string, net.Addr] // ip as key
+	routing    *lru.Cache[string, string] // cidr as key, via ip as value
+	peers      *lru.Cache[string, *Peer]  // ip as key
 	nicInit    sync.Once
 	peersMutex sync.RWMutex
 }
@@ -40,7 +49,7 @@ func (r *VirtualNIC) init() {
 	}
 	r.nicInit.Do(func() {
 		r.routing = lru.New[string, string](512)
-		r.peers = lru.New[string, net.Addr](1024)
+		r.peers = lru.New[string, *Peer](1024)
 	})
 }
 
@@ -50,7 +59,7 @@ func (r *VirtualNIC) GetPeer(ip string) (net.Addr, bool) {
 	defer r.peersMutex.RUnlock()
 	peerID, ok := r.peers.Get(ip)
 	if ok {
-		return peerID, true
+		return peerID.Addr, true
 	}
 	dstIP := net.ParseIP(ip)
 	_, v, _ := r.routing.Find(func(k string, v string) bool {
@@ -64,18 +73,18 @@ func (r *VirtualNIC) GetPeer(ip string) (net.Addr, bool) {
 	if v == "" || !ok {
 		return nil, false
 	}
-	return peerID, true
+	return peerID.Addr, true
 }
 
-func (r *VirtualNIC) AddPeer(peer net.Addr, ipv4, ipv6 string) {
+func (r *VirtualNIC) AddPeer(peer Peer) {
 	r.init()
 	r.peersMutex.Lock()
 	defer r.peersMutex.Unlock()
-	if ipv4 != "" {
-		r.peers.Put(ipv4, peer)
+	if peer.IPv4 != "" {
+		r.peers.Put(peer.IPv4, &peer)
 	}
-	if ipv6 != "" {
-		r.peers.Put(ipv6, peer)
+	if peer.IPv6 != "" {
+		r.peers.Put(peer.IPv6, &peer)
 	}
 }
 
@@ -95,4 +104,22 @@ func (r *VirtualNIC) DelRoute(dst *net.IPNet, via net.IP) bool {
 	slog.Info("DelRoute", "dst", dst, "via", via)
 	r.routing.Put(dst.String(), "")
 	return true
+}
+
+func (r *VirtualNIC) Peers() []*Peer {
+	r.init()
+	peerMap := make(map[string]*Peer)
+	r.peersMutex.RLock()
+	for _, v := range r.peers.Dump() {
+		peerMap[v.Addr.String()] = v
+	}
+	r.peersMutex.RUnlock()
+	var peers []*Peer
+	for _, v := range peerMap {
+		peers = append(peers, v)
+	}
+	sort.SliceStable(peers, func(i, j int) bool {
+		return strings.Compare(peers[i].IPv4+peers[i].IPv6, peers[j].IPv4+peers[j].IPv6) > 0
+	})
+	return peers
 }
