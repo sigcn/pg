@@ -69,10 +69,6 @@ func Run(args []string) error {
 }
 
 func usage(flagSet *flag.FlagSet) {
-	fmt.Printf("Run a vpn daemon which backend is PeerGuard p2p network\n\n")
-	fmt.Printf("Usage: %s [flags]\n\n", flagSet.Name())
-	fmt.Printf("Daemon flags:\n")
-
 	ipv4 := flagSet.Lookup("4")
 	ipv6 := flagSet.Lookup("6")
 	authQR := flagSet.Lookup("auth-qr")
@@ -95,6 +91,9 @@ func usage(flagSet *flag.FlagSet) {
 	tun := flagSet.Lookup("tun")
 	udpPort := flagSet.Lookup("udp-port")
 
+	fmt.Printf("Run a vpn daemon which backend is PeerGuard p2p network\n\n")
+	fmt.Printf("Usage: %s [flags]\n\n", flagSet.Name())
+	fmt.Printf("Daemon flags:\n")
 	fmt.Printf("  -4, --ipv4 string\n\t%s\n", ipv4.Usage)
 	fmt.Printf("  -6, --ipv6 string\n\t%s\n", ipv6.Usage)
 	fmt.Printf("  --auth-qr\n\t%s\n", authQR.Usage)
@@ -114,7 +113,7 @@ func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("  --pprof \n\t%s\n", pprof.Usage)
 	fmt.Printf("  -s, --server string\n\t%s\n", server.Usage)
 	fmt.Printf("  --tun string\n\t%s (default %s)\n", tun.Usage, tun.DefValue)
-	fmt.Printf("  --udp-port int\n\t%s (default %s)\n", udpPort.Usage, udpPort.DefValue)
+	fmt.Printf("  --udp-port int\n\t%s (default %s)\n\n", udpPort.Usage, udpPort.DefValue)
 	fmt.Printf("IPC flags:\n")
 	fmt.Printf("  --peers \n\t%s\n", peers.Usage)
 }
