@@ -33,6 +33,7 @@ type PacketConn struct {
 	udpConn           *udp.UDPConn
 	wsConn            *ws.WSConn
 	peerMap           *lru.Cache[disco.PeerID, url.Values]
+	peerMapMutex      sync.RWMutex
 	discoCooling      *lru.Cache[disco.PeerID, time.Time]
 	discoCoolingMutex sync.Mutex
 	transportMode     TransportMode
@@ -253,6 +254,8 @@ func (c *PacketConn) SharedKey(peerID disco.PeerID) ([]byte, error) {
 
 // PeerMeta find peer metadata from all found peers
 func (c *PacketConn) PeerMeta(peerID disco.PeerID) url.Values {
+	c.peerMapMutex.RLock()
+	defer c.peerMapMutex.RUnlock()
 	if meta, ok := c.peerMap.Get(peerID); ok {
 		return meta
 	}
@@ -338,7 +341,9 @@ func (c *PacketConn) runControlEventLoop() {
 		case disco.CONTROL_NEW_PEER:
 			peer := e.Data.(*disco.Peer)
 			c.udpConn.GenerateLocalAddrsSends(peer.ID, c.wsConn.STUNs())
+			c.peerMapMutex.Lock()
 			c.peerMap.Put(peer.ID, peer.Metadata)
+			c.peerMapMutex.Unlock()
 			if onPeer := c.cfg.OnPeer; onPeer != nil {
 				go onPeer(peer.ID, peer.Metadata)
 			}
@@ -348,7 +353,9 @@ func (c *PacketConn) runControlEventLoop() {
 			}
 		case disco.CONTROL_UPDATE_META:
 			peer := e.Data.(*disco.Peer)
+			c.peerMapMutex.Lock()
 			c.peerMap.Put(peer.ID, peer.Metadata)
+			c.peerMapMutex.Unlock()
 			if onPeer := c.cfg.OnPeer; onPeer != nil {
 				onPeer(peer.ID, peer.Metadata)
 			}
