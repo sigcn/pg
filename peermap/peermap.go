@@ -108,6 +108,7 @@ func (p *peerConn) Close() error {
 		p.conn.Close()
 		close(p.exitSig)
 		close(p.connData)
+		p.broadcastLeave()
 	})
 	return nil
 }
@@ -180,8 +181,7 @@ func (p *peerConn) leadDisco(target *peerConn) {
 	p.write(b1)
 }
 
-func (p *peerConn) broadcastMeta() {
-	myMeta := []byte(p.metadata.Encode())
+func (p *peerConn) broadcast(b []byte) {
 	ctx, _ := p.peerMap.getNetwork(p.networkSecret.Network)
 	var peers []*peerConn
 	ctx.peersMutex.RLock()
@@ -192,14 +192,26 @@ func (p *peerConn) broadcastMeta() {
 		peers = append(peers, v)
 	}
 	ctx.peersMutex.RUnlock()
-	slog.Debug("BroadcastMeta", "count", len(peers), "meta", p.metadata.Encode())
+	slog.Debug("Broadcast", "count", len(peers), "type", disco.ControlCode(b[0]))
 	for _, target := range peers {
-		b := append([]byte(nil), disco.CONTROL_UPDATE_META.Byte())
-		b = append(b, p.id.Len())
-		b = append(b, p.id.Bytes()...)
-		b = append(b, myMeta...)
-		target.write(b)
+		target.write(append([]byte(nil), b...))
 	}
+}
+
+func (p *peerConn) broadcastMeta() {
+	myMeta := []byte(p.metadata.Encode())
+	b := append([]byte(nil), disco.CONTROL_UPDATE_META.Byte())
+	b = append(b, p.id.Len())
+	b = append(b, p.id.Bytes()...)
+	b = append(b, myMeta...)
+	p.broadcast(b)
+}
+
+func (p *peerConn) broadcastLeave() {
+	b := append([]byte(nil), disco.CONTROL_PEER_LEAVE.Byte())
+	b = append(b, p.id.Len())
+	b = append(b, p.id.Bytes()...)
+	p.broadcast(b)
 }
 
 func (p *peerConn) readMessageLoop() {

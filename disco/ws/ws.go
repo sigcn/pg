@@ -28,6 +28,11 @@ var (
 	_ disco.ControllerManager = (*WSConn)(nil)
 )
 
+type Event struct {
+	ControlCode disco.ControlCode
+	Data        any
+}
+
 type WSConn struct {
 	rawConn           atomic.Pointer[websocket.Conn]
 	server            *disco.Server
@@ -37,9 +42,7 @@ type WSConn struct {
 	closedSig         chan int
 	closed            atomic.Bool
 	datagrams         chan *disco.Datagram
-	peers             chan *disco.Peer
-	peersMeta         chan *disco.Peer
-	peersUDPAddrs     chan *disco.PeerUDPAddr
+	events            chan Event
 	nonce             byte
 	stuns             []string
 	activeTime        atomic.Int64
@@ -97,8 +100,7 @@ func (c *WSConn) Close() error {
 	c.closed.Store(true)
 	close(c.closedSig)
 	close(c.datagrams)
-	close(c.peers)
-	close(c.peersUDPAddrs)
+	close(c.events)
 	close(c.connData)
 	close(c.connEOF)
 	if conn := c.rawConn.Load(); conn != nil {
@@ -159,16 +161,8 @@ func (c *WSConn) Datagrams() <-chan *disco.Datagram {
 	return c.datagrams
 }
 
-func (c *WSConn) Peers() <-chan *disco.Peer {
-	return c.peers
-}
-
-func (c *WSConn) PeersMeta() <-chan *disco.Peer {
-	return c.peersMeta
-}
-
-func (c *WSConn) PeersUDPAddrs() <-chan *disco.PeerUDPAddr {
-	return c.peersUDPAddrs
+func (c *WSConn) Events() <-chan Event {
+	return c.events
 }
 
 func (c *WSConn) STUNs() []string {
@@ -401,19 +395,23 @@ func (c *WSConn) runEventsReadLoop() {
 }
 
 func (c *WSConn) handleEvents(b []byte) {
-	logger := slog.With("code", disco.ControlCode(b[0]))
+	logger := slog.With("type", disco.ControlCode(b[0]))
 	switch disco.ControlCode(b[0]) {
 	case disco.CONTROL_RELAY:
 		c.datagrams <- &disco.Datagram{PeerID: disco.PeerID(b[2 : b[1]+2]), Data: b[b[1]+2:]}
 	case disco.CONTROL_NEW_PEER:
 		meta, _ := url.ParseQuery(string(b[b[1]+2:]))
 		event := disco.Peer{ID: disco.PeerID(b[2 : b[1]+2]), Metadata: meta}
-		c.peers <- &event
+		c.events <- Event{ControlCode: disco.ControlCode(b[0]), Data: &event}
 		logger.Log(context.Background(), -2, "[WS] Event", "peer", event.ID, "meta", event.Metadata.Encode())
+	case disco.CONTROL_PEER_LEAVE:
+		peerID := disco.PeerID(b[2 : b[1]+2])
+		c.events <- Event{ControlCode: disco.ControlCode(b[0]), Data: peerID}
+		logger.Log(context.Background(), -2, "[WS] Event", "peer", peerID)
 	case disco.CONTROL_UPDATE_META:
 		meta, _ := url.ParseQuery(string(b[b[1]+2:]))
 		event := disco.Peer{ID: disco.PeerID(b[2 : b[1]+2]), Metadata: meta}
-		c.peersMeta <- &event
+		c.events <- Event{ControlCode: disco.ControlCode(b[0]), Data: &event}
 		logger.Log(context.Background(), -2, "[WS] Event", "peer", event.ID, "meta", event.Metadata.Encode())
 	case disco.CONTROL_NEW_PEER_UDP_ADDR:
 		if b[b[1]+2] != 'a' { // old version without nat type
@@ -423,7 +421,7 @@ func (c *WSConn) handleEvents(b []byte) {
 				slog.Error("Resolve udp addr error", "err", err)
 				break
 			}
-			c.peersUDPAddrs <- &disco.PeerUDPAddr{ID: disco.PeerID(b[2 : b[1]+2]), Addr: addr}
+			c.events <- Event{ControlCode: disco.ControlCode(b[0]), Data: disco.PeerUDPAddr{ID: disco.PeerID(b[2 : b[1]+2]), Addr: addr}}
 			return
 		}
 		addrLen := b[b[1]+3]
@@ -433,7 +431,8 @@ func (c *WSConn) handleEvents(b []byte) {
 			slog.Error("Resolve udp addr error", "err", err)
 			break
 		}
-		c.peersUDPAddrs <- &disco.PeerUDPAddr{ID: disco.PeerID(b[2 : b[1]+2]), Addr: addr, Type: disco.NATType(b[s+addrLen:])}
+		udpAddr := disco.PeerUDPAddr{ID: disco.PeerID(b[2 : b[1]+2]), Addr: addr, Type: disco.NATType(b[s+addrLen:])}
+		c.events <- Event{ControlCode: disco.ControlCode(b[0]), Data: udpAddr}
 	case disco.CONTROL_UPDATE_NETWORK_SECRET:
 		var secret disco.NetworkSecret
 		if err := json.Unmarshal(b[1:], &secret); err != nil {
@@ -487,17 +486,15 @@ func (c *WSConn) updateNetworkSecret(secret disco.NetworkSecret) {
 
 func DialPeermap(ctx context.Context, server *disco.Server, peerID disco.PeerID, metadata url.Values) (*WSConn, error) {
 	wsConn := &WSConn{
-		server:        server,
-		peerID:        peerID,
-		metadata:      metadata,
-		closedSig:     make(chan int),
-		datagrams:     make(chan *disco.Datagram, 50),
-		peers:         make(chan *disco.Peer, 20),
-		peersMeta:     make(chan *disco.Peer, 20),
-		peersUDPAddrs: make(chan *disco.PeerUDPAddr, 20),
-		connData:      make(chan []byte, 128),
-		connEOF:       make(chan struct{}),
-		controllers:   make(map[uint8][]disco.Controller),
+		server:      server,
+		peerID:      peerID,
+		metadata:    metadata,
+		closedSig:   make(chan int),
+		datagrams:   make(chan *disco.Datagram, 50),
+		events:      make(chan Event, 100),
+		connData:    make(chan []byte, 128),
+		connEOF:     make(chan struct{}),
+		controllers: make(map[uint8][]disco.Controller),
 	}
 	if err := wsConn.dial(ctx, ""); err != nil {
 		return nil, err

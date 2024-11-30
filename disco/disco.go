@@ -30,6 +30,8 @@ func (code ControlCode) String() string {
 		return "UPDATE_NAT_INFO"
 	case CONTROL_UPDATE_META:
 		return "UPDATE_PEER"
+	case CONTROL_PEER_LEAVE:
+		return "PEER_LEAVE"
 	case CONTROL_CONN:
 		return "CONTROL_CONN"
 	default:
@@ -49,6 +51,7 @@ const (
 	CONTROL_UPDATE_NETWORK_SECRET ControlCode = 20
 	CONTROL_UPDATE_NAT_INFO       ControlCode = 21
 	CONTROL_UPDATE_META           ControlCode = 22
+	CONTROL_PEER_LEAVE            ControlCode = 25
 	CONTROL_CONN                  ControlCode = 30
 )
 

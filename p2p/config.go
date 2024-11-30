@@ -24,12 +24,14 @@ type Config struct {
 	SymmAlgo        secure.SymmAlgo
 	Metadata        url.Values
 	OnPeer          OnPeer
+	OnPeerLeave     OnPeerLeave
 	KeepAlivePeriod time.Duration
 	MinDiscoPeriod  time.Duration
 }
 
 type Option func(cfg *Config) error
 type OnPeer func(disco.PeerID, url.Values)
+type OnPeerLeave func(disco.PeerID)
 
 var (
 	OptionNoOp Option = func(cfg *Config) error { return nil }
@@ -99,6 +101,13 @@ func ListenIPv4Only() Option {
 func ListenPeerUp(onPeer OnPeer) Option {
 	return func(cfg *Config) error {
 		cfg.OnPeer = onPeer
+		return nil
+	}
+}
+
+func ListenPeerLeave(onPeerLeave OnPeerLeave) Option {
+	return func(cfg *Config) error {
+		cfg.OnPeerLeave = onPeerLeave
 		return nil
 	}
 }

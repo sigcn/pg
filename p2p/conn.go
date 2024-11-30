@@ -333,35 +333,41 @@ func (c *PacketConn) runNetworkChangeDetectLoop() {
 
 // runControlEventLoop events control loop
 func (c *PacketConn) runControlEventLoop() {
+	handleEvent := func(e ws.Event) {
+		switch e.ControlCode {
+		case disco.CONTROL_NEW_PEER:
+			peer := e.Data.(*disco.Peer)
+			c.udpConn.GenerateLocalAddrsSends(peer.ID, c.wsConn.STUNs())
+			c.peerMap.Put(peer.ID, peer.Metadata)
+			if onPeer := c.cfg.OnPeer; onPeer != nil {
+				go onPeer(peer.ID, peer.Metadata)
+			}
+		case disco.CONTROL_PEER_LEAVE:
+			if onLeave := c.cfg.OnPeerLeave; onLeave != nil {
+				go onLeave(e.Data.(disco.PeerID))
+			}
+		case disco.CONTROL_UPDATE_META:
+			peer := e.Data.(*disco.Peer)
+			c.peerMap.Put(peer.ID, peer.Metadata)
+			if onPeer := c.cfg.OnPeer; onPeer != nil {
+				onPeer(peer.ID, peer.Metadata)
+			}
+		case disco.CONTROL_NEW_PEER_UDP_ADDR:
+			c.udpConn.RunDiscoMessageSendLoop(e.Data.(disco.PeerUDPAddr))
+		}
+	}
 	for {
 		select {
-		case peer, ok := <-c.wsConn.Peers():
+		case e, ok := <-c.wsConn.Events():
 			if !ok {
 				return
 			}
-			go c.udpConn.GenerateLocalAddrsSends(peer.ID, c.wsConn.STUNs())
-			c.peerMap.Put(peer.ID, peer.Metadata)
-			if onPeer := c.cfg.OnPeer; onPeer != nil {
-				go onPeer(peer.ID, peer.Metadata)
-			}
-		case peer, ok := <-c.wsConn.PeersMeta():
-			if !ok {
-				return
-			}
-			c.peerMap.Put(peer.ID, peer.Metadata)
-			if onPeer := c.cfg.OnPeer; onPeer != nil {
-				go onPeer(peer.ID, peer.Metadata)
-			}
+			go handleEvent(e)
 		case natEvent, ok := <-c.udpConn.NATEvents():
 			if !ok {
 				return
 			}
 			go c.wsConn.UpdateNATInfo(*natEvent)
-		case revcUDPAddr, ok := <-c.wsConn.PeersUDPAddrs():
-			if !ok {
-				return
-			}
-			go c.udpConn.RunDiscoMessageSendLoop(*revcUDPAddr)
 		case sendUDPAddr, ok := <-c.udpConn.UDPAddrSends():
 			if !ok {
 				return
