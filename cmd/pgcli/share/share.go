@@ -8,9 +8,10 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
-	"github.com/schollz/progressbar/v3"
+	"github.com/jedib0t/go-pretty/v6/progress"
 	"github.com/sigcn/pg/fileshare"
 )
 
@@ -21,7 +22,8 @@ func Run() error {
 		fmt.Printf("Flags:\n")
 		flagSet.PrintDefaults()
 	}
-	fileManager := fileshare.FileManager{ListenUDPPort: 28878, ProgressBar: createBar}
+	trackerManager := TrackerManager{}
+	fileManager := fileshare.FileManager{ListenUDPPort: 28878, ProgressBar: trackerManager.CreateBar}
 
 	flagSet.StringVar(&fileManager.Server, "s", "", "peermap server")
 	flagSet.StringVar(&fileManager.Network, "pubnet", "public", "peermap public network")
@@ -64,8 +66,32 @@ func Run() error {
 	return fileManager.Serve(ctx, listener)
 }
 
-func createBar(total int64, desc string) fileshare.ProgressBar {
-	bar := progressbar.DefaultBytes(total, desc)
-	progressbar.OptionSetTheme(progressbar.ThemeASCII)(bar)
-	return bar
+type ProgressBar struct {
+	tracker *progress.Tracker
+}
+
+func (bar *ProgressBar) Write(p []byte) (int, error) {
+	bar.tracker.Increment(int64(len(p)))
+	return len(p), nil
+}
+
+func (bar *ProgressBar) Add(progress int) error {
+	bar.tracker.Increment(int64(progress))
+	return nil
+}
+
+type TrackerManager struct {
+	AutoStop   bool
+	pw         progress.Progress
+	renderOnce sync.Once
+}
+
+func (tm *TrackerManager) CreateBar(total int64, desc string) fileshare.ProgressBar {
+	tm.renderOnce.Do(func() {
+		tm.pw.SetAutoStop(tm.AutoStop)
+		go tm.pw.Render()
+	})
+	tracker := progress.Tracker{Message: desc, Total: total, Units: progress.UnitsBytes}
+	tm.pw.AppendTracker(&tracker)
+	return &ProgressBar{tracker: &tracker}
 }

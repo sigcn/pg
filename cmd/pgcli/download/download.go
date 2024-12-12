@@ -13,7 +13,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/schollz/progressbar/v3"
+	"github.com/sigcn/pg/cmd/pgcli/share"
 	"github.com/sigcn/pg/fileshare"
 )
 
@@ -72,8 +72,11 @@ func readFile(fh *fileshare.FileHandle) error {
 		return err
 	}
 	r, fileSize, _ := fh.File()
-	bar := progressbar.DefaultBytes(int64(fileSize), fh.Filename)
+
+	trackerManager := share.TrackerManager{AutoStop: true}
+	bar := trackerManager.CreateBar(int64(fileSize), fh.Filename)
 	bar.Add(int(partSize))
+
 	if _, err = io.Copy(io.MultiWriter(f, bar, sha256Checksum), r); err != nil {
 		return fmt.Errorf("download file falied: %w", err)
 	}
