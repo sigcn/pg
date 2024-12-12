@@ -29,7 +29,8 @@ var (
 
 type PacketConn struct {
 	cfg               Config
-	closedSig         chan struct{}
+	closeChan         chan struct{}
+	closeOnce         sync.Once
 	udpConn           *udp.UDPConn
 	wsConn            *ws.WSConn
 	peerMap           *lru.Cache[disco.PeerID, url.Values]
@@ -52,7 +53,7 @@ type PacketConn struct {
 // fixed time limit; see SetDeadline and SetReadDeadline.
 func (c *PacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 	select {
-	case <-c.closedSig:
+	case <-c.closeChan:
 		err = net.ErrClosed
 		return
 	case _, ok := <-c.deadlineRead.Deadline():
@@ -91,7 +92,7 @@ func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	}
 
 	select {
-	case <-c.closedSig:
+	case <-c.closeChan:
 		err = net.ErrClosed
 		return
 	default:
@@ -131,16 +132,13 @@ func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 // Close closes the connection.
 // Any blocked ReadFrom or WriteTo operations will be unblocked and return errors.
 func (c *PacketConn) Close() error {
-	close(c.closedSig)
-	c.deadlineRead.Close()
-	var errs []error
-	if err := c.wsConn.Close(); err != nil {
-		errs = append(errs, err)
-	}
-	if err := c.udpConn.Close(); err != nil {
-		errs = append(errs, err)
-	}
-	return errors.Join(errs...)
+	c.closeOnce.Do(func() {
+		close(c.closeChan)
+		c.deadlineRead.Close()
+		c.wsConn.Close()
+		c.udpConn.Close()
+	})
+	return nil
 }
 
 // LocalAddr returns the local network address, if known.
@@ -292,7 +290,7 @@ func (c *PacketConn) runNetworkChangeDetectLoop() {
 	}
 
 	go func() {
-		<-c.closedSig
+		<-c.closeChan
 		cancel()
 	}()
 
@@ -443,7 +441,7 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Server, opts ...Opt
 	slog.Info("ListenPeer", "addr", cfg.PeerID)
 	packetConn := PacketConn{
 		cfg:          cfg,
-		closedSig:    make(chan struct{}),
+		closeChan:    make(chan struct{}),
 		udpConn:      udpConn,
 		wsConn:       wsConn,
 		peerMap:      lru.New[disco.PeerID, url.Values](1024),
