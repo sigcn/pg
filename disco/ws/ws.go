@@ -348,7 +348,8 @@ func (c *WSConn) runEventsReadLoop() {
 			slog.Error("[WS] ReadLoopExited", "details", err.Error())
 		}
 		c.RestartListener()
-		retryWaitDuration := 200 * time.Millisecond
+		retryInitDuration := 200 * time.Millisecond
+		retryWaitDuration := retryInitDuration
 		retryMaxDuration := 5 * time.Second
 		retryRate := 2
 		for {
@@ -360,7 +361,7 @@ func (c *WSConn) runEventsReadLoop() {
 			time.Sleep(min(retryWaitDuration, retryMaxDuration))
 			if err := c.dial(context.Background(), ""); err != nil {
 				slog.Error("[WS] Connect", "err", err)
-				retryWaitDuration = retryWaitDuration * time.Duration(retryRate)
+				retryWaitDuration = max(retryWaitDuration*time.Duration(retryRate), retryInitDuration)
 				continue
 			}
 			break
