@@ -31,12 +31,14 @@ func main() {
 		vpn.Version = fmt.Sprintf("%s-%s", Version, commit[:7])
 	}
 
+	var logLevel int
+	flag.Usage = usage
+	flag.IntVar(&logLevel, "loglevel", 0, "log level")
+	flag.BoolFunc("v", "show binary version", printVersion)
+	flag.BoolFunc("version", "", printVersion)
+
 	f, ok := funcMap[filepath.Base(os.Args[0])]
 	if !ok {
-		var logLevel int
-		flag.Usage = usage
-		flag.IntVar(&logLevel, "loglevel", 0, "log level")
-		flag.BoolFunc("v", "print binary version", printVersion)
 		flag.Parse()
 		slog.SetLogLoggerLevel(slog.Level(logLevel))
 		f = run
@@ -74,8 +76,9 @@ func usage() {
 	fmt.Printf("  download\tDownload shared file from peer\n")
 	fmt.Printf("  share\t\tShare files to peers\n")
 	fmt.Printf("  vpn\t\tRun a vpn daemon which backend is PeerGuard p2p network\n\n")
-	fmt.Printf("Flags:\n")
-	fmt.Printf("  -v, --version\n\tprint binary version\n")
+	fmt.Printf("Global Flags:\n")
+	fmt.Printf("  -h, --help\n\tshow help\n")
+	fmt.Printf("  -v, --version\n\tshow binary version\n")
 }
 
 func readBinaryInfo() (commit, buildTime, goVersion string) {

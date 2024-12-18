@@ -48,6 +48,8 @@ func (s *stringSlice) Set(v string) error {
 func Run(args []string) error {
 	flagSet := flag.NewFlagSet("vpn", flag.ExitOnError)
 	flagSet.Usage = func() { usage(flagSet) }
+	flagSet.BoolFunc("v", flag.Lookup("v").Usage, flag.Lookup("v").Value.Set)
+	flagSet.BoolFunc("version", "", flag.Lookup("v").Value.Set)
 
 	var logLevel int
 	flagSet.IntVar(&logLevel, "loglevel", 0, "log level")
@@ -90,10 +92,11 @@ func usage(flagSet *flag.FlagSet) {
 	server := flagSet.Lookup("s")
 	tun := flagSet.Lookup("tun")
 	udpPort := flagSet.Lookup("udp-port")
+	version := flagSet.Lookup("v")
 
 	fmt.Printf("Run a vpn daemon which backend is PeerGuard p2p network\n\n")
 	fmt.Printf("Usage: %s [flags]\n\n", flagSet.Name())
-	fmt.Printf("Daemon flags:\n")
+	fmt.Printf("Daemon Flags:\n")
 	fmt.Printf("  -4, --ipv4 string\n\t%s\n", ipv4.Usage)
 	fmt.Printf("  -6, --ipv6 string\n\t%s\n", ipv6.Usage)
 	fmt.Printf("  --auth-qr\n\t%s\n", authQR.Usage)
@@ -114,8 +117,11 @@ func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("  -s, --server string\n\t%s\n", server.Usage)
 	fmt.Printf("  --tun string\n\t%s (default %s)\n", tun.Usage, tun.DefValue)
 	fmt.Printf("  --udp-port int\n\t%s (default %s)\n\n", udpPort.Usage, udpPort.DefValue)
-	fmt.Printf("IPC flags:\n")
-	fmt.Printf("  --peers \n\t%s\n", peers.Usage)
+	fmt.Printf("IPC Flags:\n")
+	fmt.Printf("  --peers \n\t%s\n\n", peers.Usage)
+	fmt.Printf("Global Flags:\n")
+	fmt.Printf("  -h, --help\n\tshow help\n")
+	fmt.Printf("  -v, --version\n\t%s\n", version.Usage)
 }
 
 func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) {
