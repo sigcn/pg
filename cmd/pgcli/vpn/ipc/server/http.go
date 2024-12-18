@@ -82,6 +82,7 @@ type PeerState struct {
 	Addrs          []string     `json:"addrs"`
 	LastActiveTime time.Time    `json:"last_active_time"`
 	Mode           string       `json:"mode"`
+	NAT            string       `json:"nat"`
 }
 
 func (s *Server) handleQueryPeers(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +110,7 @@ func (s *Server) handleQueryPeers(w http.ResponseWriter, r *http.Request) {
 		}
 		if p2pPeer, ok := p2pPeers[disco.PeerID(p.Addr.String())]; ok {
 			state.Mode = "P2P"
+			state.NAT = p.Meta.Get("nat")
 			state.LastActiveTime = p2pPeer.LastActiveTime
 			state.Addrs = p2pPeer.Addrs
 		}

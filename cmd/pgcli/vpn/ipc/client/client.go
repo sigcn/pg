@@ -14,9 +14,9 @@ func PrintPeers() error {
 		return err
 	}
 	tw := table.NewWriter()
-	tw.AppendHeader(table.Row{"IPv4", "IPv6", "Mode", "UDP Endpoints"})
+	tw.AppendHeader(table.Row{"IPv4", "IPv6", "Mode", "NAT", "UDP Endpoints"})
 	for _, peer := range peers {
-		tw.AppendRow(table.Row{peer.IPv4, peer.IPv6, peer.Mode, strings.Join(peer.Addrs, ",")})
+		tw.AppendRow(table.Row{peer.IPv4, peer.IPv6, peer.Mode, peer.NAT, strings.Join(peer.Addrs, ",")})
 	}
 
 	tw.SetStyle(table.Style{Box: table.StyleBoxLight})
