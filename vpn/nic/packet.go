@@ -26,6 +26,16 @@ func (p *Packet) AsBytes() []byte {
 	return p.buf[p.offset:]
 }
 
+// Ver get ip packet version.
+// return 4 or 6
+func (p *Packet) Ver() uint8 {
+	pkt := p.AsBytes()
+	if pkt == nil {
+		return 0
+	}
+	return pkt[0] >> 4
+}
+
 // Bytes get ip packet slice with a header
 func (p *Packet) Bytes(offset int) []byte {
 	if p.offset < offset {

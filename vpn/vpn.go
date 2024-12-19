@@ -169,7 +169,7 @@ func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 			continue
 		}
 		pkt := packet.AsBytes()
-		if pkt[0]>>4 == 4 {
+		if packet.Ver() == 4 {
 			header, err := ipv4.ParseHeader(pkt)
 			if err != nil {
 				panic(err)
@@ -181,7 +181,7 @@ func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 			sendPacketToPeer(packet, header.Dst)
 			continue
 		}
-		if pkt[0]>>4 == 6 {
+		if packet.Ver() == 6 {
 			header, err := ipv6.ParseHeader(pkt)
 			if err != nil {
 				panic(err)
