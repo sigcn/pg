@@ -104,6 +104,7 @@ const (
 	UPnP     NATType = "upnp"
 	IP4      NATType = "ip4"
 	IP6      NATType = "ip6"
+	IP46     NATType = "ip4+ip6"
 	Internal NATType = "internal"
 )
 

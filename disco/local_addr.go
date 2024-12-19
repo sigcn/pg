@@ -3,6 +3,7 @@ package disco
 import (
 	"log/slog"
 	"net"
+	"net/netip"
 	"slices"
 	"strings"
 )
@@ -121,4 +122,10 @@ func ListLocalIPs() ([]net.IP, error) {
 		}
 	}
 	return ips, nil
+}
+
+var carrierGradeNAT = netip.MustParsePrefix("100.64.0.0/10")
+
+func IsCGN(ip net.IP) bool {
+	return carrierGradeNAT.Contains(netip.AddrFrom4([4]byte(ip.To4())))
 }

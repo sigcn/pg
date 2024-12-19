@@ -113,6 +113,8 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 	}()
 
 	// LAN
+	var publicAddrs []*net.UDPAddr
+	var publicType disco.NATType
 	for _, addr := range c.localAddrs() {
 		uaddr, err := net.ResolveUDPAddr("udp", addr)
 		if err != nil {
@@ -120,16 +122,22 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 			continue
 		}
 		natType := disco.Internal
-
-		if uaddr.IP.IsGlobalUnicast() && !uaddr.IP.IsPrivate() {
+		if uaddr.IP.IsGlobalUnicast() && !uaddr.IP.IsPrivate() && !disco.IsCGN(uaddr.IP) {
+			publicAddrs = append(publicAddrs, uaddr)
 			if uaddr.IP.To4() != nil {
 				natType = disco.IP4
+				if publicType == "" {
+					publicType = natType
+				} else if publicType == disco.IP6 {
+					publicType = disco.IP46
+				}
 			} else {
 				natType = disco.IP6
-			}
-			select {
-			case c.natEvents <- &disco.NATInfo{Type: natType, Addrs: []*net.UDPAddr{uaddr}}:
-			default:
+				if publicType == "" {
+					publicType = natType
+				} else if publicType == disco.IP4 {
+					publicType = disco.IP46
+				}
 			}
 		}
 		c.udpAddrSends <- &disco.PeerUDPAddr{
@@ -138,6 +146,13 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 			Type: natType,
 		}
 	}
+	if publicAddrs != nil {
+		select {
+		case c.natEvents <- &disco.NATInfo{Type: publicType, Addrs: publicAddrs}:
+		default:
+		}
+	}
+
 	// WAN
 	time.AfterFunc(time.Second, func() {
 		if _, ok := c.findPeer(peerID); ok {
