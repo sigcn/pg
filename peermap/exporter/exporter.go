@@ -2,15 +2,15 @@ package exporter
 
 type NetworkHead struct {
 	ID         string `json:"n"`
-	Alias      string `json:"n1"`
-	PeersCount int    `json:"c"`
+	Alias      string `json:"n1,omitempty"`
+	PeersCount int    `json:"c,omitempty"`
 	CreateTime string `json:"t"`
 }
 
 type Network struct {
 	ID    string   `json:"n"`
-	Alias string   `json:"n1"`
-	Peers []string `json:"p"`
+	Alias string   `json:"n1,omitempty"`
+	Peers []string `json:"p,omitempty"`
 }
 
 type NetworkMeta struct {
