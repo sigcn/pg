@@ -127,5 +127,8 @@ func ListLocalIPs() ([]net.IP, error) {
 var carrierGradeNAT = netip.MustParsePrefix("100.64.0.0/10")
 
 func IsCGN(ip net.IP) bool {
+	if ip.To4() == nil {
+		return false
+	}
 	return carrierGradeNAT.Contains(netip.AddrFrom4([4]byte(ip.To4())))
 }
