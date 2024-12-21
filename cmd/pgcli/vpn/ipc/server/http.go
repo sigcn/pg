@@ -77,6 +77,7 @@ func (s *Server) Start(ctx context.Context, stopWG *sync.WaitGroup) error {
 
 type PeerState struct {
 	ID             disco.PeerID `json:"id"`
+	Hostname       string       `json:"hostname"`
 	IPv4           string       `json:"ipv4"`
 	IPv6           string       `json:"ipv6"`
 	Addrs          []string     `json:"addrs"`
@@ -103,10 +104,11 @@ func (s *Server) handleQueryPeers(w http.ResponseWriter, r *http.Request) {
 	var peers []PeerState
 	for _, p := range s.Vnic.Peers() {
 		state := PeerState{
-			ID:   disco.PeerID(p.Addr.String()),
-			IPv4: p.IPv4,
-			IPv6: p.IPv6,
-			Mode: "RELAY",
+			ID:       disco.PeerID(p.Addr.String()),
+			Hostname: p.Meta.Get("name"),
+			IPv4:     p.IPv4,
+			IPv6:     p.IPv6,
+			Mode:     "RELAY",
 		}
 		if p2pPeer, ok := p2pPeers[disco.PeerID(p.Addr.String())]; ok {
 			state.Mode = "P2P"

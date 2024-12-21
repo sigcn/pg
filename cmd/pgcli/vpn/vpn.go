@@ -250,8 +250,10 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err e
 	v.Config.DiscoIgnoredInterfaces = append(v.Config.DiscoIgnoredInterfaces, "pg", "wg", "veth", "docker", "nerdctl", "tailscale")
 	disco.SetIgnoredLocalInterfaceNamePrefixs(v.Config.DiscoIgnoredInterfaces...)
 
+	hostname, _ := os.Hostname()
 	p2pOptions := []p2p.Option{
 		p2p.PeerMeta("version", Version),
+		p2p.PeerMeta("name", hostname),
 		p2p.ListenPeerUp(v.addPeer),
 		p2p.ListenPeerLeave(v.removePeer),
 		p2p.KeepAlivePeriod(6 * time.Second),
