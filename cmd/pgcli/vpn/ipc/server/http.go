@@ -33,10 +33,9 @@ func getDefaultUnixSocketPath() string {
 }
 
 type Server struct {
-	EnablePProf bool
-	Vnic        *nic.VirtualNIC
-	PeerStore   udp.PeerStore
-	Meta        func(disco.PeerID) url.Values
+	Vnic      *nic.VirtualNIC
+	PeerStore udp.PeerStore
+	Meta      func(disco.PeerID) url.Values
 }
 
 type response[T any] struct {

@@ -91,7 +91,6 @@ func usage(flagSet *flag.FlagSet) {
 	logLevel := flagSet.Lookup("loglevel")
 	mtu := flagSet.Lookup("mtu")
 	peers := flagSet.Lookup("peers")
-	pprof := flagSet.Lookup("pprof")
 	server := flagSet.Lookup("s")
 	tun := flagSet.Lookup("tun")
 	udpPort := flagSet.Lookup("udp-port")
@@ -116,7 +115,6 @@ func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("  --key string\n\t%s\n", key.Usage)
 	fmt.Printf("  --loglevel int\n\t%s (default %s)\n", logLevel.Usage, logLevel.DefValue)
 	fmt.Printf("  --mtu int\n\t%s (default %s)\n", mtu.Usage, mtu.DefValue)
-	fmt.Printf("  --pprof \n\t%s\n", pprof.Usage)
 	fmt.Printf("  -s, --server string\n\t%s\n", server.Usage)
 	fmt.Printf("  --tun string\n\t%s (default %s)\n", tun.Usage, tun.DefValue)
 	fmt.Printf("  --udp-crypto\n\t%s (default %s)\n", cryptoAlgo.Usage, cryptoAlgo.DefValue)
@@ -156,7 +154,6 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	flagSet.StringVar(&cfg.SecretFile, "secret-file", "", "")
 	flagSet.StringVar(&cfg.SecretFile, "f", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
 	flagSet.BoolVar(&cfg.AuthQR, "auth-qr", false, "display the QR code when authentication is required")
-	flagSet.BoolVar(&cfg.PProf, "pprof", false, "enable http pprof server")
 	flagSet.StringVar(&cfg.Server, "server", os.Getenv("PG_SERVER"), "")
 	flagSet.StringVar(&cfg.Server, "s", os.Getenv("PG_SERVER"), "peermap server")
 	flagSet.BoolVar(&queryPeers, "peers", false, "query found peers")
@@ -216,7 +213,6 @@ type Config struct {
 	SecretFile                     string
 	Server                         string
 	AuthQR                         bool
-	PProf                          bool
 	P2pTransportMode               p2p.TransportMode
 }
 
@@ -240,10 +236,9 @@ func (v *P2PVPN) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	if err := (&server.Server{
-		EnablePProf: v.Config.PProf,
-		Vnic:        v.nic,
-		PeerStore:   c.PeerStore(),
-		Meta:        c.PeerMeta}).Start(ctx, &wg); err != nil {
+		Vnic:      v.nic,
+		PeerStore: c.PeerStore(),
+		Meta:      c.PeerMeta}).Start(ctx, &wg); err != nil {
 		slog.Warn("[IPC] RunServer", "err", err)
 	}
 	return vpn.New(vpn.Config{
