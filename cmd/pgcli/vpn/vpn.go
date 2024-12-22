@@ -25,6 +25,8 @@ import (
 	"github.com/sigcn/pg/disco/udp"
 	"github.com/sigcn/pg/p2p"
 	"github.com/sigcn/pg/peermap/network"
+	"github.com/sigcn/pg/secure/aescbc"
+	"github.com/sigcn/pg/secure/chacha20poly1305"
 	"github.com/sigcn/pg/vpn"
 	"github.com/sigcn/pg/vpn/nic"
 	"github.com/sigcn/pg/vpn/nic/tun"
@@ -81,6 +83,7 @@ func usage(flagSet *flag.FlagSet) {
 	discoPortScanCount := flagSet.Lookup("disco-port-scan-count")
 	discoPortScanDuration := flagSet.Lookup("disco-port-scan-duration")
 	discoPortScanOffset := flagSet.Lookup("disco-port-scan-offset")
+	cryptoAlgo := flagSet.Lookup("udp-crypto")
 	secretFile := flagSet.Lookup("f")
 	forcePeerRelay := flagSet.Lookup("force-peer-relay")
 	forceServerRelay := flagSet.Lookup("force-server-relay")
@@ -116,6 +119,7 @@ func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("  --pprof \n\t%s\n", pprof.Usage)
 	fmt.Printf("  -s, --server string\n\t%s\n", server.Usage)
 	fmt.Printf("  --tun string\n\t%s (default %s)\n", tun.Usage, tun.DefValue)
+	fmt.Printf("  --udp-crypto\n\t%s (default %s)\n", cryptoAlgo.Usage, cryptoAlgo.DefValue)
 	fmt.Printf("  --udp-port int\n\t%s (default %s)\n\n", udpPort.Usage, udpPort.DefValue)
 	fmt.Printf("IPC Flags:\n")
 	fmt.Printf("  --peers \n\t%s\n\n", peers.Usage)
@@ -131,6 +135,7 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	// daemon flags
 	var forcePeerRelay, forceServerRelay bool
 	var ignoredInterfaces stringSlice
+	var cryptoAlgo string
 
 	flagSet.IntVar(&cfg.DiscoPortScanOffset, "disco-port-scan-offset", -1000, "scan ports offset when disco")
 	flagSet.IntVar(&cfg.DiscoPortScanCount, "disco-port-scan-count", 3000, "scan ports count when disco")
@@ -156,11 +161,21 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	flagSet.StringVar(&cfg.Server, "s", os.Getenv("PG_SERVER"), "peermap server")
 	flagSet.BoolVar(&queryPeers, "peers", false, "query found peers")
 
+	flagSet.StringVar(&cryptoAlgo, "udp-crypto", "chacha20poly1305", "udp packet crypto algorithm from the list [chacha20poly1305, aescbc]")
 	flagSet.IntVar(&cfg.Port, "udp-port", 29877, "p2p udp listen port")
 	flagSet.BoolVar(&forcePeerRelay, "force-peer-relay", false, "force to peer relay transport mode")
 	flagSet.BoolVar(&forceServerRelay, "force-server-relay", false, "force to server relay transport mode")
 
 	flagSet.Parse(args)
+
+	switch cryptoAlgo {
+	case "chacha20poly1305":
+		p2p.SetDefaultSymmAlgo(chacha20poly1305.New)
+	case "aescbc":
+		p2p.SetDefaultSymmAlgo(aescbc.New)
+	default:
+		slog.Warn("Fallback to default chacha20poly1305")
+	}
 
 	cfg.DiscoIgnoredInterfaces = ignoredInterfaces
 	cfg.QueryPeers = queryPeers
