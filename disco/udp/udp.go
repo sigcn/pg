@@ -524,17 +524,16 @@ func (c *UDPConn) udpRead(udpConn *net.UDPConn) {
 			continue
 		}
 		c.tryGetPeerkeeper(udpConn, peerID).heartbeat(peerAddr)
-		b := make([]byte, n)
-		copy(b, buf[:n])
 		slog.Log(context.Background(), -3, "[UDP] ReadFrom", "peer", peerID, "addr", peerAddr)
 		if pkt, dst := c.relayProtocol.tryToDst(buf[:n], peerID); pkt != nil {
-			c.WriteTo(pkt, dst)
+			c.WriteTo(pkt, dst) // relay to dest
 			continue
 		}
 		if pkt, src := c.relayProtocol.tryRecv(buf[:n]); pkt != nil {
-			c.datagrams <- &disco.Datagram{PeerID: src, Data: pkt}
+			c.datagrams <- &disco.Datagram{PeerID: src, Data: pkt} // recv from relay
 			continue
 		}
+		b := append([]byte(nil), buf[:n]...)
 		c.datagrams <- &disco.Datagram{PeerID: peerID, Data: b}
 	}
 }
