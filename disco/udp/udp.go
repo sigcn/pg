@@ -520,7 +520,7 @@ func (c *UDPConn) udpRead(udpConn *net.UDPConn) {
 		// datagram
 		peerID := c.findPeerID(peerAddr)
 		if peerID.Len() == 0 {
-			slog.Error("RecvButPeerNotReady", "addr", peerAddr)
+			slog.Warn("[UDP] Recv udp packet but peer not found", "peer_addr", peerAddr)
 			continue
 		}
 		c.tryGetPeerkeeper(udpConn, peerID).heartbeat(peerAddr)
