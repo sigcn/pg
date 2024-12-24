@@ -21,6 +21,7 @@ import (
 	"github.com/mdp/qrterminal/v3"
 	"github.com/sigcn/pg/cmd/pgcli/vpn/ipc/client"
 	"github.com/sigcn/pg/cmd/pgcli/vpn/ipc/server"
+	"github.com/sigcn/pg/cmd/pgcli/vpn/rootless"
 	"github.com/sigcn/pg/disco"
 	"github.com/sigcn/pg/disco/udp"
 	"github.com/sigcn/pg/p2p"
@@ -29,6 +30,7 @@ import (
 	"github.com/sigcn/pg/secure/chacha20poly1305"
 	"github.com/sigcn/pg/vpn"
 	"github.com/sigcn/pg/vpn/nic"
+	"github.com/sigcn/pg/vpn/nic/gvisor"
 	"github.com/sigcn/pg/vpn/nic/tun"
 )
 
@@ -87,6 +89,7 @@ func usage(flagSet *flag.FlagSet) {
 	secretFile := flagSet.Lookup("f")
 	forcePeerRelay := flagSet.Lookup("force-peer-relay")
 	forceServerRelay := flagSet.Lookup("force-server-relay")
+	forward := flagSet.Lookup("forward")
 	key := flagSet.Lookup("key")
 	logLevel := flagSet.Lookup("loglevel")
 	mtu := flagSet.Lookup("mtu")
@@ -112,6 +115,7 @@ func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("  -f, --secret-file string\n\t%s\n", secretFile.Usage)
 	fmt.Printf("  --force-peer-relay \n\t%s\n", forcePeerRelay.Usage)
 	fmt.Printf("  --force-server-relay \n\t%s\n", forceServerRelay.Usage)
+	fmt.Printf("  --forward []string\n\t%s\n", forward.Usage)
 	fmt.Printf("  --key string\n\t%s\n", key.Usage)
 	fmt.Printf("  --loglevel int\n\t%s (default %s)\n", logLevel.Usage, logLevel.DefValue)
 	fmt.Printf("  --mtu int\n\t%s (default %s)\n", mtu.Usage, mtu.DefValue)
@@ -132,7 +136,7 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 
 	// daemon flags
 	var forcePeerRelay, forceServerRelay bool
-	var ignoredInterfaces stringSlice
+	var ignoredInterfaces, forwards stringSlice
 	var cryptoAlgo string
 
 	flagSet.IntVar(&cfg.DiscoPortScanOffset, "disco-port-scan-offset", -1000, "scan ports offset when disco")
@@ -149,6 +153,7 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	flagSet.StringVar(&cfg.NICConfig.IPv6, "6", "", "ipv6 address prefix (e.g. fd00::1/64)")
 	flagSet.IntVar(&cfg.NICConfig.MTU, "mtu", 1411, "nic mtu")
 	flagSet.StringVar(&cfg.NICConfig.Name, "tun", defaultTunName, "nic name")
+	flagSet.Var(&forwards, "forward", "start in rootless mode and create a port forward (e.g. tcp://127.0.0.1:80)")
 
 	flagSet.StringVar(&cfg.PrivateKey, "key", "", "curve25519 private key in base58 format (default generate a new one)")
 	flagSet.StringVar(&cfg.SecretFile, "secret-file", "", "")
@@ -179,6 +184,14 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 
 	if cfg.QueryPeers {
 		return
+	}
+
+	for _, f := range forwards {
+		forward, err := url.Parse(f)
+		if err != nil {
+			slog.Warn("Invalid forward format", "value", f)
+		}
+		cfg.Forwards = append(cfg.Forwards, forward)
 	}
 
 	if cfg.Server == "" {
@@ -214,6 +227,7 @@ type Config struct {
 	Server                         string
 	AuthQR                         bool
 	P2pTransportMode               p2p.TransportMode
+	Forwards                       []*url.URL
 }
 
 type P2PVPN struct {
@@ -221,20 +235,36 @@ type P2PVPN struct {
 	nic    *nic.VirtualNIC
 }
 
-func (v *P2PVPN) Run(ctx context.Context) error {
-	tunnic, err := tun.Create(v.Config.NICConfig)
-	if err != nil {
-		return err
+func (v *P2PVPN) Run(ctx context.Context) (err error) {
+	rootlessMode := len(v.Config.Forwards) > 0
+
+	var card nic.NIC
+	if rootlessMode {
+		card = &gvisor.GvisorCard{Config: v.Config.NICConfig, Stack: rootless.CreateGvisorStack()}
+	} else {
+		card, err = tun.Create(v.Config.NICConfig)
+		if err != nil {
+			return err
+		}
 	}
+
 	c, err := v.listenPacketConn(ctx)
 	if err != nil {
-		err1 := tunnic.Close()
+		err1 := card.Close()
 		return errors.Join(err, err1)
 	}
 	c.SetTransportMode(v.Config.P2pTransportMode)
-	v.nic = &nic.VirtualNIC{NIC: tunnic}
+	v.nic = &nic.VirtualNIC{NIC: card}
+
 	var wg sync.WaitGroup
 	defer wg.Wait()
+	if rootlessMode {
+		if err := (&rootless.ForwardEngine{
+			GvisorCard: card.(*gvisor.GvisorCard),
+			Forwards:   v.Config.Forwards}).Start(ctx, &wg); err != nil {
+			return err
+		}
+	}
 	if err := (&server.Server{
 		Vnic:      v.nic,
 		PeerStore: c.PeerStore(),

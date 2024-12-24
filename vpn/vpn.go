@@ -86,10 +86,13 @@ func (vpn *VPN) nicRead(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
 	defer wg.Done()
 	for {
 		packet, err := nic.Read()
-		if err != nil && strings.Contains(err.Error(), os.ErrClosed.Error()) {
-			return
-		}
 		if err != nil {
+			if strings.Contains(err.Error(), os.ErrClosed.Error()) {
+				return
+			}
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			panic(err)
 		}
 		vpn.outbound <- packet

@@ -3,13 +3,16 @@ package gvisor
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 
 	"github.com/sigcn/pg/vpn/nic"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/link/channel"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
@@ -100,18 +103,140 @@ func (g *GvisorCard) Read() (*nic.Packet, error) {
 }
 
 func (g *GvisorCard) Close() error {
-	g.init()
 	g.closeOnce.Do(func() {
-		if g.addr4.Len() > 0 {
-			g.Stack.RemoveAddress(g.nicID, g.addr4)
+		if g.Stack != nil {
+			if g.addr4.Len() > 0 {
+				g.Stack.RemoveAddress(g.nicID, g.addr4)
+			}
+			if g.addr6.Len() > 0 {
+				g.Stack.RemoveAddress(g.nicID, g.addr6)
+			}
+			g.Stack.RemoveRoutes(func(r tcpip.Route) bool {
+				return r.NIC == g.nicID
+			})
 		}
-		if g.addr6.Len() > 0 {
-			g.Stack.RemoveAddress(g.nicID, g.addr6)
+		if g.ep != nil {
+			g.ep.Close()
 		}
-		g.Stack.RemoveRoutes(func(r tcpip.Route) bool {
-			return r.NIC == g.nicID
-		})
-		g.ep.Close()
 	})
 	return nil
+}
+
+func (g *GvisorCard) Listen(ctx context.Context, network string, port uint16) (l net.Listener, err error) {
+	g.init()
+	if !strings.HasPrefix(network, "tcp") {
+		return nil, errors.New("only tcp is supported")
+	}
+
+	if network == "tcp4" {
+		addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr4, Port: port}
+		return gonet.ListenTCP(g.Stack, addr, ipv4.ProtocolNumber)
+	}
+
+	if network == "tcp6" {
+		addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr6, Port: port}
+		return gonet.ListenTCP(g.Stack, addr, ipv6.ProtocolNumber)
+	}
+
+	var listeners []net.Listener
+	defer func() {
+		if err != nil {
+			for _, l := range listeners {
+				l.Close()
+			}
+		}
+	}()
+	if g.addr4.Len() > 0 {
+		addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr4, Port: port}
+		l, err := gonet.ListenTCP(g.Stack, addr, ipv4.ProtocolNumber)
+		if err != nil {
+			return nil, err
+		}
+		listeners = append(listeners, l)
+	}
+	if g.addr6.Len() > 0 {
+		addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr6, Port: port}
+		l, err := gonet.ListenTCP(g.Stack, addr, ipv6.ProtocolNumber)
+		if err != nil {
+			return nil, err
+		}
+		listeners = append(listeners, l)
+	}
+	return &combinedListeners{listeners: listeners}, nil
+}
+
+var _ net.Listener = (*combinedListeners)(nil)
+
+type combinedListeners struct {
+	listeners []net.Listener
+
+	closeChan chan struct{}
+	connChan  chan net.Conn
+	errChan   chan error
+	initOnce  sync.Once
+	closeOnce sync.Once
+}
+
+func (l *combinedListeners) init() {
+	l.initOnce.Do(func() {
+		l.closeChan = make(chan struct{})
+		l.connChan = make(chan net.Conn)
+		l.errChan = make(chan error)
+		for _, listener := range l.listeners {
+			go l.accept(listener)
+		}
+	})
+}
+
+func (l *combinedListeners) accept(listener net.Listener) {
+	for {
+		c, err := listener.Accept()
+		if err != nil {
+			select {
+			case <-l.closeChan:
+				return
+			default:
+			}
+			l.errChan <- err
+			return
+		}
+		l.connChan <- c
+	}
+}
+
+func (l *combinedListeners) Accept() (net.Conn, error) {
+	l.init()
+	select {
+	case <-l.closeChan:
+		return nil, net.ErrClosed
+	case err := <-l.errChan:
+		return nil, err
+	case c := <-l.connChan:
+		return c, nil
+	}
+}
+
+func (l *combinedListeners) Close() error {
+	l.closeOnce.Do(func() {
+		if l.closeChan != nil {
+			close(l.closeChan)
+		}
+		if l.connChan != nil {
+			close(l.connChan)
+		}
+		if l.errChan != nil {
+			close(l.errChan)
+		}
+		for _, listener := range l.listeners {
+			listener.Close()
+		}
+	})
+	return nil
+}
+
+func (l *combinedListeners) Addr() net.Addr {
+	if len(l.listeners) == 0 {
+		return nil
+	}
+	return l.listeners[0].Addr()
 }
