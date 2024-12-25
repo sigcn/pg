@@ -17,6 +17,8 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
+	"gvisor.dev/gvisor/pkg/waiter"
 )
 
 var (
@@ -124,8 +126,8 @@ func (g *GvisorCard) Close() error {
 
 func (g *GvisorCard) Listen(ctx context.Context, network string, port uint16) (l net.Listener, err error) {
 	g.init()
-	if !strings.HasPrefix(network, "tcp") {
-		return nil, errors.New("only tcp is supported")
+	if !strings.HasPrefix(network, "tcp") && !strings.HasPrefix(network, "udp") {
+		return nil, errors.New("only tcp/udp is supported")
 	}
 
 	if network == "tcp4" {
@@ -138,6 +140,16 @@ func (g *GvisorCard) Listen(ctx context.Context, network string, port uint16) (l
 		return gonet.ListenTCP(g.Stack, addr, ipv6.ProtocolNumber)
 	}
 
+	if network == "udp4" {
+		addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr4, Port: port}
+		return &udpListener{s: g.Stack, addr: addr}, nil
+	}
+
+	if network == "udp6" {
+		addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr6, Port: port}
+		return &udpListener{s: g.Stack, addr: addr}, nil
+	}
+
 	var listeners []net.Listener
 	defer func() {
 		if err != nil {
@@ -146,6 +158,19 @@ func (g *GvisorCard) Listen(ctx context.Context, network string, port uint16) (l
 			}
 		}
 	}()
+
+	if network == "udp" {
+		if g.addr4.Len() > 0 {
+			addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr4, Port: port}
+			listeners = append(listeners, &udpListener{s: g.Stack, addr: addr})
+		}
+		if g.addr6.Len() > 0 {
+			addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr6, Port: port}
+			listeners = append(listeners, &udpListener{s: g.Stack, addr: addr})
+		}
+		return &combinedListeners{listeners: listeners}, nil
+	}
+
 	if g.addr4.Len() > 0 {
 		addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr4, Port: port}
 		l, err := gonet.ListenTCP(g.Stack, addr, ipv4.ProtocolNumber)
@@ -239,4 +264,61 @@ func (l *combinedListeners) Addr() net.Addr {
 		return nil
 	}
 	return l.listeners[0].Addr()
+}
+
+var _ net.Listener = (*udpListener)(nil)
+
+type udpListener struct {
+	addr tcpip.FullAddress
+	s    *stack.Stack
+
+	acceptOnce sync.Once
+	closeOnce  sync.Once
+	closeChan  chan struct{}
+}
+
+func (l *udpListener) Accept() (net.Conn, error) {
+	wait := true
+	l.acceptOnce.Do(func() {
+		l.closeChan = make(chan struct{})
+		wait = false
+	})
+	if wait {
+		<-l.closeChan
+		return nil, net.ErrClosed
+	}
+	var wq waiter.Queue
+	var ep tcpip.Endpoint
+	var err tcpip.Error
+	if net.IP(l.addr.Addr.AsSlice()).To4() != nil {
+		ep, err = l.s.NewEndpoint(udp.ProtocolNumber, ipv4.ProtocolNumber, &wq)
+	} else {
+		ep, err = l.s.NewEndpoint(udp.ProtocolNumber, ipv6.ProtocolNumber, &wq)
+	}
+	if err != nil {
+		return nil, errors.New(err.String())
+	}
+	err = ep.Bind(l.addr)
+	if err != nil {
+		return nil, errors.New(err.String())
+	}
+	return gonet.NewUDPConn(&wq, ep), nil
+}
+
+func (l *udpListener) Close() error {
+	if l.closeChan == nil {
+		return nil
+	}
+	l.closeOnce.Do(func() {
+		close(l.closeChan)
+	})
+	return nil
+}
+
+func (l *udpListener) Addr() net.Addr {
+	ip := l.addr.Addr.AsSlice()
+	return &net.UDPAddr{
+		IP:   net.IP(ip[:]),
+		Port: int(l.addr.Port),
+	}
 }
