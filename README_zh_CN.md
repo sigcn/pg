@@ -32,19 +32,6 @@ pgcli vpn -s wss://synf.in/pg -4 100.64.0.2/24
 > [!NOTE]
 > 使用`github`认证时要求帐号绑定已验证的邮箱 (https://github.com/settings/emails)
 
-### p2p 文件分享
-
-```sh
-# 分享
-$ pgcli share -s wss://synf.in/pg ~/my-show.pptx
-ShareURL: pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
-```
-
-```sh
-# 下载
-$ pgcli download -s wss://synf.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
-```
-
 ## 高级用法
 
 ### 部署 peermap 服务器
@@ -64,6 +51,19 @@ $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
 $ caddy reverse-proxy --from https://synf.in/pg --to 127.0.0.1:9987
 ```
 
+### p2p 文件分享
+
+```sh
+# 分享
+$ pgcli share -s wss://synf.in/pg ~/my-show.pptx
+ShareURL: pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
+```
+
+```sh
+# 下载
+$ pgcli download -s wss://synf.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
+```
+
 ### 快捷方式 pgvpn
 
 ```sh
@@ -76,6 +76,12 @@ ln -sf /usr/sbin/pgcli /usr/sbin/pgvpn
 
 ```sh
 pgvpn --peers
+```
+
+### Rootless mode VPN
+
+```sh
+pgvpn -s wss://synf.in/pg -4 100.64.0.1/24 --forward tcp://127.0.0.1:80 --forward udp://8.8.8.8:53
 ```
 
 ### 使用预共享密钥文件代替 OIDC 认证

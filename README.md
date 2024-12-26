@@ -30,19 +30,6 @@ pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24
 pgcli vpn -s wss://synf.in/pg -4 100.64.0.2/24
 ```
 
-### p2p file sharing
-
-```sh
-# share
-$ pgcli share -s wss://synf.in/pg ~/my-show.pptx
-ShareURL: pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
-```
-
-```sh
-# download
-$ pgcli download -s wss://synf.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
-```
-
 ## Advanced
 
 ### Deploy the peermap server
@@ -60,6 +47,19 @@ $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
 $ caddy reverse-proxy --from https://synf.in/pg --to 127.0.0.1:9987
 ```
 
+### p2p file sharing
+
+```sh
+# share
+$ pgcli share -s wss://synf.in/pg ~/my-show.pptx
+ShareURL: pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
+```
+
+```sh
+# download
+$ pgcli download -s wss://synf.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
+```
+
 ### Shortcut pgvpn
 
 ```sh
@@ -72,6 +72,12 @@ You can now use `pgvpn` instead of `pgcli vpn`.
 
 ```sh
 pgvpn --peers
+```
+
+### Rootless mode VPN
+
+```sh
+pgvpn -s wss://synf.in/pg -4 100.64.0.1/24 --forward tcp://127.0.0.1:80 --forward udp://8.8.8.8:53
 ```
 
 ### Uses pre-shared secret file instead of OIDC auth
