@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
-	"sync/atomic"
 
 	"github.com/sigcn/pg/vpn/nic/gvisor"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -79,7 +78,7 @@ func (g *ForwardEngine) Start(ctx context.Context, wg *sync.WaitGroup) (err erro
 				if err != nil {
 					return
 				}
-				slog.Info("[gVisor] Accept Conn", "from", c.LocalAddr().String(), "forward_to", forward, "remote", c.RemoteAddr())
+				slog.Info("[gVisor] AcceptConn", "pg_addr", c.LocalAddr().String(), "from", c.RemoteAddr(), "forward_to", forward)
 				c1, err := net.Dial(forward.Scheme, forward.Host)
 				if err != nil {
 					slog.Error("[gVisor] Dial backend", "backend", forward, "err", err)
@@ -104,32 +103,6 @@ func (g *ForwardEngine) Start(ctx context.Context, wg *sync.WaitGroup) (err erro
 func relay(c1, c2 net.Conn) {
 	defer c1.Close()
 	defer c2.Close()
-
-	pc1, ok := c1.(net.PacketConn)
-	if ok {
-		var peerAddr atomic.Value
-		go func() {
-			b := make([]byte, 65535)
-			for {
-				n, addr, err := pc1.ReadFrom(b)
-				if err != nil {
-					return
-				}
-				peerAddr.Store(addr)
-				c2.Write(b[:n])
-			}
-		}()
-
-		b := make([]byte, 65535)
-		for {
-			n, err := c2.Read(b)
-			if err != nil {
-				return
-			}
-			pc1.WriteTo(b[:n], peerAddr.Load().(net.Addr))
-		}
-	}
-
 	go io.Copy(c1, c2)
 	io.Copy(c2, c1)
 }

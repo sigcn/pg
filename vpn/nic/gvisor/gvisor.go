@@ -17,8 +17,6 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
-	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
-	"gvisor.dev/gvisor/pkg/waiter"
 )
 
 var (
@@ -264,61 +262,4 @@ func (l *combinedListeners) Addr() net.Addr {
 		return nil
 	}
 	return l.listeners[0].Addr()
-}
-
-var _ net.Listener = (*udpListener)(nil)
-
-type udpListener struct {
-	addr tcpip.FullAddress
-	s    *stack.Stack
-
-	acceptOnce sync.Once
-	closeOnce  sync.Once
-	closeChan  chan struct{}
-}
-
-func (l *udpListener) Accept() (net.Conn, error) {
-	wait := true
-	l.acceptOnce.Do(func() {
-		l.closeChan = make(chan struct{})
-		wait = false
-	})
-	if wait {
-		<-l.closeChan
-		return nil, net.ErrClosed
-	}
-	var wq waiter.Queue
-	var ep tcpip.Endpoint
-	var err tcpip.Error
-	if net.IP(l.addr.Addr.AsSlice()).To4() != nil {
-		ep, err = l.s.NewEndpoint(udp.ProtocolNumber, ipv4.ProtocolNumber, &wq)
-	} else {
-		ep, err = l.s.NewEndpoint(udp.ProtocolNumber, ipv6.ProtocolNumber, &wq)
-	}
-	if err != nil {
-		return nil, errors.New(err.String())
-	}
-	err = ep.Bind(l.addr)
-	if err != nil {
-		return nil, errors.New(err.String())
-	}
-	return gonet.NewUDPConn(&wq, ep), nil
-}
-
-func (l *udpListener) Close() error {
-	if l.closeChan == nil {
-		return nil
-	}
-	l.closeOnce.Do(func() {
-		close(l.closeChan)
-	})
-	return nil
-}
-
-func (l *udpListener) Addr() net.Addr {
-	ip := l.addr.Addr.AsSlice()
-	return &net.UDPAddr{
-		IP:   net.IP(ip[:]),
-		Port: int(l.addr.Port),
-	}
 }
