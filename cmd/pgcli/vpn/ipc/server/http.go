@@ -10,6 +10,8 @@ import (
 	_ "net/http/pprof"
 	"net/url"
 	"os"
+	"os/user"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -26,6 +28,10 @@ var (
 )
 
 func getDefaultUnixSocketPath() string {
+	currentUser, err := user.Current()
+	if err == nil {
+		return filepath.Join(currentUser.HomeDir, ".pgvpn.sock")
+	}
 	if runtime.GOOS == "windows" {
 		return "C:\\ProgramData\\pgvpn.sock"
 	}
