@@ -42,7 +42,7 @@ func main() {
 	flag.IntVar(&logLevel, "loglevel", int(slog.LevelInfo), "log level (default is 0:info)")
 	flag.Var(&stuns, "stun", "stun server for peers NAT traversal (leave blank to disable NAT traversal)")
 
-	commandConfig := peermap.Config{STUNs: stuns}
+	commandConfig := peermap.Config{}
 	flag.StringVar(&commandConfig.Listen, "listen", "127.0.0.1:9987", "")
 	flag.StringVar(&commandConfig.Listen, "l", "127.0.0.1:9987", "listen http address")
 	flag.StringVar(&commandConfig.SecretKey, "secret-key", "", "key to generate network secret (defaut generate a random one)")
@@ -52,6 +52,8 @@ func main() {
 
 	flag.Usage = usage
 	flag.Parse()
+
+	commandConfig.STUNs = stuns
 
 	slog.SetLogLoggerLevel(slog.Level(logLevel))
 	if err := run(commandConfig, configPath); err != nil {
