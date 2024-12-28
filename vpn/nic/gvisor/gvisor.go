@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	N "github.com/sigcn/pg/net"
 	"github.com/sigcn/pg/vpn/nic"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -17,6 +18,8 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
+	"gvisor.dev/gvisor/pkg/waiter"
 )
 
 var (
@@ -122,6 +125,75 @@ func (g *GvisorCard) Close() error {
 	return nil
 }
 
+func (g *GvisorCard) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	g.init()
+	if !strings.HasPrefix(network, "tcp") && !strings.HasPrefix(network, "udp") {
+		return nil, errors.New("only tcp/udp is supported")
+	}
+
+	if strings.HasPrefix(network, "tcp") {
+		tcpAddr, err := net.ResolveTCPAddr(network, address)
+		if err != nil {
+			return nil, err
+		}
+		var add tcpip.Address
+		var protocol tcpip.NetworkProtocolNumber
+		if tcpAddr.IP.To4() != nil {
+			add = tcpip.AddrFrom4(tcpAddr.AddrPort().Addr().As4())
+			protocol = ipv4.ProtocolNumber
+		} else {
+			add = tcpip.AddrFrom16(tcpAddr.AddrPort().Addr().As16())
+			protocol = ipv6.ProtocolNumber
+		}
+		addr := tcpip.FullAddress{
+			NIC:  g.nicID,
+			Addr: add,
+			Port: tcpAddr.AddrPort().Port()}
+		return gonet.DialContextTCP(ctx, g.Stack, addr, protocol)
+	}
+
+	if strings.HasPrefix(network, "udp") {
+		udpAddr, err := net.ResolveUDPAddr(network, address)
+		if err != nil {
+			return nil, err
+		}
+		var add tcpip.Address
+		var protocol tcpip.NetworkProtocolNumber
+		if udpAddr.IP.To4() != nil {
+			add = tcpip.AddrFrom4(udpAddr.AddrPort().Addr().As4())
+			protocol = ipv4.ProtocolNumber
+		} else {
+			add = tcpip.AddrFrom16(udpAddr.AddrPort().Addr().As16())
+			protocol = ipv6.ProtocolNumber
+		}
+		addr := &tcpip.FullAddress{
+			NIC:  g.nicID,
+			Addr: add,
+			Port: udpAddr.AddrPort().Port()}
+		return gonet.DialUDP(g.Stack, nil, addr, protocol)
+	}
+	return nil, nil
+}
+
+func (g *GvisorCard) listenUDP(addr tcpip.FullAddress) (net.PacketConn, error) {
+	var wq waiter.Queue
+	var ep tcpip.Endpoint
+	var err tcpip.Error
+	if net.IP(addr.Addr.AsSlice()).To4() != nil {
+		ep, err = g.Stack.NewEndpoint(udp.ProtocolNumber, ipv4.ProtocolNumber, &wq)
+	} else {
+		ep, err = g.Stack.NewEndpoint(udp.ProtocolNumber, ipv6.ProtocolNumber, &wq)
+	}
+	if err != nil {
+		return nil, errors.New(err.String())
+	}
+	err = ep.Bind(addr)
+	if err != nil {
+		return nil, errors.New(err.String())
+	}
+	return gonet.NewUDPConn(&wq, ep), nil
+}
+
 func (g *GvisorCard) Listen(ctx context.Context, network string, port uint16) (l net.Listener, err error) {
 	g.init()
 	if !strings.HasPrefix(network, "tcp") && !strings.HasPrefix(network, "udp") {
@@ -140,12 +212,20 @@ func (g *GvisorCard) Listen(ctx context.Context, network string, port uint16) (l
 
 	if network == "udp4" {
 		addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr4, Port: port}
-		return &udpListener{s: g.Stack, addr: addr}, nil
+		pc, err := g.listenUDP(addr)
+		if err != nil {
+			return nil, err
+		}
+		return &N.UDPListener{PacketConn: pc}, nil
 	}
 
 	if network == "udp6" {
 		addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr6, Port: port}
-		return &udpListener{s: g.Stack, addr: addr}, nil
+		pc, err := g.listenUDP(addr)
+		if err != nil {
+			return nil, err
+		}
+		return &N.UDPListener{PacketConn: pc}, nil
 	}
 
 	var listeners []net.Listener
@@ -160,11 +240,19 @@ func (g *GvisorCard) Listen(ctx context.Context, network string, port uint16) (l
 	if network == "udp" {
 		if g.addr4.Len() > 0 {
 			addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr4, Port: port}
-			listeners = append(listeners, &udpListener{s: g.Stack, addr: addr})
+			pc, err := g.listenUDP(addr)
+			if err != nil {
+				return nil, err
+			}
+			listeners = append(listeners, &N.UDPListener{PacketConn: pc})
 		}
 		if g.addr6.Len() > 0 {
 			addr := tcpip.FullAddress{NIC: g.nicID, Addr: g.addr6, Port: port}
-			listeners = append(listeners, &udpListener{s: g.Stack, addr: addr})
+			pc, err := g.listenUDP(addr)
+			if err != nil {
+				return nil, err
+			}
+			listeners = append(listeners, &N.UDPListener{PacketConn: pc})
 		}
 		return &combinedListeners{listeners: listeners}, nil
 	}
