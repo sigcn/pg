@@ -77,7 +77,7 @@ pgvpn --peers
 ### Rootless mode VPN
 
 ```sh
-pgvpn -s wss://synf.in/pg -4 100.64.0.1/24 --forward tcp://127.0.0.1:80 --forward udp://8.8.8.8:53
+pgvpn -s wss://synf.in/pg -4 100.64.0.1/24 --proxy-listen 127.0.0.1:4090 --forward tcp://127.0.0.1:80 --forward udp://8.8.8.8:53
 ```
 
 ### Uses pre-shared secret file instead of OIDC auth

@@ -78,10 +78,10 @@ ln -sf /usr/sbin/pgcli /usr/sbin/pgvpn
 pgvpn --peers
 ```
 
-### Rootless mode VPN
+### 去 root 权限的 VPN
 
 ```sh
-pgvpn -s wss://synf.in/pg -4 100.64.0.1/24 --forward tcp://127.0.0.1:80 --forward udp://8.8.8.8:53
+pgvpn -s wss://synf.in/pg -4 100.64.0.1/24 --proxy-listen 127.0.0.1:4090 --forward tcp://127.0.0.1:80 --forward udp://8.8.8.8:53
 ```
 
 ### 使用预共享密钥文件代替 OIDC 认证

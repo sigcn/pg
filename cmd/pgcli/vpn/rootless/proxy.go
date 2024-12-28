@@ -42,7 +42,7 @@ func (s *ProxyServer) Start(ctx context.Context, wg *sync.WaitGroup) error {
 		udpPacketConn.Close()
 	}()
 	s.udpListener = &N.UDPListener{PacketConn: udpPacketConn}
-	slog.Info("[Proxy] Server started", "listen", fmt.Sprintf("tcp+udp://%s", tcpListener.Addr().String()))
+	slog.Info("[Proxy] Server started", "listen", fmt.Sprintf("tcp+udp://%s", tcpListener.Addr().String()), "protocols", "socks5")
 	go s.run(tcpListener)
 	return nil
 }
