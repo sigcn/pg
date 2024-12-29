@@ -83,7 +83,7 @@ func (g *ForwardEngine) Start(ctx context.Context, wg *sync.WaitGroup) (err erro
 				if err != nil {
 					return
 				}
-				slog.Info("[gVisor] AcceptConn", "pg_addr", c.LocalAddr().String(), "from", c.RemoteAddr(), "forward_to", forward)
+				slog.Info("[gVisor] Accept", "pg_addr", c.LocalAddr().String(), "from", c.RemoteAddr(), "forward_to", forward)
 				c1, err := net.Dial(forward.Scheme, forward.Host)
 				if err != nil {
 					slog.Error("[gVisor] Dial backend", "backend", forward, "err", err)

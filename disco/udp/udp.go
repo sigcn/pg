@@ -105,6 +105,8 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 			slog.Debug("[UPnP] Disabled", "reason", err)
 			return
 		}
+		c.closedWG.Add(1)
+		defer c.closedWG.Done()
 		c.udpAddrSends <- &disco.PeerUDPAddr{ID: peerID, Addr: addr, Type: disco.UPnP}
 		select {
 		case c.natEvents <- &disco.NATInfo{Type: disco.UPnP, Addrs: []*net.UDPAddr{addr}}:
@@ -113,45 +115,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 	}()
 
 	// LAN
-	var publicAddrs []*net.UDPAddr
-	var publicType disco.NATType
-	for _, addr := range c.localAddrs() {
-		uaddr, err := net.ResolveUDPAddr("udp", addr)
-		if err != nil {
-			slog.Error("Resolve local udp addr error", "err", err)
-			continue
-		}
-		natType := disco.Internal
-		if uaddr.IP.IsGlobalUnicast() && !uaddr.IP.IsPrivate() && !disco.IsCGN(uaddr.IP) {
-			publicAddrs = append(publicAddrs, uaddr)
-			if uaddr.IP.To4() != nil {
-				natType = disco.IP4
-				if publicType == "" {
-					publicType = natType
-				} else if publicType == disco.IP6 {
-					publicType = disco.IP46
-				}
-			} else {
-				natType = disco.IP6
-				if publicType == "" {
-					publicType = natType
-				} else if publicType == disco.IP4 {
-					publicType = disco.IP46
-				}
-			}
-		}
-		c.udpAddrSends <- &disco.PeerUDPAddr{
-			ID:   peerID,
-			Addr: uaddr,
-			Type: natType,
-		}
-	}
-	if publicAddrs != nil {
-		select {
-		case c.natEvents <- &disco.NATInfo{Type: publicType, Addrs: publicAddrs}:
-		default:
-		}
-	}
+	c.lanAddrsGenerate(peerID)
 
 	// WAN
 	time.AfterFunc(time.Second, func() {
@@ -163,6 +127,8 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 			slog.Warn("No NAT addr found")
 			return
 		}
+		c.closedWG.Add(1)
+		defer c.closedWG.Done()
 		if natInfo.Type == disco.Hard {
 			for _, addr := range natInfo.Addrs {
 				c.udpAddrSends <- &disco.PeerUDPAddr{

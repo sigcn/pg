@@ -135,8 +135,8 @@ func (c *PacketConn) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.closeChan)
 		c.deadlineRead.Close()
-		c.wsConn.Close()
 		c.udpConn.Close()
+		c.wsConn.Close()
 	})
 	return nil
 }
@@ -363,6 +363,8 @@ func (c *PacketConn) runControlEventLoop() {
 	}
 	for {
 		select {
+		case <-c.closeChan:
+			return
 		case e, ok := <-c.wsConn.Events():
 			if !ok {
 				return

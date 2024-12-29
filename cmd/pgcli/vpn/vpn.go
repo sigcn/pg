@@ -173,6 +173,10 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 
 	flagSet.Parse(args)
 
+	cfg.DiscoConfig.IgnoredInterfaces = ignoredInterfaces
+	cfg.QueryPeers = queryPeers
+	cfg.Forwards = forwards
+
 	if cfg.QueryPeers {
 		return
 	}
@@ -185,10 +189,6 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	default:
 		slog.Warn("Fallback to default chacha20poly1305")
 	}
-
-	cfg.DiscoConfig.IgnoredInterfaces = ignoredInterfaces
-	cfg.QueryPeers = queryPeers
-	cfg.Forwards = forwards
 
 	if cfg.Server == "" {
 		err = errors.New("flag \"server\" not set")

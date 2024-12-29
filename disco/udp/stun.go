@@ -33,7 +33,8 @@ func (rt *stunRoundTripper) roundTrip(ctx context.Context, udpConn *net.UDPConn,
 	rt.stunResponseMapMutex.Lock()
 	rt.stunResponseMap[string(txID[:])] = ch
 	rt.stunResponseMapMutex.Unlock()
-	uaddr, err := net.ResolveUDPAddr("udp", stunServer)
+
+	uaddr, err := rt.resolveUDPAddr(ctx, stunServer)
 	if err != nil {
 		return nil, fmt.Errorf("resolve stun addr: %w", err)
 	}
@@ -49,6 +50,22 @@ func (rt *stunRoundTripper) roundTrip(ctx context.Context, udpConn *net.UDPConn,
 		return r.addr, nil
 	case <-timeout.C:
 		return nil, os.ErrDeadlineExceeded
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (c *stunRoundTripper) resolveUDPAddr(ctx context.Context, addr string) (udpAddr *net.UDPAddr, err error) {
+	var closeOnce sync.Once
+	ch := make(chan struct{})
+	defer closeOnce.Do(func() { close(ch) })
+	go func() {
+		udpAddr, err = net.ResolveUDPAddr("udp", addr)
+		closeOnce.Do(func() { close(ch) })
+	}()
+	select {
+	case <-ch:
+		return
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
