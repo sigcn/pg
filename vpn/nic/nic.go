@@ -17,9 +17,10 @@ const (
 )
 
 type Config struct {
-	Name       string
-	MTU        int
-	IPv4, IPv6 string
+	Name string `yaml:"name"`
+	MTU  int    `yaml:"mtu"`
+	IPv4 string `yaml:"ipv4"`
+	IPv6 string `yaml:"ipv6"`
 }
 
 type NIC interface {

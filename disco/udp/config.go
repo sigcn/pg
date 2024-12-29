@@ -16,12 +16,13 @@ var defaultDiscoConfig = DiscoConfig{
 }
 
 type DiscoConfig struct {
-	PortScanOffset            int
-	PortScanCount             int
-	PortScanDuration          time.Duration
-	ChallengesRetry           int
-	ChallengesInitialInterval time.Duration
-	ChallengesBackoffRate     float64
+	PortScanOffset            int           `yaml:"port_scan_offset"`
+	PortScanCount             int           `yaml:"port_scan_count"`
+	PortScanDuration          time.Duration `yaml:"port_scan_duration"`
+	ChallengesRetry           int           `yaml:"challenges_retry"`
+	ChallengesInitialInterval time.Duration `yaml:"challenges_initial_interval"`
+	ChallengesBackoffRate     float64       `yaml:"challenges_backoff_rate"`
+	IgnoredInterfaces         []string      `yaml:"ignored_interfaces"`
 }
 
 func SetModifyDiscoConfig(modify func(cfg *DiscoConfig)) {

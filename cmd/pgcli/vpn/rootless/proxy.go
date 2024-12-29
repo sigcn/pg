@@ -37,7 +37,7 @@ func (c *peekConn) Read(b []byte) (n int, err error) {
 }
 
 type ProxyConfig struct {
-	Listen string
+	Listen string `yaml:"listen"`
 }
 
 type ProxyServer struct {

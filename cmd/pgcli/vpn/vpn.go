@@ -141,12 +141,12 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	var ignoredInterfaces, forwards stringSlice
 	var cryptoAlgo string
 
-	flagSet.IntVar(&cfg.DiscoPortScanOffset, "disco-port-scan-offset", -1000, "scan ports offset when disco")
-	flagSet.IntVar(&cfg.DiscoPortScanCount, "disco-port-scan-count", 3000, "scan ports count when disco")
-	flagSet.DurationVar(&cfg.DiscoPortScanDuration, "disco-port-scan-duration", 6*time.Second, "scan ports duration when disco")
-	flagSet.IntVar(&cfg.DiscoChallengesRetry, "disco-challenges-retry", 5, "ping challenges retry count when disco")
-	flagSet.DurationVar(&cfg.DiscoChallengesInitialInterval, "disco-challenges-initial-interval", 200*time.Millisecond, "ping challenges initial interval when disco")
-	flagSet.Float64Var(&cfg.DiscoChallengesBackoffRate, "disco-challenges-backoff-rate", 1.65, "ping challenges backoff rate when disco")
+	flagSet.IntVar(&cfg.DiscoConfig.PortScanOffset, "disco-port-scan-offset", -1000, "scan ports offset when disco")
+	flagSet.IntVar(&cfg.DiscoConfig.PortScanCount, "disco-port-scan-count", 3000, "scan ports count when disco")
+	flagSet.DurationVar(&cfg.DiscoConfig.PortScanDuration, "disco-port-scan-duration", 6*time.Second, "scan ports duration when disco")
+	flagSet.IntVar(&cfg.DiscoConfig.ChallengesRetry, "disco-challenges-retry", 5, "ping challenges retry count when disco")
+	flagSet.DurationVar(&cfg.DiscoConfig.ChallengesInitialInterval, "disco-challenges-initial-interval", 200*time.Millisecond, "ping challenges initial interval when disco")
+	flagSet.Float64Var(&cfg.DiscoConfig.ChallengesBackoffRate, "disco-challenges-backoff-rate", 1.65, "ping challenges backoff rate when disco")
 	flagSet.Var(&ignoredInterfaces, "disco-ignored-interface", "ignore interfaces prefix when disco")
 
 	flagSet.StringVar(&cfg.NICConfig.IPv4, "ipv4", "", "")
@@ -167,11 +167,15 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	flagSet.BoolVar(&queryPeers, "peers", false, "query found peers")
 
 	flagSet.StringVar(&cryptoAlgo, "udp-crypto", "chacha20poly1305", "udp packet crypto algorithm from the list [chacha20poly1305, aescbc]")
-	flagSet.IntVar(&cfg.Port, "udp-port", 29877, "p2p udp listen port")
+	flagSet.IntVar(&cfg.UDPPort, "udp-port", 29877, "p2p udp listen port")
 	flagSet.BoolVar(&forcePeerRelay, "force-peer-relay", false, "force to peer relay transport mode")
 	flagSet.BoolVar(&forceServerRelay, "force-server-relay", false, "force to server relay transport mode")
 
 	flagSet.Parse(args)
+
+	if cfg.QueryPeers {
+		return
+	}
 
 	switch cryptoAlgo {
 	case "chacha20poly1305":
@@ -182,20 +186,9 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 		slog.Warn("Fallback to default chacha20poly1305")
 	}
 
-	cfg.DiscoIgnoredInterfaces = ignoredInterfaces
+	cfg.DiscoConfig.IgnoredInterfaces = ignoredInterfaces
 	cfg.QueryPeers = queryPeers
-
-	if cfg.QueryPeers {
-		return
-	}
-
-	for _, f := range forwards {
-		forward, err := url.Parse(f)
-		if err != nil {
-			slog.Warn("Invalid forward format", "value", f)
-		}
-		cfg.Forwards = append(cfg.Forwards, forward)
-	}
+	cfg.Forwards = forwards
 
 	if cfg.Server == "" {
 		err = errors.New("flag \"server\" not set")
@@ -215,23 +208,17 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 }
 
 type Config struct {
-	NICConfig                      nic.Config
-	ProxyConfig                    rootless.ProxyConfig
-	DiscoPortScanOffset            int
-	DiscoPortScanCount             int
-	DiscoPortScanDuration          time.Duration
-	DiscoChallengesRetry           int
-	DiscoChallengesInitialInterval time.Duration
-	DiscoChallengesBackoffRate     float64
-	DiscoIgnoredInterfaces         []string
-	QueryPeers                     bool
-	Port                           int
-	PrivateKey                     string
-	SecretFile                     string
-	Server                         string
-	AuthQR                         bool
-	P2pTransportMode               p2p.TransportMode
-	Forwards                       []*url.URL
+	NICConfig        nic.Config           `yaml:"nic"`
+	ProxyConfig      rootless.ProxyConfig `yaml:"proxy"`
+	DiscoConfig      udp.DiscoConfig      `yaml:"disco"`
+	QueryPeers       bool
+	UDPPort          int               `yaml:"udp_port"`
+	PrivateKey       string            `yaml:"private_key"`
+	SecretFile       string            `yaml:"secret_file"`
+	Server           string            `yaml:"server"`
+	AuthQR           bool              `yaml:"auth_qr"`
+	P2pTransportMode p2p.TransportMode `yaml:"transport_mode"`
+	Forwards         []string          `yaml:"forwards"`
 }
 
 type P2PVPN struct {
@@ -291,15 +278,10 @@ func (v *P2PVPN) Run(ctx context.Context) (err error) {
 
 func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err error) {
 	udp.SetModifyDiscoConfig(func(cfg *udp.DiscoConfig) {
-		cfg.PortScanOffset = v.Config.DiscoPortScanOffset
-		cfg.PortScanCount = v.Config.DiscoPortScanCount
-		cfg.PortScanDuration = v.Config.DiscoPortScanDuration
-		cfg.ChallengesRetry = v.Config.DiscoChallengesRetry
-		cfg.ChallengesInitialInterval = v.Config.DiscoChallengesInitialInterval
-		cfg.ChallengesBackoffRate = v.Config.DiscoChallengesBackoffRate
+		*cfg = v.Config.DiscoConfig
 	})
-	v.Config.DiscoIgnoredInterfaces = append(v.Config.DiscoIgnoredInterfaces, "pg", "wg", "veth", "docker", "nerdctl", "tailscale")
-	disco.SetIgnoredLocalInterfaceNamePrefixs(v.Config.DiscoIgnoredInterfaces...)
+	v.Config.DiscoConfig.IgnoredInterfaces = append(v.Config.DiscoConfig.IgnoredInterfaces, "pg", "wg", "veth", "docker", "nerdctl", "tailscale")
+	disco.SetIgnoredLocalInterfaceNamePrefixs(v.Config.DiscoConfig.IgnoredInterfaces...)
 
 	hostname, _ := os.Hostname()
 	p2pOptions := []p2p.Option{
@@ -309,8 +291,8 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err e
 		p2p.ListenPeerLeave(v.removePeer),
 		p2p.KeepAlivePeriod(6 * time.Second),
 	}
-	if v.Config.Port > 0 {
-		p2pOptions = append(p2pOptions, p2p.ListenUDPPort(v.Config.Port))
+	if v.Config.UDPPort > 0 {
+		p2pOptions = append(p2pOptions, p2p.ListenUDPPort(v.Config.UDPPort))
 	}
 	if v.Config.NICConfig.IPv4 != "" {
 		ipv4, err := netip.ParsePrefix(v.Config.NICConfig.IPv4)

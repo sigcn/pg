@@ -41,7 +41,7 @@ func CreateGvisorStack() *stack.Stack {
 
 type ForwardEngine struct {
 	GvisorCard *gvisor.GvisorCard
-	Forwards   []*url.URL
+	Forwards   []string
 }
 
 func (g *ForwardEngine) Start(ctx context.Context, wg *sync.WaitGroup) (err error) {
@@ -60,7 +60,12 @@ func (g *ForwardEngine) Start(ctx context.Context, wg *sync.WaitGroup) (err erro
 			closeEngine()
 		}
 	}()
-	for _, forward := range g.Forwards {
+	for _, f := range g.Forwards {
+		forward, err := url.Parse(f)
+		if err != nil {
+			slog.Warn("Invalid forward format", "value", f)
+			continue
+		}
 		_, port, err := net.SplitHostPort(forward.Host)
 		if err != nil {
 			return fmt.Errorf("parse forward: %w", err)
