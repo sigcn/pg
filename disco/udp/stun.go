@@ -25,7 +25,7 @@ func (rt *stunRoundTripper) init() {
 	})
 }
 
-func (rt *stunRoundTripper) roundTrip(udpConn *net.UDPConn, stunServer string) (*net.UDPAddr, error) {
+func (rt *stunRoundTripper) roundTrip(ctx context.Context, udpConn *net.UDPConn, stunServer string) (*net.UDPAddr, error) {
 	rt.init()
 	txID := stun.NewTxID()
 	ch := make(chan stunResponse)
@@ -49,6 +49,8 @@ func (rt *stunRoundTripper) roundTrip(udpConn *net.UDPConn, stunServer string) (
 		return r.addr, nil
 	case <-timeout.C:
 		return nil, os.ErrDeadlineExceeded
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 

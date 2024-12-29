@@ -158,7 +158,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 		if _, ok := c.findPeer(peerID); ok {
 			return
 		}
-		natInfo := c.DetectNAT(stunServers)
+		natInfo := c.DetectNAT(context.TODO(), stunServers)
 		if natInfo.Addrs == nil {
 			slog.Warn("No NAT addr found")
 			return
@@ -181,7 +181,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 	})
 }
 
-func (c *UDPConn) DetectNAT(stunServers []string) (info disco.NATInfo) {
+func (c *UDPConn) DetectNAT(ctx context.Context, stunServers []string) (info disco.NATInfo) {
 	defer func() {
 		lastNATInfo := c.natInfo.Load()
 		slog.Log(context.Background(), -1, "[NAT] DetectNAT", "type", info.Type)
@@ -215,7 +215,7 @@ func (c *UDPConn) DetectNAT(stunServers []string) (info disco.NATInfo) {
 	for _, server := range stunServers {
 		go func() {
 			defer wg.Done()
-			udpAddr, err := c.stunRoundTripper.roundTrip(udpConn, server)
+			udpAddr, err := c.stunRoundTripper.roundTrip(ctx, udpConn, server)
 			if err != nil {
 				slog.Log(context.Background(), -3, "[UDP] RoundTripSTUN", "server", server, "err", err)
 				return
