@@ -36,6 +36,63 @@ func (c *peekConn) Read(b []byte) (n int, err error) {
 	return c.Conn.Read(b)
 }
 
+type Socks5UDPConn struct {
+	net.Conn
+	Addr socks5.Addr
+
+	readBufMakeOnce sync.Once
+	readBuf         []byte
+	peekPacket      []byte
+}
+
+func (c *Socks5UDPConn) peekTarget() (socks5.Addr, error) {
+	c.readBufMakeOnce.Do(func() {
+		c.readBuf = make([]byte, 65535)
+	})
+	n, err := c.Conn.Read(c.readBuf)
+	if err != nil {
+		return socks5.Addr{}, err
+	}
+	c.peekPacket = make([]byte, n)
+	copy(c.peekPacket, c.readBuf[:n])
+	addr, _, err := socks5.DecodeUDPPacket(c.readBuf[:n])
+	if err != nil {
+		return socks5.Addr{}, err
+	}
+	c.Addr = addr
+	return addr, nil
+}
+
+func (c *Socks5UDPConn) Read(p []byte) (int, error) {
+	c.readBufMakeOnce.Do(func() {
+		c.readBuf = make([]byte, 65535)
+	})
+	pkt := c.peekPacket
+	if pkt == nil {
+		n, err := c.Conn.Read(c.readBuf)
+		if err != nil {
+			return 0, err
+		}
+		pkt = c.readBuf[:n]
+	}
+	c.peekPacket = nil
+	_, b, err := socks5.DecodeUDPPacket(pkt)
+	if err != nil {
+		return 0, err
+	}
+	fmt.Printf("%x\n", b)
+	return copy(p, b), nil
+}
+
+func (c *Socks5UDPConn) Write(p []byte) (int, error) {
+	b, err := socks5.EncodeUDPPacket(c.Addr, p)
+	if err != nil {
+		return 0, err
+	}
+	_, err = c.Conn.Write(b)
+	return len(p), err
+}
+
 type ProxyConfig struct {
 	Listen string `yaml:"listen"`
 }
@@ -43,8 +100,6 @@ type ProxyConfig struct {
 type ProxyServer struct {
 	Config     ProxyConfig
 	GvisorCard *gvisor.GvisorCard
-
-	udpListener *N.UDPListener
 }
 
 func (s *ProxyServer) Start(ctx context.Context, wg *sync.WaitGroup) error {
@@ -64,13 +119,13 @@ func (s *ProxyServer) Start(ctx context.Context, wg *sync.WaitGroup) error {
 		tcpListener.Close()
 		udpPacketConn.Close()
 	}()
-	s.udpListener = &N.UDPListener{PacketConn: udpPacketConn}
 	slog.Info("[Proxy] Server started", "listen", fmt.Sprintf("tcp+udp://%s", tcpListener.Addr().String()), "protocols", "socks5,http")
-	go s.run(tcpListener)
+	go s.readTCP(tcpListener)
+	go s.readUDP(&N.UDPListener{PacketConn: udpPacketConn})
 	return nil
 }
 
-func (s *ProxyServer) run(tcp net.Listener) {
+func (s *ProxyServer) readTCP(tcp net.Listener) {
 	for {
 		c, err := tcp.Accept()
 		if err != nil {
@@ -97,6 +152,23 @@ func (s *ProxyServer) run(tcp net.Listener) {
 	}
 }
 
+func (s *ProxyServer) readUDP(udp net.Listener) {
+	for {
+		c, err := udp.Accept()
+		if err != nil {
+			return
+		}
+
+		cc := &Socks5UDPConn{Conn: c}
+		addr, err := cc.peekTarget()
+		if err != nil {
+			slog.Error("[Proxy] Read udp", "err", err)
+			continue
+		}
+		go s.proxy("udp", cc, addr.String())
+	}
+}
+
 func (s *ProxyServer) serveSOCKS5(c net.Conn) error {
 	defer c.Close()
 	addr, cmd, err := socks5.ServerHandshake(c, nil)
@@ -104,15 +176,15 @@ func (s *ProxyServer) serveSOCKS5(c net.Conn) error {
 		return fmt.Errorf("socks5 handshake: %w", err)
 	}
 	if cmd == socks5.CmdConnect {
-		if err := s.proxyTCP(c, addr.String()); err != nil {
+		if err := s.proxy("tcp", c, addr.String()); err != nil {
 			return fmt.Errorf("socks5 proxy tcp: %w", err)
 		}
 		return nil
 	}
 	if cmd == socks5.CmdUDPAssociate {
-		if err := s.proxyUDP(addr.String()); err != nil {
-			return fmt.Errorf("socks5 proxy udp: %w", err)
-		}
+		// TODO add ip whitelist
+		io.Copy(io.Discard, c)
+		c.Close()
 		return nil
 	}
 	return nil
@@ -134,7 +206,7 @@ func (s *ProxyServer) serveHTTP(c net.Conn) error {
 		if err != nil {
 			return err
 		}
-		if err = s.proxyTCP(c, r.Host); err != nil {
+		if err = s.proxy("tcp", c, r.Host); err != nil {
 			s.responseError(c, err)
 			return err
 		}
@@ -145,37 +217,21 @@ func (s *ProxyServer) serveHTTP(c net.Conn) error {
 	b := &bytes.Buffer{}
 	r.Write(b)
 
-	if err = s.proxyTCP(&peekConn{Conn: c, peekBytes: b.Bytes()}, r.Host); err != nil {
+	if err = s.proxy("tcp", &peekConn{Conn: c, peekBytes: b.Bytes()}, r.Host); err != nil {
 		s.responseError(c, err)
 		return err
 	}
 	return nil
 }
 
-func (s *ProxyServer) proxyTCP(rw net.Conn, addr string) error {
+func (s *ProxyServer) proxy(network string, rw net.Conn, addr string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	c, err := s.GvisorCard.DialContext(ctx, "tcp", addr)
+	c, err := s.GvisorCard.DialContext(ctx, network, addr)
 	if err != nil {
 		return err
 	}
 	relay(rw, c)
-	return nil
-}
-
-func (s *ProxyServer) proxyUDP(addr string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	c, err := s.udpListener.AcceptContext(ctx)
-	if err != nil {
-		return err
-	}
-	c1, err := s.GvisorCard.DialContext(context.TODO(), "udp", addr)
-	if err != nil {
-		c.Close()
-		return err
-	}
-	relay(c, c1)
 	return nil
 }
 
