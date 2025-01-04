@@ -1,6 +1,7 @@
 package client
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
@@ -25,12 +26,12 @@ func PrintPeers() error {
 
 	for _, peer := range peers {
 		tw.AppendRow(table.Row{
-			peer.Hostname,
-			peer.IPv4,
-			peer.IPv6,
+			cmp.Or(peer.Hostname, "-"),
+			cmp.Or(peer.IPv4, "-"),
+			cmp.Or(peer.IPv6, "-"),
 			peer.Mode,
-			peer.NAT,
-			strings.Join(peer.Addrs, ","),
+			cmp.Or(peer.NAT, "-"),
+			cmp.Or(strings.Join(peer.Addrs, ","), "-"),
 		})
 	}
 
