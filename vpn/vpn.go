@@ -62,6 +62,7 @@ func (vpn *VPN) Run(ctx context.Context, nic *nic.VirtualNIC, packetConn net.Pac
 	return nil
 }
 
+// routingTableUpdate subscribe system route changes and update nic route table
 func (vpn *VPN) routingTableUpdate(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	ch := make(chan netlink.RouteUpdate)
@@ -82,6 +83,7 @@ func (vpn *VPN) routingTableUpdate(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
+// nicRead read ip packet from nic device and send to outbound channel
 func (vpn *VPN) nicRead(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
 	defer wg.Done()
 	for {
@@ -99,6 +101,7 @@ func (vpn *VPN) nicRead(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
 	}
 }
 
+// nicWrite read ip packet from inbound channel and write to nic device
 func (vpn *VPN) nicWrite(wg *sync.WaitGroup, vnic *nic.VirtualNIC) {
 	defer wg.Done()
 	handle := func(pkt *nic.Packet) *nic.Packet {
@@ -117,12 +120,13 @@ func (vpn *VPN) nicWrite(wg *sync.WaitGroup, vnic *nic.VirtualNIC) {
 		}
 		err := vnic.Write(packet)
 		if err != nil {
-			slog.Debug("WriteToTunError", "detail", err.Error())
+			slog.Debug("WriteTo nic device", "err", err.Error())
 		}
 		nic.IPPacketPool.Put(packet)
 	}
 }
 
+// packetConnRead read ip packet from packet conn and send to inbound channel
 func (vpn *VPN) packetConnRead(wg *sync.WaitGroup, packetConn net.PacketConn) {
 	defer wg.Done()
 	buf := make([]byte, cmp.Or(vpn.cfg.MTU, (2<<15)-8-40-40)+40)
@@ -140,6 +144,7 @@ func (vpn *VPN) packetConnRead(wg *sync.WaitGroup, packetConn net.PacketConn) {
 	}
 }
 
+// packetConnWrite read ip packet from outbound channel and write to packet conn
 func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 	defer wg.Done()
 	sendPacketToPeer := func(packet *nic.Packet, dstIP net.IP) {
@@ -151,7 +156,7 @@ func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 		if peer, ok := vpn.nic.GetPeer(dstIP.String()); ok {
 			_, err := packetConn.WriteTo(packet.AsBytes(), peer)
 			if err != nil && !errors.Is(err, net.ErrClosed) {
-				slog.Error("PacketConnWrite", "peer", peer, "err", err)
+				slog.Error("WriteTo packet conn", "peer", peer, "err", err)
 			}
 			return
 		}
