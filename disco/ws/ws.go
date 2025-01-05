@@ -218,6 +218,9 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 	if httpResp != nil && httpResp.StatusCode == http.StatusBadRequest {
 		return fmt.Errorf("address: %s is already in used", c.peerID)
 	}
+	if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("dial server %s: 404 not found", server)
+	}
 	if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
 		var err disco.Error
 		json.NewDecoder(httpResp.Body).Decode(&err)
