@@ -227,7 +227,7 @@ type P2PVPN struct {
 }
 
 func (v *P2PVPN) Run(ctx context.Context) (err error) {
-	rootlessMode := len(v.Config.Forwards) > 0
+	rootlessMode := len(v.Config.Forwards) > 0 || v.Config.ProxyConfig.Listen != ""
 
 	var card nic.NIC
 	if rootlessMode {
@@ -255,19 +255,20 @@ func (v *P2PVPN) Run(ctx context.Context) (err error) {
 			Forwards:   v.Config.Forwards}).Start(ctx, &wg); err != nil {
 			return err
 		}
-	}
-	if v.Config.ProxyConfig.Listen != "" {
-		if err := (&rootless.ProxyServer{
-			GvisorCard: card.(*gvisor.GvisorCard),
-			Config:     v.Config.ProxyConfig}).Start(ctx, &wg); err != nil {
-			return err
+		if v.Config.ProxyConfig.Listen != "" {
+			if err := (&rootless.ProxyServer{
+				GvisorCard: card.(*gvisor.GvisorCard),
+				Config:     v.Config.ProxyConfig}).Start(ctx, &wg); err != nil {
+				return err
+			}
 		}
 	}
+
 	if err := (&server.Server{
 		Vnic:      v.nic,
 		PeerStore: c.PeerStore(),
 		Meta:      c.PeerMeta}).Start(ctx, &wg); err != nil {
-		slog.Warn("[IPC] RunServer", "err", err)
+		slog.Warn("[IPC] Run http server", "err", err)
 	}
 	return vpn.New(vpn.Config{
 		MTU:           v.Config.NICConfig.MTU,
