@@ -123,7 +123,7 @@ func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("  --proxy-listen string\n\t%s\n", proxyListen.Usage)
 	fmt.Printf("  -s, --server string\n\t%s\n", server.Usage)
 	fmt.Printf("  --tun string\n\t%s (default %s)\n", tun.Usage, tun.DefValue)
-	fmt.Printf("  --udp-crypto\n\t%s (default %s)\n", cryptoAlgo.Usage, cryptoAlgo.DefValue)
+	fmt.Printf("  --udp-crypto string\n\t%s (default %s)\n", cryptoAlgo.Usage, cryptoAlgo.DefValue)
 	fmt.Printf("  --udp-port int\n\t%s (default %s)\n\n", udpPort.Usage, udpPort.DefValue)
 	fmt.Printf("IPC Flags:\n")
 	fmt.Printf("  --peers \n\t%s\n\n", peers.Usage)
