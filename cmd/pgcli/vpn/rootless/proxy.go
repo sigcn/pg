@@ -4,14 +4,18 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	_ "unsafe"
 
 	N "github.com/sigcn/pg/net"
 	"github.com/sigcn/pg/socks5"
@@ -94,7 +98,15 @@ func (c *Socks5UDPConn) Write(p []byte) (int, error) {
 }
 
 type ProxyConfig struct {
-	Listen string `yaml:"listen"`
+	Listen string   `yaml:"listen"`
+	Users  []string `yaml:"users"`
+}
+
+func (c *ProxyConfig) Verify(user, password string) bool {
+	if len(c.Users) == 0 {
+		return true
+	}
+	return slices.Contains(c.Users, fmt.Sprintf("%s:%s", user, password))
 }
 
 type ProxyServer struct {
@@ -171,7 +183,11 @@ func (s *ProxyServer) readUDP(udp net.Listener) {
 
 func (s *ProxyServer) serveSOCKS5(c net.Conn) error {
 	defer c.Close()
-	addr, cmd, err := socks5.ServerHandshake(c, nil)
+	var authenticator socks5.Authenticator
+	if len(s.Config.Users) > 0 {
+		authenticator = &s.Config
+	}
+	addr, cmd, err := socks5.ServerHandshake(c, authenticator)
 	if err != nil {
 		return fmt.Errorf("socks5 handshake: %w", err)
 	}
@@ -190,6 +206,9 @@ func (s *ProxyServer) serveSOCKS5(c net.Conn) error {
 	return nil
 }
 
+//go:linkname parseBasicAuth net/http.parseBasicAuth
+func parseBasicAuth(auth string) (string, string, bool)
+
 func (s *ProxyServer) serveHTTP(c net.Conn) error {
 	defer c.Close()
 	r, err := http.ReadRequest(bufio.NewReader(c))
@@ -199,6 +218,12 @@ func (s *ProxyServer) serveHTTP(c net.Conn) error {
 
 	if _, _, err := net.SplitHostPort(r.Host); err != nil {
 		r.Host = fmt.Sprintf("%s:80", r.Host)
+	}
+
+	user, pass, ok := parseBasicAuth(r.Header.Get("Proxy-Authorization"))
+	if ok && !s.Config.Verify(user, pass) {
+		s.responseAuthError(c)
+		return errors.New("invalid user or password")
 	}
 
 	if r.Method == http.MethodConnect {
@@ -243,6 +268,18 @@ func (s *ProxyServer) responseError(w io.Writer, err error) {
 		ProtoMinor: 1,
 		Proto:      "HTTP/1.1",
 		Body:       io.NopCloser(strings.NewReader(err.Error() + "\n")),
+	}
+	r.Write(w)
+}
+
+func (s *ProxyServer) responseAuthError(w io.Writer) {
+	r := http.Response{
+		Status:     "407 StatusProxyAuthRequired",
+		StatusCode: http.StatusProxyAuthRequired,
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Proto:      "HTTP/1.1",
+		Body:       io.NopCloser(bytes.NewReader(nil)),
 	}
 	r.Write(w)
 }

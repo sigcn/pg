@@ -95,6 +95,7 @@ func usage(flagSet *flag.FlagSet) {
 	mtu := flagSet.Lookup("mtu")
 	peers := flagSet.Lookup("peers")
 	proxyListen := flagSet.Lookup("proxy-listen")
+	proxyUsers := flagSet.Lookup("proxy-user")
 	server := flagSet.Lookup("s")
 	tun := flagSet.Lookup("tun")
 	udpPort := flagSet.Lookup("udp-port")
@@ -121,6 +122,7 @@ func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("  --loglevel int\n\t%s (default %s)\n", logLevel.Usage, logLevel.DefValue)
 	fmt.Printf("  --mtu int\n\t%s (default %s)\n", mtu.Usage, mtu.DefValue)
 	fmt.Printf("  --proxy-listen string\n\t%s\n", proxyListen.Usage)
+	fmt.Printf("  --proxy-user strings\n\t%s\n", proxyUsers.Usage)
 	fmt.Printf("  -s, --server string\n\t%s\n", server.Usage)
 	fmt.Printf("  --tun string\n\t%s (default %s)\n", tun.Usage, tun.DefValue)
 	fmt.Printf("  --udp-crypto string\n\t%s (default %s)\n", cryptoAlgo.Usage, cryptoAlgo.DefValue)
@@ -138,7 +140,7 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 
 	// daemon flags
 	var forcePeerRelay, forceServerRelay bool
-	var ignoredInterfaces, forwards stringSlice
+	var ignoredInterfaces, forwards, proxyUsers stringSlice
 	var cryptoAlgo string
 
 	flagSet.IntVar(&cfg.DiscoConfig.PortScanOffset, "disco-port-scan-offset", -1000, "scan ports offset when disco")
@@ -157,7 +159,7 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	flagSet.StringVar(&cfg.NICConfig.Name, "tun", defaultTunName, "nic name")
 	flagSet.Var(&forwards, "forward", "start in rootless mode and create a port forward (e.g. tcp://127.0.0.1:80)")
 	flagSet.StringVar(&cfg.ProxyConfig.Listen, "proxy-listen", "", "start a proxy server to access the PG network (e.g. 127.0.0.1:4090)")
-
+	flagSet.Var(&proxyUsers, "proxy-user", "user:pass pair for proxy server authenticate (can be specified multiple times)")
 	flagSet.StringVar(&cfg.PrivateKey, "key", "", "curve25519 private key in base58 format (default generate a new one)")
 	flagSet.StringVar(&cfg.SecretFile, "secret-file", "", "")
 	flagSet.StringVar(&cfg.SecretFile, "f", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
@@ -176,6 +178,7 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	cfg.DiscoConfig.IgnoredInterfaces = ignoredInterfaces
 	cfg.QueryPeers = queryPeers
 	cfg.Forwards = forwards
+	cfg.ProxyConfig.Users = proxyUsers
 
 	if cfg.QueryPeers {
 		return
