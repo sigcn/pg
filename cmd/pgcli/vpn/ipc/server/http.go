@@ -114,10 +114,10 @@ func (s *Server) handleQueryPeers(w http.ResponseWriter, r *http.Request) {
 			IPv4:     p.IPv4,
 			IPv6:     p.IPv6,
 			Mode:     "RELAY",
+			NAT:      p.Meta.Get("nat"),
 		}
 		if p2pPeer, ok := p2pPeers[disco.PeerID(p.Addr.String())]; ok {
 			state.Mode = "P2P"
-			state.NAT = p.Meta.Get("nat")
 			state.LastActiveTime = p2pPeer.LastActiveTime
 			state.Addrs = p2pPeer.Addrs
 		}
