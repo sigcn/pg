@@ -91,6 +91,7 @@ func usage(flagSet *flag.FlagSet) {
 	forceServerRelay := flagSet.Lookup("force-server-relay")
 	forward := flagSet.Lookup("forward")
 	key := flagSet.Lookup("key")
+	labels := flagSet.Lookup("l")
 	logLevel := flagSet.Lookup("loglevel")
 	mtu := flagSet.Lookup("mtu")
 	peers := flagSet.Lookup("peers")
@@ -119,6 +120,7 @@ func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("  --force-server-relay \n\t%s\n", forceServerRelay.Usage)
 	fmt.Printf("  --forward []string\n\t%s\n", forward.Usage)
 	fmt.Printf("  --key string\n\t%s\n", key.Usage)
+	fmt.Printf("  -l, --label strings\n\t%s\n", labels.Usage)
 	fmt.Printf("  --loglevel int\n\t%s (default %s)\n", logLevel.Usage, logLevel.DefValue)
 	fmt.Printf("  --mtu int\n\t%s (default %s)\n", mtu.Usage, mtu.DefValue)
 	fmt.Printf("  --proxy-listen string\n\t%s\n", proxyListen.Usage)
@@ -140,7 +142,7 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 
 	// daemon flags
 	var forcePeerRelay, forceServerRelay bool
-	var ignoredInterfaces, forwards, proxyUsers stringSlice
+	var ignoredInterfaces, forwards, proxyUsers, nodeLabels stringSlice
 	var cryptoAlgo string
 
 	flagSet.IntVar(&cfg.DiscoConfig.PortScanOffset, "disco-port-scan-offset", -1000, "scan ports offset when disco")
@@ -172,6 +174,8 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	flagSet.IntVar(&cfg.UDPPort, "udp-port", 29877, "p2p udp listen port")
 	flagSet.BoolVar(&forcePeerRelay, "force-peer-relay", false, "force to peer relay transport mode")
 	flagSet.BoolVar(&forceServerRelay, "force-server-relay", false, "force to server relay transport mode")
+	flagSet.Var(&nodeLabels, "label", "")
+	flagSet.Var(&nodeLabels, "l", "key=value pair to describe peer node")
 
 	flagSet.Parse(args)
 
@@ -179,6 +183,7 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	cfg.QueryPeers = queryPeers
 	cfg.Forwards = forwards
 	cfg.ProxyConfig.Users = proxyUsers
+	cfg.Labels = nodeLabels
 
 	if cfg.QueryPeers {
 		return
@@ -222,6 +227,7 @@ type Config struct {
 	AuthQR           bool              `yaml:"auth_qr"`
 	P2pTransportMode p2p.TransportMode `yaml:"transport_mode"`
 	Forwards         []string          `yaml:"forwards"`
+	Labels           []string          `yaml:"labels"`
 }
 
 type P2PVPN struct {
@@ -294,6 +300,9 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err e
 		p2p.ListenPeerUp(v.addPeer),
 		p2p.ListenPeerLeave(v.removePeer),
 		p2p.KeepAlivePeriod(6 * time.Second),
+	}
+	for _, l := range v.Config.Labels {
+		p2pOptions = append(p2pOptions, p2p.PeerMeta("label", l))
 	}
 	if v.Config.UDPPort > 0 {
 		p2pOptions = append(p2pOptions, p2p.ListenUDPPort(v.Config.UDPPort))
