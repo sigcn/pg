@@ -270,8 +270,12 @@ func (c *PacketConn) relayPeer(peerID disco.PeerID) disco.PeerID {
 		if meta == nil {
 			continue
 		}
+		if _, ok := disco.Labels(meta["label"]).Get("node.nr"); ok {
+			// can not as relay peer when `node.nr` label is present
+			continue
+		}
 		peerNAT := disco.NATType(meta.Get("nat"))
-		if peerNAT == disco.Easy || peerNAT == disco.IP4 {
+		if peerNAT == disco.Easy || peerNAT == disco.IP4 || peerNAT == disco.IP46 {
 			return p.PeerID
 		}
 	}
