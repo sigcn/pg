@@ -34,6 +34,8 @@ func (code ControlCode) String() string {
 		return "PEER_LEAVE"
 	case CONTROL_CONN:
 		return "CONTROL_CONN"
+	case CONTROL_SERVER_CONNECTED:
+		return "SERVER_CONNECTED"
 	default:
 		return "UNDEFINED"
 	}
@@ -53,6 +55,7 @@ const (
 	CONTROL_UPDATE_META           ControlCode = 22
 	CONTROL_PEER_LEAVE            ControlCode = 25
 	CONTROL_CONN                  ControlCode = 30
+	CONTROL_SERVER_CONNECTED      ControlCode = 50
 )
 
 type Error struct {

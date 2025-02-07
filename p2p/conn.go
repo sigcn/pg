@@ -363,6 +363,8 @@ func (c *PacketConn) runControlEventLoop() {
 			}
 		case disco.CONTROL_NEW_PEER_UDP_ADDR:
 			c.udpConn.RunDiscoMessageSendLoop(e.Data.(disco.PeerUDPAddr))
+		case disco.CONTROL_SERVER_CONNECTED:
+			go c.udpConn.DetectNAT(context.Background(), c.wsConn.STUNs())
 		}
 	}
 	for {
@@ -441,8 +443,6 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Server, opts ...Opt
 		udpConn.Close()
 		return nil, err
 	}
-
-	udpConn.DetectNAT(ctx, wsConn.STUNs())
 
 	slog.Info("ListenPeer", "addr", cfg.PeerID)
 	packetConn := PacketConn{

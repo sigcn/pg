@@ -235,6 +235,7 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 		return fmt.Errorf("dial server %s: %w", server, err)
 	}
 	slog.Info("[WS] Connect", "server", server, "latency", time.Since(t1))
+	c.events <- Event{ControlCode: disco.CONTROL_SERVER_CONNECTED}
 
 	if err := c.configureSTUNs(httpResp.Header); err != nil {
 		return err
