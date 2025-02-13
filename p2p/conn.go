@@ -282,8 +282,8 @@ func (c *PacketConn) relayPeer(peerID disco.PeerID) disco.PeerID {
 	return ""
 }
 
-// runNetworkChangeDetectLoop listen network change and restart udp and websocket listener
-func (c *PacketConn) runNetworkChangeDetectLoop() {
+// networkChangeDetect listen network change and restart udp and websocket listener
+func (c *PacketConn) networkChangeDetect() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ch := make(chan netlink.AddrUpdate)
@@ -336,8 +336,9 @@ func (c *PacketConn) runNetworkChangeDetectLoop() {
 	}
 }
 
-// runControlEventLoop events control loop
-func (c *PacketConn) runControlEventLoop() {
+// eventsHandle events control loop
+func (c *PacketConn) eventsHandle() {
+	// handle control event
 	handleEvent := func(e ws.Event) {
 		switch e.ControlCode {
 		case disco.CONTROL_NEW_PEER:
@@ -367,6 +368,26 @@ func (c *PacketConn) runControlEventLoop() {
 			go c.udpConn.DetectNAT(context.Background(), c.wsConn.STUNs())
 		}
 	}
+
+	// send my udp addr to peer
+	sendMyUDPAddr := func(sendUDPAddr *disco.PeerUDPAddr) {
+		data := []byte{'a'}
+		addr := []byte(sendUDPAddr.Addr.String())
+		data = append(data, byte(len(addr)))
+		data = append(data, addr...)
+		data = append(data, []byte(sendUDPAddr.Type)...)
+		logger := slog.With("addr", sendUDPAddr.Addr, "peer", sendUDPAddr.ID)
+		if err := c.wsConn.WriteTo(data, sendUDPAddr.ID, disco.CONTROL_NEW_PEER_UDP_ADDR); err != nil {
+			logger.Warn("UDPAddrSend", "err", err)
+			return
+		}
+		if meta := c.PeerMeta(sendUDPAddr.ID); meta != nil && meta.Get("alias1") != "" {
+			logger.Debug("UDPAddrSend", "alias1", meta.Get("alias1"))
+		} else {
+			logger.Debug("UDPAddrSend")
+		}
+	}
+
 	for {
 		select {
 		case <-c.closeChan:
@@ -381,27 +402,11 @@ func (c *PacketConn) runControlEventLoop() {
 				return
 			}
 			go c.wsConn.UpdateNATInfo(*natEvent)
-		case sendUDPAddr, ok := <-c.udpConn.UDPAddrSends():
+		case udpAddr, ok := <-c.udpConn.UDPAddrSends():
 			if !ok {
 				return
 			}
-			go func() {
-				data := []byte{'a'}
-				addr := []byte(sendUDPAddr.Addr.String())
-				data = append(data, byte(len(addr)))
-				data = append(data, addr...)
-				data = append(data, []byte(sendUDPAddr.Type)...)
-				logger := slog.With("addr", sendUDPAddr.Addr, "peer", sendUDPAddr.ID)
-				if err := c.wsConn.WriteTo(data, sendUDPAddr.ID, disco.CONTROL_NEW_PEER_UDP_ADDR); err != nil {
-					logger.Warn("UDPAddrSend", "err", err)
-					return
-				}
-				if meta := c.PeerMeta(sendUDPAddr.ID); meta != nil && meta.Get("alias1") != "" {
-					logger.Debug("UDPAddrSend", "alias1", meta.Get("alias1"))
-				} else {
-					logger.Debug("UDPAddrSend")
-				}
-			}()
+			go sendMyUDPAddr(udpAddr)
 		}
 	}
 }
@@ -445,7 +450,7 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Server, opts ...Opt
 	}
 
 	slog.Info("ListenPeer", "addr", cfg.PeerID)
-	packetConn := PacketConn{
+	pc := PacketConn{
 		cfg:          cfg,
 		closeChan:    make(chan struct{}),
 		udpConn:      udpConn,
@@ -453,7 +458,7 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Server, opts ...Opt
 		peerMap:      lru.New[disco.PeerID, url.Values](1024),
 		discoCooling: lru.New[disco.PeerID, time.Time](1024),
 	}
-	go packetConn.runControlEventLoop()
-	go packetConn.runNetworkChangeDetectLoop()
-	return &packetConn, nil
+	go pc.eventsHandle()
+	go pc.networkChangeDetect()
+	return &pc, nil
 }
