@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sigcn/pg/lru"
+	"github.com/sigcn/pg/cache/lru"
 )
 
 const (

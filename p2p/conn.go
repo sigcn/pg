@@ -13,10 +13,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sigcn/pg/cache/lru"
 	"github.com/sigcn/pg/disco"
 	"github.com/sigcn/pg/disco/udp"
 	"github.com/sigcn/pg/disco/ws"
-	"github.com/sigcn/pg/lru"
 	N "github.com/sigcn/pg/net"
 	"github.com/sigcn/pg/netlink"
 	"storj.io/common/base58"

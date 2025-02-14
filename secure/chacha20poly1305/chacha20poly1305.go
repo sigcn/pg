@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/crypto/chacha20poly1305"
 
-	"github.com/sigcn/pg/lru"
+	"github.com/sigcn/pg/cache/lru"
 	"github.com/sigcn/pg/secure"
 )
 
