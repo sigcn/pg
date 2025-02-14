@@ -9,11 +9,13 @@ import (
 	"math/big"
 	"net"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/sigcn/pg/cache"
 	"github.com/sigcn/pg/disco"
 	"golang.org/x/time/rate"
 	"tailscale.com/net/stun"
@@ -46,6 +48,8 @@ type UDPConn struct {
 	peersIndexMutex sync.RWMutex
 
 	natInfo atomic.Pointer[disco.NATInfo]
+
+	cachePeers cache.CacheValue[[]PeerState]
 }
 
 func (c *UDPConn) Close() error {
@@ -332,17 +336,25 @@ func (c *UDPConn) RelayTo(relay disco.PeerID, p []byte, peerID disco.PeerID) (in
 	return c.WriteTo(c.relayProtocol.toRelay(p, peerID), relay)
 }
 
-func (c *UDPConn) Peers() (peers []PeerState) {
-	c.peersIndexMutex.RLock()
-	defer c.peersIndexMutex.RUnlock()
-	for _, v := range c.peersIndex {
-		v.statesMutex.RLock()
-		for _, state := range v.states {
-			peers = append(peers, *state)
+// Peers load all peers (peers order is stable)
+func (c *UDPConn) Peers() []PeerState {
+	return c.cachePeers.LoadTTL(time.Millisecond, func() (peers []PeerState) {
+		c.peersIndexMutex.RLock()
+		defer c.peersIndexMutex.RUnlock()
+		for _, v := range c.peersIndex {
+			v.statesMutex.RLock()
+			for _, state := range v.states {
+				peers = append(peers, *state)
+			}
+			v.statesMutex.RUnlock()
 		}
-		v.statesMutex.RUnlock()
-	}
-	return
+		sort.SliceStable(peers, func(i, j int) bool {
+			return strings.Compare(
+				fmt.Sprintf("%s%s", peers[i].PeerID, peers[i].Addr),
+				fmt.Sprintf("%s%s", peers[j].PeerID, peers[j].Addr)) > 0
+		})
+		return
+	})
 }
 
 func (c *UDPConn) RestartListener() error {
@@ -594,6 +606,7 @@ func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 }
 
 type PeerStore interface {
+	// Peers load all peers (peers order is stable)
 	Peers() []PeerState
 }
 

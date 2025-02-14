@@ -9,13 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sigcn/pg/cache"
 	"github.com/sigcn/pg/disco"
 )
-
-type cache[T any] struct {
-	result T
-	time   time.Time
-}
 
 type peerkeeper struct {
 	udpConn    atomic.Pointer[net.UDPConn]
@@ -30,7 +26,7 @@ type peerkeeper struct {
 	statesMutex sync.RWMutex
 
 	// caches
-	readyCache atomic.Value
+	cacheReady cache.CacheValue[bool]
 }
 
 func (peer *peerkeeper) heartbeat(addr *net.UDPAddr) {
@@ -83,15 +79,7 @@ func (peer *peerkeeper) ready() bool {
 	}
 
 	// then cache for one heartbeat interval thereafter
-	if value := peer.readyCache.Load(); value != nil {
-		cache := value.(cache[bool])
-		if now.Sub(cache.time) < peer.keepaliveInterval {
-			return cache.result
-		}
-	}
-	result := doRealCheck()
-	peer.readyCache.Store(cache[bool]{result: result, time: now})
-	return result
+	return peer.cacheReady.LoadTTL(peer.keepaliveInterval, doRealCheck)
 }
 
 // selectPeerUDP select one of the multiple UDP addresses discovered by the peer
