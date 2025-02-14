@@ -541,32 +541,35 @@ func (c *UDPConn) findPeerID(udpAddr *net.UDPAddr) disco.PeerID {
 	if udpAddr == nil {
 		return ""
 	}
-	c.peersIndexMutex.RLock()
-	defer c.peersIndexMutex.RUnlock()
-	var candidates []PeerState
-peerSeek:
-	for _, v := range c.peersIndex {
-		for _, state := range v.states {
-			if !state.Addr.IP.Equal(udpAddr.IP) || state.Addr.Port != udpAddr.Port {
-				continue
-			}
-			if time.Since(state.LastActiveTime) > 2*c.cfg.PeerKeepaliveInterval {
+	doFind := func(_ string) disco.PeerID {
+		c.peersIndexMutex.RLock()
+		defer c.peersIndexMutex.RUnlock()
+		var candidates []PeerState
+	peerSeek:
+		for _, v := range c.peersIndex {
+			for _, state := range v.states {
+				if !state.Addr.IP.Equal(udpAddr.IP) || state.Addr.Port != udpAddr.Port {
+					continue
+				}
+				if time.Since(state.LastActiveTime) > 2*c.cfg.PeerKeepaliveInterval {
+					continue peerSeek
+				}
+				candidates = append(candidates, *state)
 				continue peerSeek
 			}
-			candidates = append(candidates, *state)
-			continue peerSeek
 		}
-	}
-	if len(candidates) == 0 {
-		return ""
-	}
-	slices.SortFunc(candidates, func(c1, c2 PeerState) int {
-		if c1.LastActiveTime.After(c2.LastActiveTime) {
-			return -1
+		if len(candidates) == 0 {
+			return ""
 		}
-		return 1
-	})
-	return candidates[0].PeerID
+		slices.SortFunc(candidates, func(c1, c2 PeerState) int {
+			if c1.LastActiveTime.After(c2.LastActiveTime) {
+				return -1
+			}
+			return 1
+		})
+		return candidates[0].PeerID
+	}
+	return cache.LoadTTL(udpAddr.String(), time.Millisecond, doFind)
 }
 
 // FindPeer is used to find ready peer context by peer id
