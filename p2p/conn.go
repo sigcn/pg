@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sigcn/pg/disco"
@@ -40,6 +41,8 @@ type PacketConn struct {
 	transportMode     TransportMode
 
 	deadlineRead N.Deadline
+
+	relayPeerIndex atomic.Uint64
 }
 
 // ReadFrom reads a packet from the connection,
@@ -262,7 +265,10 @@ func (c *PacketConn) PeerMeta(peerID disco.PeerID) url.Values {
 
 // relayPeer find the suitable relay peer
 func (c *PacketConn) relayPeer(peerID disco.PeerID) disco.PeerID {
-	for _, p := range c.PeerStore().Peers() {
+	peers := c.PeerStore().Peers()
+	for range len(peers) {
+		index := c.relayPeerIndex.Add(1) % uint64(len(peers))
+		p := peers[index]
 		if p.PeerID == peerID {
 			continue
 		}
