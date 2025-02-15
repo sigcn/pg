@@ -22,6 +22,7 @@ func PrintPeers() error {
 		"Mode",
 		"NAT",
 		"UDP Endpoints",
+		"Version",
 	})
 
 	for _, peer := range peers {
@@ -32,6 +33,7 @@ func PrintPeers() error {
 			peer.Mode,
 			cmp.Or(peer.NAT, "-"),
 			cmp.Or(strings.Join(peer.Addrs, ","), "-"),
+			peer.Version,
 		})
 	}
 
