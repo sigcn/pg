@@ -33,7 +33,7 @@ var (
 )
 
 func init() {
-	defaultCache = lru.New[string, *CacheValue[any]](1024)
+	defaultCache = lru.New[string, *CacheValue[any]](2048)
 }
 
 // LoadTTL load value by key from default cache pool

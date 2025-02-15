@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sigcn/pg/cache"
 	"github.com/sigcn/pg/cache/lru"
 	"github.com/sigcn/pg/disco"
 	"github.com/sigcn/pg/disco/udp"
@@ -265,27 +266,30 @@ func (c *PacketConn) PeerMeta(peerID disco.PeerID) url.Values {
 
 // relayPeer find the suitable relay peer
 func (c *PacketConn) relayPeer(peerID disco.PeerID) disco.PeerID {
-	peers := c.PeerStore().Peers()
-	for range len(peers) {
-		index := c.relayPeerIndex.Add(1) % uint64(len(peers))
-		p := peers[index]
-		if p.PeerID == peerID {
-			continue
+	selectRelayPeer := func(_ string) disco.PeerID {
+		peers := c.PeerStore().Peers()
+		for range len(peers) {
+			index := c.relayPeerIndex.Add(1) % uint64(len(peers))
+			p := peers[index]
+			if p.PeerID == peerID {
+				continue
+			}
+			meta := c.PeerMeta(p.PeerID)
+			if meta == nil {
+				continue
+			}
+			if _, ok := disco.Labels(meta["label"]).Get("node.nr"); ok {
+				// can not as relay peer when `node.nr` label is present
+				continue
+			}
+			peerNAT := disco.NATType(meta.Get("nat"))
+			if peerNAT == disco.Easy || peerNAT == disco.IP4 || peerNAT == disco.IP46 {
+				return p.PeerID
+			}
 		}
-		meta := c.PeerMeta(p.PeerID)
-		if meta == nil {
-			continue
-		}
-		if _, ok := disco.Labels(meta["label"]).Get("node.nr"); ok {
-			// can not as relay peer when `node.nr` label is present
-			continue
-		}
-		peerNAT := disco.NATType(meta.Get("nat"))
-		if peerNAT == disco.Easy || peerNAT == disco.IP4 || peerNAT == disco.IP46 {
-			return p.PeerID
-		}
+		return ""
 	}
-	return ""
+	return cache.LoadTTL(peerID.String(), time.Millisecond, selectRelayPeer)
 }
 
 // networkChangeDetect listen network change and restart udp and websocket listener
