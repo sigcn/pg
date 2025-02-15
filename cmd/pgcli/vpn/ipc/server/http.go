@@ -80,6 +80,27 @@ func (s *Server) Start(ctx context.Context, stopWG *sync.WaitGroup) error {
 	return nil
 }
 
+func (s *Server) usePeerRelay(peerID disco.PeerID) bool {
+	for _, p := range s.PeerStore.Peers() {
+		if p.PeerID == peerID {
+			continue
+		}
+		meta := s.Meta(p.PeerID)
+		if meta == nil {
+			continue
+		}
+		if _, ok := disco.Labels(meta["label"]).Get("node.nr"); ok {
+			// can not as relay peer when `node.nr` label is present
+			continue
+		}
+		peerNAT := disco.NATType(meta.Get("nat"))
+		if peerNAT == disco.Easy || peerNAT == disco.IP4 || peerNAT == disco.IP46 {
+			return true
+		}
+	}
+	return false
+}
+
 type PeerState struct {
 	ID             disco.PeerID `json:"id"`
 	Hostname       string       `json:"hostname"`
@@ -120,6 +141,8 @@ func (s *Server) handleQueryPeers(w http.ResponseWriter, r *http.Request) {
 			state.Mode = "P2P"
 			state.LastActiveTime = p2pPeer.LastActiveTime
 			state.Addrs = p2pPeer.Addrs
+		} else if s.usePeerRelay(disco.PeerID(p.Addr.String())) {
+			state.Mode = "PEER_RELAY"
 		}
 		peers = append(peers, state)
 	}
