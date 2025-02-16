@@ -17,8 +17,6 @@
 > [!NOTE]
 > 节点间时间同步非常重要，通常相差不能超过 5 秒
 
-### p2p vpn
-
 ```sh
 # 节点1
 pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24
@@ -51,7 +49,7 @@ $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
 $ caddy reverse-proxy --from https://synf.in/pg --to 127.0.0.1:9987
 ```
 
-### p2p 文件分享
+### P2P 文件分享
 
 ```sh
 # 分享

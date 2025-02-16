@@ -18,8 +18,6 @@ Another p2p network library in Go. Committed to direct communication between dev
 > [!NOTE]
 > Time synchronization between nodes is crucial; the difference should not exceed 5 seconds
 
-### p2p vpn
-
 ```sh
 # node1
 pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24
@@ -32,7 +30,7 @@ pgcli vpn -s wss://synf.in/pg -4 100.64.0.2/24
 
 ## Advanced
 
-### Deploy the peermap server
+### Self-hosted peermap server
 
 #### 1. run the pgmap daemon
 
@@ -47,7 +45,7 @@ $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
 $ caddy reverse-proxy --from https://synf.in/pg --to 127.0.0.1:9987
 ```
 
-### p2p file sharing
+### P2P file sharing
 
 ```sh
 # share
