@@ -19,12 +19,12 @@
 
 ```sh
 # 节点1
-pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24
+pgcli vpn -s wss://open.privpkg.in/pg -4 100.64.0.1/24
 ```
 
 ```sh
 # 节点2
-pgcli vpn -s wss://synf.in/pg -4 100.64.0.2/24
+pgcli vpn -s wss://open.privpkg.in/pg -4 100.64.0.2/24
 ```
 
 > [!NOTE]
@@ -46,20 +46,20 @@ $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
 #### 2. 上 https 更安全
 
 ```sh
-$ caddy reverse-proxy --from https://synf.in/pg --to 127.0.0.1:9987
+$ caddy reverse-proxy --from https://open.privpkg.in/pg --to 127.0.0.1:9987
 ```
 
 ### P2P 文件分享
 
 ```sh
 # 分享
-$ pgcli share -s wss://synf.in/pg ~/my-show.pptx
+$ pgcli share -s wss://open.privpkg.in/pg ~/my-show.pptx
 ShareURL: pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
 ```
 
 ```sh
 # 下载
-$ pgcli download -s wss://synf.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
+$ pgcli download -s wss://open.privpkg.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
 ```
 
 ### 快捷方式 pgvpn
@@ -79,7 +79,7 @@ pgvpn --peers
 ### 去 root 权限的 VPN
 
 ```sh
-pgvpn -s wss://synf.in/pg -4 100.64.0.1/24 --proxy-listen 127.0.0.1:4090 --forward tcp://127.0.0.1:80 --forward udp://8.8.8.8:53
+pgvpn -s wss://open.privpkg.in/pg -4 100.64.0.1/24 --proxy-listen 127.0.0.1:4090 --forward tcp://127.0.0.1:80 --forward udp://8.8.8.8:53
 ```
 
 ### 使用预共享密钥文件代替 OIDC 认证
@@ -88,14 +88,14 @@ pgvpn -s wss://synf.in/pg -4 100.64.0.1/24 --proxy-listen 127.0.0.1:4090 --forwa
 
 ```sh
 $ export PG_SECRET_KEY=5172554832d76672d1959a5ac63c5ab9
-$ export PG_SERVER=wss://synf.in/pg
+$ export PG_SERVER=wss://open.privpkg.in/pg
 $ pgcli admin secret --network "<email>" --duration 24h > psns.json
 ```
 
 **然后**
 
 ```sh
-sudo pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24 -f psns.json
+sudo pgcli vpn -s wss://open.privpkg.in/pg -4 100.64.0.1/24 -f psns.json
 ```
 
 ## 许可证

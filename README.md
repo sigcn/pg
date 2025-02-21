@@ -20,12 +20,12 @@ Another p2p network library in Go. Committed to direct communication between dev
 
 ```sh
 # node1
-pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24
+pgcli vpn -s wss://open.privpkg.in/pg -4 100.64.0.1/24
 ```
 
 ```sh
 # node2
-pgcli vpn -s wss://synf.in/pg -4 100.64.0.2/24
+pgcli vpn -s wss://open.privpkg.in/pg -4 100.64.0.2/24
 ```
 
 ## Advanced
@@ -42,20 +42,20 @@ $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
 #### 2. wrap pgmap as an https server
 
 ```sh
-$ caddy reverse-proxy --from https://synf.in/pg --to 127.0.0.1:9987
+$ caddy reverse-proxy --from https://open.privpkg.in/pg --to 127.0.0.1:9987
 ```
 
 ### P2P file sharing
 
 ```sh
 # share
-$ pgcli share -s wss://synf.in/pg ~/my-show.pptx
+$ pgcli share -s wss://open.privpkg.in/pg ~/my-show.pptx
 ShareURL: pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
 ```
 
 ```sh
 # download
-$ pgcli download -s wss://synf.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
+$ pgcli download -s wss://open.privpkg.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
 ```
 
 ### Shortcut pgvpn
@@ -75,7 +75,7 @@ pgvpn --peers
 ### Rootless mode VPN
 
 ```sh
-pgvpn -s wss://synf.in/pg -4 100.64.0.1/24 --proxy-listen 127.0.0.1:4090 --forward tcp://127.0.0.1:80 --forward udp://8.8.8.8:53
+pgvpn -s wss://open.privpkg.in/pg -4 100.64.0.1/24 --proxy-listen 127.0.0.1:4090 --forward tcp://127.0.0.1:80 --forward udp://8.8.8.8:53
 ```
 
 ### Uses pre-shared secret file instead of OIDC auth
@@ -84,14 +84,14 @@ pgvpn -s wss://synf.in/pg -4 100.64.0.1/24 --proxy-listen 127.0.0.1:4090 --forwa
 
 ```sh
 $ export PG_SECRET_KEY=5172554832d76672d1959a5ac63c5ab9
-$ export PG_SERVER=wss://synf.in/pg
+$ export PG_SERVER=wss://open.privpkg.in/pg
 $ pgcli admin secret --network "<email>" --duration 24h > psns.json
 ```
 
 **then**
 
 ```sh
-sudo pgcli vpn -s wss://synf.in/pg -4 100.64.0.1/24 -f psns.json
+sudo pgcli vpn -s wss://open.privpkg.in/pg -4 100.64.0.1/24 -f psns.json
 ```
 
 ## License
