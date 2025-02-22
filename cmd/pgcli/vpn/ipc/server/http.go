@@ -94,9 +94,7 @@ func (s *Server) usePeerRelay(peerID disco.PeerID) bool {
 			continue
 		}
 		peerNAT := disco.NATType(meta.Get("nat"))
-		if peerNAT == disco.Easy || peerNAT == disco.IP4 || peerNAT == disco.IP46 {
-			return true
-		}
+		return peerNAT.Easy() || peerNAT.IP4()
 	}
 	return false
 }

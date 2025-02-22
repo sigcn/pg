@@ -283,7 +283,7 @@ func (c *PacketConn) relayPeer(peerID disco.PeerID) disco.PeerID {
 				continue
 			}
 			peerNAT := disco.NATType(meta.Get("nat"))
-			if peerNAT == disco.Easy || peerNAT == disco.IP4 || peerNAT == disco.IP46 {
+			if peerNAT.Easy() || peerNAT.IP4() {
 				return p.PeerID
 			}
 		}

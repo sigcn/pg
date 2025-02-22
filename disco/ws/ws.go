@@ -145,10 +145,17 @@ func (c *WSConn) LeadDisco(peerID disco.PeerID) error {
 }
 
 func (c *WSConn) UpdateNATInfo(natInfo disco.NATInfo) error {
-	if natInfo.Addrs == nil {
+	if len(natInfo.Addrs) == 0 {
 		return nil
 	}
-	natInfo.Addrs = natInfo.Addrs[:1]
+	var distinctAddrs []*net.UDPAddr
+	for _, addr := range natInfo.Addrs {
+		if disco.UDPAddrContains(distinctAddrs, addr) {
+			continue
+		}
+		distinctAddrs = append(distinctAddrs, addr)
+	}
+	natInfo.Addrs = distinctAddrs
 	controlPacket := []byte{byte(disco.CONTROL_UPDATE_NAT_INFO), 0}
 	b, err := json.Marshal(natInfo)
 	if err != nil {

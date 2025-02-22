@@ -93,6 +93,14 @@ func (t NATType) AccurateThan(t1 NATType) bool {
 	return true
 }
 
+func (t NATType) Easy() bool {
+	return t == Easy || t == EasyIP6
+}
+
+func (t NATType) IP4() bool {
+	return t == IP4 || t == IP46
+}
+
 func (t NATType) String() string {
 	if t == "" {
 		return "unknown"
@@ -108,12 +116,33 @@ const (
 	IP4      NATType = "ip4"
 	IP6      NATType = "ip6"
 	IP46     NATType = "ip4+ip6"
+	EasyIP6  NATType = "easy+ip6"
 	Internal NATType = "internal"
 )
+
+func UDPAddrContains(addrs []*net.UDPAddr, tgt *net.UDPAddr) bool {
+	for _, addr := range addrs {
+		if addr.IP.Equal(tgt.IP) && addr.Port == tgt.Port {
+			return true
+		}
+	}
+	return false
+}
 
 type NATInfo struct {
 	Type  NATType
 	Addrs []*net.UDPAddr
+}
+
+func (i *NATInfo) MergeAddrs(addrs []*net.UDPAddr) {
+	var toMerge []*net.UDPAddr
+	for _, addr := range addrs {
+		if UDPAddrContains(i.Addrs, addr) {
+			continue
+		}
+		toMerge = append(toMerge, addr)
+	}
+	i.Addrs = append(i.Addrs, toMerge...)
 }
 
 type Disco struct {

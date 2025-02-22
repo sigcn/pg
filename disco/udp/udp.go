@@ -156,6 +156,18 @@ func (c *UDPConn) DetectNAT(ctx context.Context, stunServers []string) (info dis
 		lastNATInfo := c.natInfo.Load()
 		slog.Log(context.Background(), -1, "[NAT] DetectNAT", "type", info.Type)
 		c.natInfo.Store(&info)
+		la := c.localAddrs()
+		if len(la.pubIP4()) > 0 && len(la.pubIP6()) > 0 {
+			info.Type = disco.IP46
+			info.MergeAddrs(la.pubIP4())
+			info.MergeAddrs(la.pubIP6())
+		} else if info.Type == disco.Easy && len(la.pubIP6()) > 0 {
+			info.Type = disco.EasyIP6
+			info.MergeAddrs(la.pubIP6())
+		} else if len(la.pubIP4()) > 0 {
+			info.Type = disco.IP4
+			info.MergeAddrs(la.pubIP4())
+		}
 		select {
 		case c.natEvents <- &info:
 		default:
@@ -402,33 +414,6 @@ func (c *UDPConn) getMainUDPConn() (*net.UDPConn, error) {
 func (c *UDPConn) discoPing(udpConn *net.UDPConn, peerID disco.PeerID, peerAddr *net.UDPAddr) {
 	slog.Debug("[UDP] Ping", "peer", peerID, "addr", peerAddr)
 	udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), peerAddr)
-}
-
-func (c *UDPConn) localAddrs() []string {
-	ips, err := disco.ListLocalIPs()
-	if err != nil {
-		slog.Error("[UDP] LocalAddrs", "err", err)
-		return nil
-	}
-	var detectIPs []string
-	for _, ip := range ips {
-		addr := net.JoinHostPort(ip.String(), fmt.Sprintf("%d", c.cfg.Port))
-		if ip.To4() != nil {
-			if c.cfg.DisableIPv4 {
-				continue
-			}
-		} else {
-			if c.cfg.DisableIPv6 {
-				continue
-			}
-		}
-		if slices.Contains(detectIPs, addr) {
-			continue
-		}
-		detectIPs = append(detectIPs, addr)
-	}
-	slog.Log(context.Background(), -2, "[UDP] LocalAddrs", "addrs", detectIPs)
-	return detectIPs
 }
 
 func (c *UDPConn) tryGetPeerkeeper(udpConn *net.UDPConn, peerID disco.PeerID) *peerkeeper {
