@@ -17,8 +17,8 @@ import (
 
 	"github.com/sigcn/pg/cache"
 	"github.com/sigcn/pg/disco"
+	"github.com/sigcn/pg/stun"
 	"golang.org/x/time/rate"
-	"tailscale.com/net/stun"
 )
 
 var (

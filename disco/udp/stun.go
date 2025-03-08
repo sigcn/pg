@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"tailscale.com/net/stun"
+	"github.com/sigcn/pg/stun"
 )
 
 type stunRoundTripper struct {
