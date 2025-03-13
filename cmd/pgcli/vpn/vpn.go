@@ -364,6 +364,7 @@ func (v *P2PVPN) loginIfNecessary(ctx context.Context) (disco.SecretStore, error
 		if err != nil {
 			return nil, fmt.Errorf("request network secret failed: %w", err)
 		}
+		fmt.Println("Authentication successful")
 		return store, store.UpdateNetworkSecret(joined)
 	}
 
