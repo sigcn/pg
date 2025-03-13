@@ -59,8 +59,8 @@ const (
 )
 
 type Error struct {
-	Code int
-	Msg  string
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
 }
 
 func (e Error) Wrap(err error) Error {
