@@ -607,7 +607,7 @@ func (pm *PeerMap) HandleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	if email == "" {
 		w.WriteHeader(http.StatusBadGateway)
-		w.Write([]byte("odic: email is required"))
+		w.Write([]byte("oidc: email is required"))
 		return
 	}
 	n := auth.Net{ID: email}
