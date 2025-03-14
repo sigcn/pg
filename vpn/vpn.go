@@ -145,7 +145,7 @@ func (vpn *VPN) packetConnRead(wg *sync.WaitGroup, packetConn net.PacketConn) {
 // packetConnWrite read ip packet from outbound channel and write to packet conn
 func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 	defer wg.Done()
-	sendPacketToPeer := func(packet *nic.Packet, dstIP net.IP) {
+	sendPacketToPeer := func(packet *nic.Packet, srcIP, dstIP net.IP) {
 		defer nic.RecyclePacket(packet)
 		if dstIP.IsMulticast() {
 			slog.Log(context.Background(), -10, "DropMulticastIP", "dst", dstIP)
@@ -158,7 +158,8 @@ func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 			}
 			return
 		}
-		slog.Log(context.Background(), -1, "DropPacketPeerNotFound", "ip", dstIP)
+		// reject with icmp-host-unreachable
+		vpn.inbound <- nic.GetPacket(ICMPHostUnreachable(dstIP, srcIP, packet.AsBytes()))
 	}
 	handle := func(pkt *nic.Packet) *nic.Packet {
 		for _, out := range vpn.cfg.OutboundHandlers {
@@ -184,7 +185,7 @@ func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 				vpn.inbound <- packet
 				continue
 			}
-			sendPacketToPeer(packet, header.Dst)
+			sendPacketToPeer(packet, header.Src, header.Dst)
 			continue
 		}
 		if packet.Ver() == 6 {
@@ -196,7 +197,7 @@ func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 				vpn.inbound <- packet
 				continue
 			}
-			sendPacketToPeer(packet, header.Dst)
+			sendPacketToPeer(packet, header.Src, header.Dst)
 			continue
 		}
 		slog.Warn("Received invalid packet", "packet", hex.EncodeToString(pkt))
