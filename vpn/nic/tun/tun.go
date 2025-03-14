@@ -56,9 +56,8 @@ func (tun *TUNIC) Read() (*nic.Packet, error) {
 		}
 	})
 	if tun.read < tun.readTotal {
-		pkt := nic.IPPacketPool.Get()
 		tun.read++
-		return pkt, pkt.Write(tun.readBufs[tun.read][nic.IPPacketOffset : tun.readSizes[tun.read]+nic.IPPacketOffset])
+		return nic.GetPacket(tun.readBufs[tun.read][nic.IPPacketOffset : tun.readSizes[tun.read]+nic.IPPacketOffset]), nil
 	}
 	n, err := tun.dev.Read(tun.readBufs, tun.readSizes, nic.IPPacketOffset)
 	if err != nil {
@@ -67,8 +66,7 @@ func (tun *TUNIC) Read() (*nic.Packet, error) {
 	tun.readTotal = n - 1
 	tun.read = 0
 
-	pkt := nic.IPPacketPool.Get()
-	return pkt, pkt.Write(tun.readBufs[tun.read][nic.IPPacketOffset : tun.readSizes[tun.read]+nic.IPPacketOffset])
+	return nic.GetPacket(tun.readBufs[tun.read][nic.IPPacketOffset : tun.readSizes[tun.read]+nic.IPPacketOffset]), nil
 }
 
 // Write write ip packet to nic

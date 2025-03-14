@@ -5,10 +5,6 @@ import (
 	"sync"
 )
 
-var (
-	IPPacketPool *PacketPool = &PacketPool{MTU: 1428}
-)
-
 type Packet struct {
 	buf    []byte
 	offset int
@@ -87,4 +83,22 @@ func (pool *PacketPool) Put(p *Packet) {
 	pool.init()
 	p.Reset()
 	pool.pool.Put(p)
+}
+
+var (
+	defaultPacketPool *PacketPool = &PacketPool{MTU: 1428}
+)
+
+func SetPacketPool(pool *PacketPool) {
+	defaultPacketPool = pool
+}
+
+func RecyclePacket(pkt *Packet) {
+	defaultPacketPool.Put(pkt)
+}
+
+func GetPacket(data []byte) *Packet {
+	pkt := defaultPacketPool.Get()
+	pkt.Write(data)
+	return pkt
 }

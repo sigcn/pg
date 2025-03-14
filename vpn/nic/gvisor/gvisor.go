@@ -59,7 +59,7 @@ func (g *GvisorCard) init() {
 				AddressWithPrefix: tcpip.AddressWithPrefix{Address: g.addr4, PrefixLen: ones},
 			}, stack.AddressProperties{})
 
-			subnet, err := tcpip.NewSubnet(tcpip.AddrFrom4([4]byte(ipnet.IP.To4())), tcpip.MaskFromBytes(ipnet.Mask))
+			subnet, _ := tcpip.NewSubnet(tcpip.AddrFrom4([4]byte(ipnet.IP.To4())), tcpip.MaskFromBytes(ipnet.Mask))
 			g.Stack.AddRoute(tcpip.Route{Destination: subnet, NIC: g.nicID})
 		}
 		if g.Config.IPv6 != "" {
@@ -75,7 +75,7 @@ func (g *GvisorCard) init() {
 				AddressWithPrefix: tcpip.AddressWithPrefix{Address: g.addr6, PrefixLen: ones},
 			}, stack.AddressProperties{})
 
-			subnet, err := tcpip.NewSubnet(tcpip.AddrFrom16([16]byte(ipnet.IP)), tcpip.MaskFromBytes(ipnet.Mask))
+			subnet, _ := tcpip.NewSubnet(tcpip.AddrFrom16([16]byte(ipnet.IP)), tcpip.MaskFromBytes(ipnet.Mask))
 			g.Stack.AddRoute(tcpip.Route{Destination: subnet, NIC: g.nicID})
 		}
 	})
@@ -100,9 +100,7 @@ func (g *GvisorCard) Read() (*nic.Packet, error) {
 		return nil, net.ErrClosed
 	}
 	defer buf.DecRef()
-	pkt := nic.IPPacketPool.Get()
-	pkt.Write(buf.ToView().AsSlice())
-	return pkt, nil
+	return nic.GetPacket(buf.ToView().AsSlice()), nil
 }
 
 func (g *GvisorCard) Close() error {

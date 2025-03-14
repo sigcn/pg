@@ -34,7 +34,7 @@ type VPN struct {
 
 func New(cfg Config) *VPN {
 	if cfg.MTU > 0 {
-		nic.IPPacketPool = &nic.PacketPool{MTU: cfg.MTU}
+		nic.SetPacketPool(&nic.PacketPool{MTU: cfg.MTU})
 	}
 	return &VPN{
 		cfg:      cfg,
@@ -115,14 +115,14 @@ func (vpn *VPN) nicWrite(wg *sync.WaitGroup, vnic *nic.VirtualNIC) {
 	}
 	for packet := range vpn.inbound {
 		if packet = handle(packet); packet == nil {
-			nic.IPPacketPool.Put(packet)
+			nic.RecyclePacket(packet)
 			continue
 		}
 		err := vnic.Write(packet)
 		if err != nil {
 			slog.Debug("WriteTo nic device", "err", err.Error())
 		}
-		nic.IPPacketPool.Put(packet)
+		nic.RecyclePacket(packet)
 	}
 }
 
@@ -138,9 +138,7 @@ func (vpn *VPN) packetConnRead(wg *sync.WaitGroup, packetConn net.PacketConn) {
 			}
 			panic(err)
 		}
-		pkt := nic.IPPacketPool.Get()
-		pkt.Write(buf[:n])
-		vpn.inbound <- pkt
+		vpn.inbound <- nic.GetPacket(buf[:n])
 	}
 }
 
@@ -148,7 +146,7 @@ func (vpn *VPN) packetConnRead(wg *sync.WaitGroup, packetConn net.PacketConn) {
 func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 	defer wg.Done()
 	sendPacketToPeer := func(packet *nic.Packet, dstIP net.IP) {
-		defer nic.IPPacketPool.Put(packet)
+		defer nic.RecyclePacket(packet)
 		if dstIP.IsMulticast() {
 			slog.Log(context.Background(), -10, "DropMulticastIP", "dst", dstIP)
 			return
@@ -173,7 +171,7 @@ func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 	}
 	for packet := range vpn.outbound {
 		if packet = handle(packet); packet == nil {
-			nic.IPPacketPool.Put(packet)
+			nic.RecyclePacket(packet)
 			continue
 		}
 		pkt := packet.AsBytes()
@@ -202,6 +200,6 @@ func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 			continue
 		}
 		slog.Warn("Received invalid packet", "packet", hex.EncodeToString(pkt))
-		nic.IPPacketPool.Put(packet)
+		nic.RecyclePacket(packet)
 	}
 }
