@@ -17,6 +17,7 @@ var (
 
 type JSONSecret struct {
 	Network   string   `json:"n"`
+	Admin     bool     `json:"adm,omitempty"`
 	Alias     string   `json:"n1"`
 	Neighbors []string `json:"ns"`
 	Deadline  int64    `json:"t"`
@@ -38,15 +39,17 @@ func NewAuthenticator(key string) *Authenticator {
 }
 
 func (auth *Authenticator) GenerateSecret(n Net, validDuration time.Duration) (string, error) {
-	b, err := json.Marshal(JSONSecret{
+	return auth.GenerateSecretAdmin(false, n, validDuration)
+}
+
+func (auth *Authenticator) GenerateSecretAdmin(adm bool, n Net, validDuration time.Duration) (string, error) {
+	b, _ := json.Marshal(JSONSecret{
 		Network:   n.ID,
+		Admin:     adm,
 		Alias:     n.Alias,
 		Neighbors: n.Neighbors,
 		Deadline:  time.Now().Add(validDuration).Unix(),
 	})
-	if err != nil {
-		return "", err
-	}
 	chiperData, err := aescbc.Encrypt(auth.key, b)
 	return base64.URLEncoding.EncodeToString(chiperData), err
 }

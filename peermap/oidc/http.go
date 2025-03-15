@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"path"
 	"sync"
@@ -79,4 +80,39 @@ func OIDCSelector(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<a href="//%s%s?state=%s">%s</a><br />`,
 			cmp.Or(r.Header.Get("host"), r.Host), path.Join(r.URL.Path, provider), state, provider)
 	}
+}
+
+type Authority struct {
+	Grant func(email, state string) (disco.NetworkSecret, error)
+}
+
+func (a *Authority) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	provider, ok := Provider(r.PathValue("provider"))
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	email, _, err := provider.UserInfo(r.URL.Query().Get("code"))
+	if err != nil {
+		slog.Error("OIDC get userInfo error", "err", err)
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(fmt.Sprintf("oidc: %s", err)))
+		return
+	}
+	if email == "" {
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte("oidc: email is required"))
+		return
+	}
+	secret, err := a.Grant(email, r.URL.Query().Get("state"))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	err = NotifyToken(r.URL.Query().Get("state"), secret)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Write([]byte("ok"))
 }

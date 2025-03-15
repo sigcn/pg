@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -323,7 +324,7 @@ func (p *peerConn) updateSecret() error {
 		ID:        p.networkSecret.Network,
 		Alias:     p.networkContext.alias,
 		Neighbors: p.networkContext.neighbors,
-	})
+	}, false)
 	if err != nil {
 		slog.Error("NetworkSecretRefresh", "err", err)
 		return err
@@ -592,42 +593,6 @@ func (pm *PeerMap) HandlePutNetworkMeta(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-func (pm *PeerMap) HandleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
-	provider, ok := oidc.Provider(r.PathValue("provider"))
-	if !ok {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	email, _, err := provider.UserInfo(r.URL.Query().Get("code"))
-	if err != nil {
-		slog.Error("OIDC get userInfo error", "err", err)
-		w.WriteHeader(http.StatusBadGateway)
-		w.Write([]byte(fmt.Sprintf("oidc: %s", err)))
-		return
-	}
-	if email == "" {
-		w.WriteHeader(http.StatusBadGateway)
-		w.Write([]byte("oidc: email is required"))
-		return
-	}
-	n := auth.Net{ID: email}
-	if ctx, ok := pm.getNetwork(email); ok {
-		n.Alias = ctx.alias
-		n.Neighbors = ctx.neighbors
-	}
-	secret, err := pm.generateSecret(n)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	err = oidc.NotifyToken(r.URL.Query().Get("state"), secret)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	w.Write([]byte("ok"))
-}
-
 func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Request) {
 	networkSecrest := r.Header.Get("X-Network")
 	jsonSecret := auth.JSONSecret{
@@ -741,6 +706,15 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	slog.Debug("PeerConnected", "network", jsonSecret.Network, "peer", peerID)
 }
 
+func (pm *PeerMap) Grant(network, state string) (disco.NetworkSecret, error) {
+	n := auth.Net{ID: network}
+	if ctx, ok := pm.getNetwork(network); ok {
+		n.Alias = ctx.alias
+		n.Neighbors = ctx.neighbors
+	}
+	return pm.generateSecret(n, strings.HasPrefix(state, "PG_ADM"))
+}
+
 func (pm *PeerMap) newNetworkContext(state NetState) *networkContext {
 	return &networkContext{
 		id:              state.ID,
@@ -753,8 +727,9 @@ func (pm *PeerMap) newNetworkContext(state NetState) *networkContext {
 	}
 }
 
-func (pm *PeerMap) generateSecret(n auth.Net) (disco.NetworkSecret, error) {
-	secret, err := auth.NewAuthenticator(pm.cfg.SecretKey).GenerateSecret(n, pm.cfg.SecretValidityPeriod)
+func (pm *PeerMap) generateSecret(n auth.Net, adm bool) (disco.NetworkSecret, error) {
+	secret, err := auth.NewAuthenticator(pm.cfg.SecretKey).
+		GenerateSecretAdmin(adm, n, pm.cfg.SecretValidityPeriod)
 	if err != nil {
 		return disco.NetworkSecret{}, err
 	}
@@ -802,6 +777,6 @@ func New(cfg Config) (*PeerMap, error) {
 	mux.HandleFunc("GET /oidc", oidc.OIDCSelector)
 	mux.HandleFunc("GET /oidc/secret", oidc.OIDCSecret)
 	mux.HandleFunc("GET /oidc/{provider}", oidc.OIDCAuthURL)
-	mux.HandleFunc("GET /oidc/authorize/{provider}", pm.HandleOIDCAuthorize)
+	mux.Handle("GET /oidc/authorize/{provider}", &oidc.Authority{Grant: pm.Grant})
 	return &pm, nil
 }
