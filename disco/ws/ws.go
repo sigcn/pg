@@ -20,6 +20,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/sigcn/pg/disco"
+	"github.com/sigcn/pg/langs"
 	"golang.org/x/time/rate"
 )
 
@@ -206,7 +207,7 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 	handshake := http.Header{}
 	handshake.Set("X-Network", networkSecret.Secret)
 	handshake.Set("X-PeerID", c.peerID.String())
-	handshake.Set("X-Nonce", disco.NewNonce())
+	handshake.Set("X-Nonce", langs.NewNonce())
 	handshake.Set("X-Metadata", c.metadata.Encode())
 	if server == "" {
 		server = c.server.URL
@@ -229,7 +230,7 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 		return fmt.Errorf("dial server %s: 404 not found", server)
 	}
 	if httpResp != nil && httpResp.StatusCode == http.StatusForbidden {
-		var err disco.Error
+		var err langs.Error
 		json.NewDecoder(httpResp.Body).Decode(&err)
 		defer httpResp.Body.Close()
 		return err
@@ -253,7 +254,7 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 	}
 
 	c.rawConn.Store(conn)
-	c.nonce = disco.MustParseNonce(httpResp.Header.Get("X-Nonce"))
+	c.nonce = langs.MustParseNonce(httpResp.Header.Get("X-Nonce"))
 	c.connectedServer = server
 	c.activeTime.Store(time.Now().Unix())
 	conn.SetPingHandler(func(appData string) error {

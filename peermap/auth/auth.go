@@ -4,15 +4,15 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"time"
 
+	"github.com/sigcn/pg/langs"
 	"github.com/sigcn/pg/secure/aescbc"
 )
 
 var (
-	ErrInvalidToken = errors.New("invalid token")
-	ErrTokenExpired = errors.New("token expired")
+	ErrInvalidToken = langs.Error{Code: 9000, Msg: "invalid token"}
+	ErrTokenExpired = langs.Error{Code: 9001, Msg: "token expired"}
 )
 
 type JSONSecret struct {

@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/sigcn/pg/peermap"
+	"github.com/sigcn/pg/peermap/admin"
 )
 
 var (
@@ -100,6 +101,7 @@ func run(commandConfig peermap.Config, configPath string) error {
 	cfg, _ := peermap.ReadConfig(configPath)
 	cfg.Overwrite(commandConfig)
 
+	admin.Version = Version
 	srv, err := peermap.New(cfg)
 	if err != nil {
 		return err

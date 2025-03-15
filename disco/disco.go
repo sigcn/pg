@@ -1,9 +1,6 @@
 package disco
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/url"
@@ -57,23 +54,6 @@ const (
 	CONTROL_CONN                  ControlCode = 30
 	CONTROL_SERVER_CONNECTED      ControlCode = 50
 )
-
-type Error struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-}
-
-func (e Error) Wrap(err error) Error {
-	return Error{Code: e.Code, Msg: fmt.Sprintf("%s: %s", e.Msg, err)}
-}
-
-func (e Error) Error() string {
-	return fmt.Sprintf("ENO%d: %s", e.Code, e.Msg)
-}
-
-func (e Error) MarshalTo(w io.Writer) {
-	json.NewEncoder(w).Encode(e)
-}
 
 type NATType string
 

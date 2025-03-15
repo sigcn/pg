@@ -1,4 +1,4 @@
-package disco
+package langs
 
 import (
 	"crypto/rand"

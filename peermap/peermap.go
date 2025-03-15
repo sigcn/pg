@@ -18,6 +18,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/sigcn/pg/disco"
+	"github.com/sigcn/pg/langs"
+	"github.com/sigcn/pg/peermap/admin"
 	"github.com/sigcn/pg/peermap/auth"
 	"github.com/sigcn/pg/peermap/exporter"
 	exporterauth "github.com/sigcn/pg/peermap/exporter/auth"
@@ -26,8 +28,9 @@ import (
 )
 
 var (
-	ErrAddressAlreadyInuse  = disco.Error{Code: 4000, Msg: "the network address is already in use"}
-	ErrNetworkSecretExpired = disco.Error{Code: 4030, Msg: "network secret is expired"}
+	ErrAddressAlreadyInuse  = langs.Error{Code: 4000, Msg: "the network address is already in use"}
+	ErrNetworkSecretExpired = langs.Error{Code: 4030, Msg: "network secret is expired"}
+	ErrNetworkNotFound      = langs.Error{Code: 60000, Msg: "network not found"}
 
 	_ io.ReadWriter = (*peerConn)(nil)
 )
@@ -611,7 +614,7 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	}
 
 	peerID := r.Header.Get("X-PeerID")
-	nonce := disco.MustParseNonce(r.Header.Get("X-Nonce"))
+	nonce := langs.MustParseNonce(r.Header.Get("X-Nonce"))
 
 	pm.networkMapMutex.RLock()
 	networkCtx, ok := pm.networkMap[jsonSecret.Network]
@@ -715,6 +718,19 @@ func (pm *PeerMap) Grant(network, state string) (disco.NetworkSecret, error) {
 	return pm.generateSecret(n, strings.HasPrefix(state, "PG_ADM"))
 }
 
+func (pm *PeerMap) Peers(network string) (peers []url.Values, err error) {
+	netctx, ok := pm.getNetwork(network)
+	if !ok {
+		return nil, ErrNetworkNotFound
+	}
+	netctx.peersMutex.RLock()
+	for _, v := range netctx.peers {
+		peers = append(peers, v.metadata)
+	}
+	netctx.peersMutex.RUnlock()
+	return
+}
+
 func (pm *PeerMap) newNetworkContext(state NetState) *networkContext {
 	return &networkContext{
 		id:              state.ID,
@@ -768,15 +784,16 @@ func New(cfg Config) (*PeerMap, error) {
 
 	mux := http.NewServeMux()
 	pm.httpServer = &http.Server{Handler: mux, Addr: cfg.Listen}
+	mux.Handle("/pg/apis/v1/admin/", &admin.AdministratorV1{Auth: pm.authenticator, PeerStore: &pm})
 	mux.HandleFunc("GET /pg", pm.HandlePeerPacketConnect)
 	mux.HandleFunc("GET /pg/networks", pm.HandleQueryNetworks)
 	mux.HandleFunc("GET /pg/peers", pm.HandleQueryNetworkPeers)
 	mux.HandleFunc("GET /pg/networks/{network}/meta", pm.HandleGetNetworkMeta)
 	mux.HandleFunc("PUT /pg/networks/{network}/meta", pm.HandlePutNetworkMeta)
 
+	mux.Handle("GET /oidc/authorize/{provider}", &oidc.Authority{Grant: pm.Grant})
 	mux.HandleFunc("GET /oidc", oidc.OIDCSelector)
 	mux.HandleFunc("GET /oidc/secret", oidc.OIDCSecret)
 	mux.HandleFunc("GET /oidc/{provider}", oidc.OIDCAuthURL)
-	mux.Handle("GET /oidc/authorize/{provider}", &oidc.Authority{Grant: pm.Grant})
 	return &pm, nil
 }
