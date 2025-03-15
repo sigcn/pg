@@ -5,16 +5,19 @@ GOBUILD := CGO_ENABLED=0 go build -ldflags "-s -w -X 'main.Version=${version}' -
 
 all: linux windows darwin
 
-linuxamd64:
+ui:
+	cd peermap/ui;npm install;npm run build
+
+linuxamd64: ui
 	GOOS=linux GOARCH=amd64 ${GOBUILD} -o pgcli-${version}-linux-amd64 ./cmd/pgcli
 	GOOS=linux GOARCH=amd64 ${GOBUILD} -o pgmap-${version}-linux-amd64 ./cmd/pgmap
-linuxarm64:
+linuxarm64: ui
 	GOOS=linux GOARCH=arm64 ${GOBUILD} -o pgcli-${version}-linux-arm64 ./cmd/pgcli
 	GOOS=linux GOARCH=arm64 ${GOBUILD} -o pgmap-${version}-linux-arm64 ./cmd/pgmap
-linuxmips:
+linuxmips: ui
 	GOOS=linux GOARCH=mips ${GOBUILD} -o pgcli-${version}-linux-mips ./cmd/pgcli
 	GOOS=linux GOARCH=mipsle ${GOBUILD} -o pgcli-${version}-linux-mipsle ./cmd/pgcli
-linuxmips64:
+linuxmips64: ui
 	GOOS=linux GOARCH=mips64 ${GOBUILD} -o pgcli-${version}-linux-mips64 ./cmd/pgcli
 	GOOS=linux GOARCH=mips64le ${GOBUILD} -o pgcli-${version}-linux-mips64le ./cmd/pgcli
 linux: linuxamd64 linuxarm64 linuxmips linuxmips64

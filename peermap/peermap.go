@@ -24,6 +24,7 @@ import (
 	"github.com/sigcn/pg/peermap/exporter"
 	exporterauth "github.com/sigcn/pg/peermap/exporter/auth"
 	"github.com/sigcn/pg/peermap/oidc"
+	"github.com/sigcn/pg/peermap/ui"
 	"golang.org/x/time/rate"
 )
 
@@ -718,14 +719,14 @@ func (pm *PeerMap) Grant(network, state string) (disco.NetworkSecret, error) {
 	return pm.generateSecret(n, strings.HasPrefix(state, "PG_ADM"))
 }
 
-func (pm *PeerMap) Peers(network string) (peers []url.Values, err error) {
+func (pm *PeerMap) Peers(network string) (peers []string, err error) {
 	netctx, ok := pm.getNetwork(network)
 	if !ok {
 		return nil, ErrNetworkNotFound
 	}
 	netctx.peersMutex.RLock()
 	for _, v := range netctx.peers {
-		peers = append(peers, v.metadata)
+		peers = append(peers, fmt.Sprintf("pg://%s?%s", v.id, v.metadata.Encode()))
 	}
 	netctx.peersMutex.RUnlock()
 	return
@@ -785,6 +786,7 @@ func New(cfg Config) (*PeerMap, error) {
 	mux := http.NewServeMux()
 	pm.httpServer = &http.Server{Handler: mux, Addr: cfg.Listen}
 	mux.Handle("/pg/apis/v1/admin/", &admin.AdministratorV1{Auth: pm.authenticator, PeerStore: &pm})
+	mux.HandleFunc("/", ui.HandleStaticFiles)
 	mux.HandleFunc("GET /pg", pm.HandlePeerPacketConnect)
 	mux.HandleFunc("GET /pg/networks", pm.HandleQueryNetworks)
 	mux.HandleFunc("GET /pg/peers", pm.HandleQueryNetworkPeers)
@@ -793,6 +795,7 @@ func New(cfg Config) (*PeerMap, error) {
 
 	mux.Handle("GET /oidc/authorize/{provider}", &oidc.Authority{Grant: pm.Grant})
 	mux.HandleFunc("GET /oidc", oidc.OIDCSelector)
+	mux.HandleFunc("GET /oidc/providers", oidc.OIDCProviders)
 	mux.HandleFunc("GET /oidc/secret", oidc.OIDCSecret)
 	mux.HandleFunc("GET /oidc/{provider}", oidc.OIDCAuthURL)
 	return &pm, nil

@@ -9,10 +9,13 @@ import (
 	"log/slog"
 	"net/http"
 	"path"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/sigcn/pg/disco"
+	"github.com/sigcn/pg/langs"
 )
 
 var (
@@ -80,6 +83,15 @@ func OIDCSelector(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<a href="//%s%s?state=%s">%s</a><br />`,
 			cmp.Or(r.Header.Get("host"), r.Host), path.Join(r.URL.Path, provider), state, provider)
 	}
+}
+
+func OIDCProviders(w http.ResponseWriter, r *http.Request) {
+	var providerIDs []string
+	for provider := range providers {
+		providerIDs = append(providerIDs, provider)
+	}
+	slices.SortStableFunc(providerIDs, func(s1, s2 string) int { return strings.Compare(s1, s2) })
+	langs.Data[any]{Data: providerIDs}.MarshalTo(w)
 }
 
 type Authority struct {

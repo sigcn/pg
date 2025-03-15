@@ -3,7 +3,6 @@ package admin
 import (
 	"errors"
 	"net/http"
-	"net/url"
 	"runtime/debug"
 	"sync"
 
@@ -53,7 +52,7 @@ func (a *AdministratorV1) handleQueryPeers(w http.ResponseWriter, r *http.Reques
 		langs.Err(err).MarshalTo(w)
 		return
 	}
-	langs.Data[[]url.Values]{Data: peers}.MarshalTo(w)
+	langs.Data[any]{Data: peers}.MarshalTo(w)
 }
 
 func (a *AdministratorV1) handleQueryServerInfo(w http.ResponseWriter, r *http.Request) {

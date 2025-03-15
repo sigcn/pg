@@ -16,10 +16,12 @@ import (
 func generateSecret(admin *flag.FlagSet) error {
 	flagSet := flag.NewFlagSet("secret", flag.ExitOnError)
 	var alias, secretKey, network, duration string
+	var adm bool
 	flagSet.StringVar(&alias, "alias", "", "alias of network")
 	flagSet.StringVar(&duration, "duration", "24h", "secret duration to expire")
 	flagSet.StringVar(&network, "network", "default", "peermap server url")
 	flagSet.StringVar(&secretKey, "secret-key", "", "key to generate network secret")
+	flagSet.BoolVar(&adm, "admin", false, "is admin secret")
 
 	flagSet.Parse(admin.Args()[1:])
 
@@ -34,7 +36,7 @@ func generateSecret(admin *flag.FlagSet) error {
 	}
 
 	n := auth.Net{ID: network, Alias: alias}
-	secret, err := auth.NewAuthenticator(secretKey).GenerateSecret(n, validDuration)
+	secret, err := auth.NewAuthenticator(secretKey).GenerateSecretAdmin(adm, n, validDuration)
 	if err != nil {
 		return err
 	}
