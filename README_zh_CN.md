@@ -1,3 +1,7 @@
+<p align="center">
+    <img src="peermap/ui/src/assets/logo.png" width="180" />
+</p>
+
 # PeerGuard
 
 另一个 Go 实现的 p2p 类库。致力于设备之间直接通信。
@@ -15,16 +19,16 @@
 ## 快速开始
 
 > [!NOTE]
-> 节点间时间同步非常重要，通常相差不能超过 5 秒
+> 节点间时间同步非常重要，通常相差不能超过 10 秒
 
 ```sh
 # 节点1
-pgcli vpn -s wss://open.privpkg.in/pg -4 100.64.0.1/24
+pgcli vpn -s wss://openpg.in/pg -4 100.64.0.1/24
 ```
 
 ```sh
 # 节点2
-pgcli vpn -s wss://open.privpkg.in/pg -4 100.64.0.2/24
+pgcli vpn -s wss://openpg.in/pg -4 100.64.0.2/24
 ```
 
 > [!NOTE]
@@ -38,7 +42,7 @@ pgcli vpn -s wss://open.privpkg.in/pg -4 100.64.0.2/24
 
 ```sh
 $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
-    --stun stun.miwifi.com:3478 --stun stunserver.stunprotocol.org:3478
+    --stun 111.206.174.2:3478 --stun 106.13.249.54:3478 --stun 106.12.251.52:3478 --stun 106.12.251.31:3478
 ```
 
 > [!NOTE] >`pgmap`支持配置文件（[查看所有配置项](https://github.com/sigcn/pg/blob/main/peermap/config.go#L20)）。另外，命令行参数会覆盖配置文件参数
@@ -46,20 +50,20 @@ $ pgmap -l 127.0.0.1:9987 --secret-key 5172554832d76672d1959a5ac63c5ab9 \
 #### 2. 上 https 更安全
 
 ```sh
-$ caddy reverse-proxy --from https://open.privpkg.in/pg --to 127.0.0.1:9987
+$ caddy reverse-proxy --from https://openpg.in --to 127.0.0.1:9987
 ```
 
 ### P2P 文件分享
 
 ```sh
 # 分享
-$ pgcli share -s wss://open.privpkg.in/pg ~/my-show.pptx
+$ pgcli share -s wss://openpg.in/pg ~/my-show.pptx
 ShareURL: pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
 ```
 
 ```sh
 # 下载
-$ pgcli download -s wss://open.privpkg.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
+$ pgcli download -s wss://openpg.in/pg pg://DJX2csRurJ3DvKeh63JebVHFDqVhnFjckdVhToAAiPYf/0/my-show.pptx
 ```
 
 ### 快捷方式 pgvpn
@@ -79,7 +83,7 @@ pgvpn --peers
 ### 去 root 权限的 VPN
 
 ```sh
-pgvpn -s wss://open.privpkg.in/pg -4 100.64.0.1/24 --proxy-listen 127.0.0.1:4090 --forward tcp://127.0.0.1:80 --forward udp://8.8.8.8:53
+pgvpn -s wss://openpg.in/pg -4 100.64.0.1/24 --proxy-listen 127.0.0.1:4090 --forward tcp://127.0.0.1:80 --forward udp://8.8.8.8:53
 ```
 
 ### 使用预共享密钥文件代替 OIDC 认证
@@ -88,14 +92,14 @@ pgvpn -s wss://open.privpkg.in/pg -4 100.64.0.1/24 --proxy-listen 127.0.0.1:4090
 
 ```sh
 $ export PG_SECRET_KEY=5172554832d76672d1959a5ac63c5ab9
-$ export PG_SERVER=wss://open.privpkg.in/pg
+$ export PG_SERVER=wss://openpg.in/pg
 $ pgcli admin secret --network "<email>" --duration 24h > psns.json
 ```
 
 **然后**
 
 ```sh
-sudo pgcli vpn -s wss://open.privpkg.in/pg -4 100.64.0.1/24 -f psns.json
+sudo pgcli vpn -s wss://openpg.in/pg -4 100.64.0.1/24 -f psns.json
 ```
 
 ## 许可证
@@ -108,3 +112,8 @@ sudo pgcli vpn -s wss://open.privpkg.in/pg -4 100.64.0.1/24 -f psns.json
 
 > [!NOTE]
 > 我维护了一个功能更强的专业版本，是闭源的。任何贡献在开源版本的代码都可能被闭源版本采用，如果介意请不要参与贡献。
+
+## 交流
+
+- Telegram 群组: https://t.me/+-S5L6ZCBxlxkMTRl
+- QQ 群组: 1039776116
