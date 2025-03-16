@@ -59,7 +59,7 @@ onMounted(async () => {
   <main v-if="session">
     <ul v-if="peers.length > 0">
       <li v-for="(peer, index) in peers" :key="index">
-        <div class="id">{{ peer.pathname || peer.host }}</div>
+        <div class="id">{{ (peer.pathname || peer.host).replace(/^\/\//, '') }}</div>
         <div class="nat">{{ peer.searchParams.get('nat') }}</div>
         <div class="host">{{ peer.searchParams.get('name') }}</div>
         <div class="ipv4">IPv4: {{ peer.searchParams.get('alias1') }}</div>
@@ -178,6 +178,7 @@ ul li .nat {
   padding: 0px 5px;
   color: #fff;
   font-size: 12px;
+  line-height: 18px;
 }
 ul li .host {
   font-weight: bold;
@@ -187,6 +188,8 @@ ul li .ipv6,
 ul li .addrs,
 ul li .version {
   color: var(--vt-c-text-light-1);
+  line-height: 16px;
+  font-size: 13px;
 }
 footer {
   width: 100%;
