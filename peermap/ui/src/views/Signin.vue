@@ -67,6 +67,10 @@ onMounted(loadProviders)
         Sign in with {{ provider }}
       </li>
     </ul>
+    <div class="tips">
+      <span style="color: #000">First time?</span> Learn more at
+      <a href="https://docs.openpg.in">docs.openpg.in</a>
+    </div>
   </main>
 </template>
 
@@ -143,5 +147,10 @@ main {
   width: 320px;
   margin: 20px auto;
   font-size: 12px;
+}
+
+.tips {
+  font-size: 13px;
+  margin-top: 30px;
 }
 </style>

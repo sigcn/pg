@@ -61,21 +61,37 @@ onMounted(async () => {
         <div class="host">{{ peer.searchParams.get('name') }}</div>
         <div class="ipv4">IPv4: {{ peer.searchParams.get('alias1') }}</div>
         <div class="ipv6">IPv6: {{ peer.searchParams.get('alias2') }}</div>
-        <div class="addrs">Addrs: {{ peer.searchParams.get('addr') }}</div>
+        <div class="addrs">Endpoints: {{ peer.searchParams.getAll('addr').join(', ') }}</div>
+        <div class="version">Version: {{ peer.searchParams.get('version') }}</div>
       </li>
     </ul>
     <div v-else class="usage">
-      <div class="title">No any node found, run your first node with:</div>
+      <div class="title">No any node was found, follow these steps to run your node.</div>
       <div class="code">
-        <code>pgcli vpn -s {{ (serverInfo || { url: '' }).url }} -4 100.99.0.1/24</code>
+        <div class="step">1. Download the binary pgcli</div>
+        <div class="stepc">
+          Go to github <a href="https://github.com/sigcn/pg/releases">releases</a> page, download
+          for your os and arch.
+        </div>
+        <div class="step">2. Download secret json file</div>
+        <div class="stepc">
+          Click <strong>Generate a secret</strong> at the top right of the current page to download
+          a pre-shared network secret file.
+        </div>
+        <div class="step">3. Run in the terminal(with root privileges)</div>
+        <code
+          >pgcli vpn -s {{ (serverInfo || { url: '' }).url }} -4 100.99.0.1/24 -f
+          {{ session.network }}_psns.json</code
+        >
+        <div class="title">
+          For more details, please read the <a href="https://docs.openpg.in">docs</a>.
+        </div>
       </div>
     </div>
   </main>
   <footer v-if="serverInfo">
-    <span
-      >{{ serverInfo.version }}_{{ serverInfo.vcs_revision }}, build on
-      {{ serverInfo.vcs_time }} using {{ serverInfo.go_version }}</span
-    >
+    <div>{{ serverInfo.version }}-{{ serverInfo.vcs_revision }}</div>
+    <div>build on {{ serverInfo.vcs_time }} using {{ serverInfo.go_version }}</div>
   </footer>
 </template>
 
@@ -100,16 +116,38 @@ header .generateSecret {
   margin: -35px 0 0 0;
 }
 
+main {
+  color: var(--vt-c-black);
+  min-height: calc(100vh - 100px);
+}
+
 .usage {
   padding: 10px;
 }
 
 .usage .title {
   font-size: 18px;
+  margin: 10px 0;
 }
 
+.usage .step {
+  line-height: 32px;
+  font-size: 14px;
+  font-weight: bold;
+}
+.usage .stepc,
+.usage code {
+  color: var(--vt-c-text-light-1);
+}
+.usage .stepc strong {
+  font-size: 16px;
+  font-weight: bold;
+}
 ul {
   padding: 10px;
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
 }
 
 ul li {
@@ -117,7 +155,7 @@ ul li {
   display: inline-block;
   background-color: #f1f1f1;
   padding: 10px;
-  border-radius: 5px;
+  border-radius: 3px;
   line-height: 22px;
   font-size: 14px;
   margin: 0 10px 10px 0;
@@ -144,9 +182,9 @@ ul li .host {
 footer {
   width: 100%;
   text-align: center;
-  font-size: 12px;
-  color: #999;
-  padding: 30px 0;
+  font-size: 13px;
+  color: #666;
+  padding: 10px 0 0 0;
 }
 
 @media (min-width: 1024px) {
