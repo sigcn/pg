@@ -6,7 +6,7 @@ GOBUILD := CGO_ENABLED=0 go build -ldflags "-s -w -X 'main.Version=${version}' -
 all: linux windows darwin
 
 ui:
-	cd peermap/ui;npm install;npm run build
+	cd peermap/ui;npm install;npm run format;npm run build
 
 linuxamd64: ui
 	GOOS=linux GOARCH=amd64 ${GOBUILD} -o pgcli-${version}-linux-amd64 ./cmd/pgcli

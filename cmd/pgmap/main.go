@@ -15,6 +15,7 @@ import (
 
 	"github.com/sigcn/pg/peermap"
 	"github.com/sigcn/pg/peermap/admin"
+	"github.com/sigcn/pg/peermap/config"
 )
 
 var (
@@ -43,7 +44,7 @@ func main() {
 	flag.IntVar(&logLevel, "loglevel", int(slog.LevelInfo), "log level (default is 0:info)")
 	flag.Var(&stuns, "stun", "stun server for peers NAT traversal (leave blank to disable NAT traversal)")
 
-	commandConfig := peermap.Config{}
+	commandConfig := config.Config{}
 	flag.StringVar(&commandConfig.Listen, "listen", "127.0.0.1:9987", "")
 	flag.StringVar(&commandConfig.Listen, "l", "127.0.0.1:9987", "listen http address")
 	flag.StringVar(&commandConfig.SecretKey, "secret-key", "", "key to generate network secret (defaut generate a random one)")
@@ -97,8 +98,8 @@ func usage() {
 	fmt.Printf("  -v, --version\n\t%s\n", flag.Lookup("v").Usage)
 }
 
-func run(commandConfig peermap.Config, configPath string) error {
-	cfg, _ := peermap.ReadConfig(configPath)
+func run(commandConfig config.Config, configPath string) error {
+	cfg, _ := config.ReadConfig(configPath)
 	cfg.Overwrite(commandConfig)
 
 	admin.Version = Version

@@ -47,6 +47,15 @@ async function request(url, opts) {
   try {
     r = await resp.json()
     r.headers = resp.headers
+    let setToken = r.headers.get('X-Set-Token')
+    if (setToken) {
+      window.localStorage.setItem('session', setToken)
+    }
+    if (parseInt(r.code / 10) == 900) {
+      window.localStorage.removeItem('session')
+      window.location.href = ''
+      return { code: 0 }
+    }
     return r
   } catch (_) {
     r.headers = resp.headers
@@ -78,7 +87,7 @@ async function download(url, opts) {
   a.click()
   document.body.removeChild(a)
   window.URL.revokeObjectURL(blobUrl)
-  return {code: 0}
+  return { code: 0 }
 }
 
 function getFileNameFromHeaders(headers) {

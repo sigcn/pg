@@ -12,6 +12,9 @@ const loadPeers = async () => {
     alert(r.msg)
     return
   }
+  if (!r.data) {
+    return
+  }
   r.data.forEach((peer) => {
     peers.value.push(new URL(peer))
   })
@@ -53,7 +56,7 @@ onMounted(async () => {
     </div>
     <a class="generateSecret" href="javascript:;" @click="downloadSecret">Generate a secret</a>
   </header>
-  <main>
+  <main v-if="session">
     <ul v-if="peers.length > 0">
       <li v-for="(peer, index) in peers" :key="index">
         <div class="id">{{ peer.pathname || peer.host }}</div>
@@ -171,13 +174,19 @@ ul li .id {
 ul li .nat {
   float: right;
   background-color: #69c;
-  border-radius: 3px;
+  border-radius: 2px;
   padding: 0px 5px;
   color: #fff;
   font-size: 12px;
 }
 ul li .host {
   font-weight: bold;
+}
+ul li .ipv4,
+ul li .ipv6,
+ul li .addrs,
+ul li .version {
+  color: var(--vt-c-text-light-1);
 }
 footer {
   width: 100%;

@@ -58,7 +58,7 @@ onMounted(loadProviders)
       </div>
     </div>
     <div class="secret">
-      <input ref="secretInput" v-model="secret" placeholder="Enter your secret json" />
+      <input ref="secretInput" v-model="secret" placeholder="Enter your json secret" />
       <button @click="signinBtn">Sign in</button>
     </div>
     <div v-if="providers" class="or">OR</div>

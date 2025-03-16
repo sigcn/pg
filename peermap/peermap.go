@@ -21,6 +21,7 @@ import (
 	"github.com/sigcn/pg/langs"
 	"github.com/sigcn/pg/peermap/admin"
 	"github.com/sigcn/pg/peermap/auth"
+	"github.com/sigcn/pg/peermap/config"
 	"github.com/sigcn/pg/peermap/exporter"
 	exporterauth "github.com/sigcn/pg/peermap/exporter/auth"
 	"github.com/sigcn/pg/peermap/oidc"
@@ -451,7 +452,7 @@ type PeerMap struct {
 	networkMap            map[string]*networkContext
 	peerMapMutex          sync.RWMutex
 	peerMap               map[string]*networkContext
-	cfg                   Config
+	cfg                   config.Config
 	authenticator         *auth.Authenticator
 	exporterAuthenticator *exporterauth.Authenticator
 }
@@ -771,8 +772,8 @@ func (pm *PeerMap) checkAdminToken(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
-func New(cfg Config) (*PeerMap, error) {
-	if err := cfg.applyDefaults(); err != nil {
+func New(cfg config.Config) (*PeerMap, error) {
+	if err := cfg.ApplyDefaults(); err != nil {
 		return nil, err
 	}
 
@@ -787,7 +788,7 @@ func New(cfg Config) (*PeerMap, error) {
 
 	mux := http.NewServeMux()
 	pm.httpServer = &http.Server{Handler: mux, Addr: cfg.Listen}
-	mux.Handle("/pg/apis/v1/admin/", &admin.AdministratorV1{Auth: pm.authenticator, Grant: pm.Grant, PeerStore: &pm})
+	mux.Handle("/pg/apis/v1/admin/", &admin.AdministratorV1{Config: cfg, Auth: pm.authenticator, Grant: pm.Grant, PeerStore: &pm})
 	mux.HandleFunc("/", ui.HandleStaticFiles)
 	mux.HandleFunc("GET /pg", pm.HandlePeerPacketConnect)
 	mux.HandleFunc("GET /pg/networks", pm.HandleQueryNetworks)

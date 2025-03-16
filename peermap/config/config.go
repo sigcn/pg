@@ -1,4 +1,4 @@
-package peermap
+package config
 
 import (
 	"crypto/rand"
@@ -83,7 +83,7 @@ type Config struct {
 	SecretValidityPeriod time.Duration             `yaml:"secret_validity_period"`
 }
 
-func (cfg *Config) applyDefaults() error {
+func (cfg *Config) ApplyDefaults() error {
 	if cfg.Listen == "" {
 		cfg.Listen = "127.0.0.1:9987"
 	}
