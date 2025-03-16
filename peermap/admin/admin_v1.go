@@ -1,7 +1,10 @@
 package admin
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"sync"
@@ -9,6 +12,7 @@ import (
 	"github.com/sigcn/pg/langs"
 	"github.com/sigcn/pg/peermap/admin/types"
 	"github.com/sigcn/pg/peermap/auth"
+	"github.com/sigcn/pg/peermap/oidc"
 )
 
 var (
@@ -19,6 +23,7 @@ var (
 type AdministratorV1 struct {
 	Auth      *auth.Authenticator
 	PeerStore types.PeerStore
+	Grant     oidc.Grant
 
 	mux      http.ServeMux
 	initOnce sync.Once
@@ -27,6 +32,7 @@ type AdministratorV1 struct {
 func (a *AdministratorV1) init() {
 	a.initOnce.Do(func() {
 		a.mux.HandleFunc("GET /pg/apis/v1/admin/peers", a.handleQueryPeers)
+		a.mux.HandleFunc("GET /pg/apis/v1/admin/psns.json", a.handleDownloadSecret)
 		a.mux.HandleFunc("GET /pg/apis/v1/admin/server_info", a.handleQueryServerInfo)
 	})
 }
@@ -53,6 +59,30 @@ func (a *AdministratorV1) handleQueryPeers(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	langs.Data[any]{Data: peers}.MarshalTo(w)
+}
+
+func (a *AdministratorV1) handleDownloadSecret(w http.ResponseWriter, r *http.Request) {
+	token := r.Header.Get("X-Token")
+	secret, err := a.Auth.ParseSecret(token)
+	if err != nil {
+		langs.Err(err).MarshalTo(w)
+		return
+	}
+	if !secret.Admin {
+		ErrForbidden.MarshalTo(w)
+		return
+	}
+	secretJSON, err := a.Grant(secret.Network, "")
+	if err != nil {
+		langs.Err(err).MarshalTo(w)
+		return
+	}
+	fileName := fmt.Sprintf("%s_psns.json", secret.Network)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileName))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Transfer-Encoding", "binary")
+	json.NewEncoder(w).Encode(secretJSON)
+	slog.Info("Generate a secret", "network", secret.Network)
 }
 
 func (a *AdministratorV1) handleQueryServerInfo(w http.ResponseWriter, r *http.Request) {

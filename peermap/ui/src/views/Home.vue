@@ -32,6 +32,13 @@ const signout = () => {
   window.location.href = ''
 }
 
+const downloadSecret = async () => {
+  let r = await http.download('/pg/apis/v1/admin/psns.json', { session: session.value })
+  if (r.code != 0) {
+    alert(r.msg)
+  }
+}
+
 onMounted(async () => {
   let sessionVal = window.localStorage.getItem('session')
   session.value = JSON.parse(sessionVal)
@@ -41,7 +48,10 @@ onMounted(async () => {
 </script>
 <template>
   <header v-if="session">
-    <span>{{ session.network }}</span> <a href="javascript:;" @click="signout">Sign out</a>
+    <div class="network">
+      <span>{{ session.network }}</span> <a href="javascript:;" @click="signout">Sign out</a>
+    </div>
+    <a class="generateSecret" href="javascript:;" @click="downloadSecret">Generate a secret</a>
   </header>
   <main>
     <ul v-if="peers.length > 0">
@@ -83,6 +93,11 @@ header span {
 }
 header a {
   font-size: 14px;
+}
+
+header .generateSecret {
+  float: right;
+  margin: -35px 0 0 0;
 }
 
 .usage {

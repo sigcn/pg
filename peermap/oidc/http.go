@@ -94,8 +94,10 @@ func OIDCProviders(w http.ResponseWriter, r *http.Request) {
 	langs.Data[any]{Data: providerIDs}.MarshalTo(w)
 }
 
+type Grant func(email, state string) (disco.NetworkSecret, error)
+
 type Authority struct {
-	Grant func(email, state string) (disco.NetworkSecret, error)
+	Grant Grant
 }
 
 func (a *Authority) ServeHTTP(w http.ResponseWriter, r *http.Request) {

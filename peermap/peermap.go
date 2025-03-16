@@ -31,7 +31,6 @@ import (
 var (
 	ErrAddressAlreadyInuse  = langs.Error{Code: 4000, Msg: "the network address is already in use"}
 	ErrNetworkSecretExpired = langs.Error{Code: 4030, Msg: "network secret is expired"}
-	ErrNetworkNotFound      = langs.Error{Code: 60000, Msg: "network not found"}
 
 	_ io.ReadWriter = (*peerConn)(nil)
 )
@@ -722,13 +721,16 @@ func (pm *PeerMap) Grant(network, state string) (disco.NetworkSecret, error) {
 func (pm *PeerMap) Peers(network string) (peers []string, err error) {
 	netctx, ok := pm.getNetwork(network)
 	if !ok {
-		return nil, ErrNetworkNotFound
+		return nil, nil
 	}
 	netctx.peersMutex.RLock()
 	for _, v := range netctx.peers {
 		peers = append(peers, fmt.Sprintf("pg://%s?%s", v.id, v.metadata.Encode()))
 	}
 	netctx.peersMutex.RUnlock()
+	slices.SortStableFunc(peers, func(s1, s2 string) int {
+		return strings.Compare(langs.Must(url.Parse(s1)).Query().Get("name"), langs.Must(url.Parse(s2)).Query().Get("name"))
+	})
 	return
 }
 
@@ -785,7 +787,7 @@ func New(cfg Config) (*PeerMap, error) {
 
 	mux := http.NewServeMux()
 	pm.httpServer = &http.Server{Handler: mux, Addr: cfg.Listen}
-	mux.Handle("/pg/apis/v1/admin/", &admin.AdministratorV1{Auth: pm.authenticator, PeerStore: &pm})
+	mux.Handle("/pg/apis/v1/admin/", &admin.AdministratorV1{Auth: pm.authenticator, Grant: pm.Grant, PeerStore: &pm})
 	mux.HandleFunc("/", ui.HandleStaticFiles)
 	mux.HandleFunc("GET /pg", pm.HandlePeerPacketConnect)
 	mux.HandleFunc("GET /pg/networks", pm.HandleQueryNetworks)
