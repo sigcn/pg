@@ -358,7 +358,7 @@ func (v *P2PVPN) loginIfNecessary(ctx context.Context) (disco.SecretStore, error
 		v.Config.SecretFile = filepath.Join(currentUser.HomeDir, ".peerguard_network_secret.json")
 	}
 
-	store := p2p.FileSecretStore(v.Config.SecretFile)
+	store := &disco.SecretFile{FilePath: v.Config.SecretFile}
 	newFileStore := func() (disco.SecretStore, error) {
 		joined, err := v.requestNetworkSecret(ctx)
 		if err != nil {

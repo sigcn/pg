@@ -59,25 +59,25 @@ func (s *NetworkSecret) UpdateNetworkSecret(secret NetworkSecret) error {
 	return nil
 }
 
-type FileSecretStore struct {
-	StoreFilePath string
+type SecretFile struct {
+	FilePath string
 }
 
-func (s *FileSecretStore) NetworkSecret() (NetworkSecret, error) {
-	f, err := os.Open(s.StoreFilePath)
+func (s *SecretFile) NetworkSecret() (NetworkSecret, error) {
+	f, err := os.Open(s.FilePath)
 	if err != nil {
-		return NetworkSecret{}, fmt.Errorf("file secret store(%s) open failed: %s", s.StoreFilePath, err)
+		return NetworkSecret{}, fmt.Errorf("file secret store(%s) open failed: %s", s.FilePath, err)
 	}
 	defer f.Close()
 	var secret NetworkSecret
 	if err = json.NewDecoder(f).Decode(&secret); err != nil {
-		return secret, fmt.Errorf("file secret store(%s) decode failed: %w", s.StoreFilePath, err)
+		return secret, fmt.Errorf("file secret store(%s) decode failed: %w", s.FilePath, err)
 	}
 	return secret, nil
 }
 
-func (s *FileSecretStore) UpdateNetworkSecret(secret NetworkSecret) error {
-	f, err := os.Create(s.StoreFilePath)
+func (s *SecretFile) UpdateNetworkSecret(secret NetworkSecret) error {
+	f, err := os.Create(s.FilePath)
 	if err != nil {
 		return fmt.Errorf("update network secret failed: %w", err)
 	}

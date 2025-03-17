@@ -5,23 +5,17 @@
 ### Peer1 (act as echo server)
 
 ```go
-serverURL := "wss://synf.in/pg"
+serverURL := "wss://openpg.in/pg"
 
-intent, err := network.JoinOIDC(oidc.ProviderGoogle, peermapURL)
-if err != nil {
-    panic(err)
-}
-fmt.Println(intent.AuthURL()) // https://synf.in/oidc/google?state=5G68CtYnMRMdrtrRF
-networkSecret, err := intent.Wait(context.TODO())
-if err != nil {
-    panic(err)
-}
+intent := langs.Must(network.JoinOIDC(oidc.ProviderGoogle, peermapURL))
+fmt.Println(intent.AuthURL()) // https://openpg.in/oidc/google?state=5G68CtYnMRMdrtrRF
+networkSecret := langs.Must(intent.Wait(context.TODO()))
 
 // peerID is a unique string (less than 256bytes)
-packetConn, err := p2p.ListenPacket(disco.NewServer(serverURL, networkSecret), p2p.ListenPeerID("uniqueString"))
-if err != nil {
-    panic(err)
-}
+packetConn := langs.Must(p2p.ListenPacket(
+    disco.NewServer(serverURL, networkSecret),
+    p2p.ListenPeerID("uniqueString"),
+))
 
 // unreliability echo server
 buf := make([]byte, 1024)
@@ -31,10 +25,7 @@ for {
         panic(err)
     }
     fmt.Println("Echo packet to", peerID, string(buf[:n]))
-    _, err = packetConn.WriteTo(peerID, buf[:n])
-    if err != nil {
-        panic(err)
-    }
+    langs.Must(packetConn.WriteTo(peerID, buf[:n]))
 }
 ```
 
@@ -43,18 +34,11 @@ for {
 ```go
 ...
 
-packetConn, err := p2p.ListenPacket(disco.NewServer(serverURL, networkSecret))
-if err != nil {
-    panic(err)
-}
-
+packetConn := langs.Must(p2p.ListenPacket(disco.NewServer(serverURL, networkSecret)))
 defer packetConn.Close()
 
 // "uniqueString" is above echo server's address
-_, err := packetConn.WriteTo(peer.ID("uniqueString"), []byte("hello"))
-if err != nil {
-    panic(err)
-}
+langs.Must(packetConn.WriteTo(peer.ID("uniqueString"), []byte("hello")))
 
 packetConn.SetReadDeadline(time.Now().Add(time.Second))
 

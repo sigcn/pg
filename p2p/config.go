@@ -112,10 +112,6 @@ func ListenPeerLeave(onPeerLeave OnPeerLeave) Option {
 	}
 }
 
-func FileSecretStore(storeFilePath string) disco.SecretStore {
-	return &disco.FileSecretStore{StoreFilePath: storeFilePath}
-}
-
 func PeerSilenceMode() Option {
 	return func(cfg *Config) error {
 		if cfg.Metadata == nil {
