@@ -52,9 +52,12 @@ onMounted(async () => {
 <template>
   <header v-if="session">
     <div class="network">
-      <span>{{ session.network }}</span> <a href="javascript:;" @click="signout">Sign out</a>
+      <span>{{ session.network }}</span>
+      <a href="javascript:;" @click="signout">{{ $t('sign_out') }}</a>
     </div>
-    <a class="generateSecret" href="javascript:;" @click="downloadSecret">Generate a secret</a>
+    <a class="generateSecret" href="javascript:;" @click="downloadSecret">
+      {{ $t('generate_secret') }}
+    </a>
   </header>
   <main v-if="session">
     <ul v-if="peers.length > 0">
@@ -69,25 +72,33 @@ onMounted(async () => {
       </li>
     </ul>
     <div v-else class="usage">
-      <div class="title">No any node was found, follow these steps to run your node.</div>
+      <div class="title">{{ $t('help.no_any_node') }}</div>
       <div class="code">
-        <div class="step">1. Download the binary pgcli</div>
+        <div class="step">{{ $t('help.step1') }}</div>
         <div class="stepc">
-          Go to github <a href="https://github.com/sigcn/pg/releases">releases</a> page, download
-          for your os and arch.
+          <i18n-t keypath="help.step1c">
+            <template #link>
+              <a href="https://github.com/sigcn/pg/releases">releases</a>
+            </template>
+          </i18n-t>
         </div>
-        <div class="step">2. Download secret json file</div>
+        <div class="step">{{ $t('help.step2') }}</div>
         <div class="stepc">
-          Click <strong>Generate a secret</strong> at the top right of the current page to download
-          a pre-shared network secret file.
+          <i18n-t keypath="help.step2c">
+            <template #btn>
+              <strong>{{ $t('generate_secret') }}</strong>
+            </template>
+          </i18n-t>
         </div>
-        <div class="step">3. Run in the terminal(with root privileges)</div>
+        <div class="step">{{ $t('help.step3') }}</div>
         <code
           >pgcli vpn -s {{ (serverInfo || { url: '' }).url }} -4 100.99.0.1/24 -f
           {{ session.network }}_psns.json</code
         >
         <div class="title">
-          For more details, please read the <a href="https://docs.openpg.in">docs</a>.
+          <i18n-t keypath="help.read_docs">
+            <template #link> <a href="https://docs.openpg.in">docs</a></template>
+          </i18n-t>
         </div>
       </div>
     </div>

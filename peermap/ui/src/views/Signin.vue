@@ -58,18 +58,20 @@ onMounted(loadProviders)
       </div>
     </div>
     <div class="secret">
-      <input ref="secretInput" v-model="secret" placeholder="Enter your json secret" />
-      <button @click="signinBtn">Sign in</button>
+      <input ref="secretInput" v-model="secret" :placeholder="$t('enter_secret')" />
+      <button @click="signinBtn">{{ $t('sign_in') }}</button>
     </div>
-    <div v-if="providers" class="or">OR</div>
+    <div v-if="providers" class="or">{{ $t('or') }}</div>
     <ul v-if="providers" class="login">
       <li v-for="(provider, index) in providers" :key="index" @click="signin(provider)">
-        Sign in with {{ provider }}
+        {{
+          $t('sign_in_with', { provider: provider.replace(/^./, (match) => match.toUpperCase()) })
+        }}
       </li>
     </ul>
     <div class="tips">
-      <span style="color: #000">First time?</span> Learn more at
-      <a href="https://docs.openpg.in">docs.openpg.in</a>
+      <span style="color: #000">{{ $t('first_time') }}</span>
+      {{ $t('read_docs') }} <a href="https://docs.openpg.in">docs.openpg.in</a>
     </div>
   </main>
 </template>
