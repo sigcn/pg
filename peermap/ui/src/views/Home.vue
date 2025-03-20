@@ -7,7 +7,7 @@ const peers = ref([])
 const serverInfo = ref()
 
 const loadPeers = async () => {
-  let r = await http.get('/pg/apis/v1/admin/peers', { session: session.value })
+  let r = await http.get('/pg/api/v1/peers', { session: session.value })
   if (r.code != 0) {
     alert(r.msg)
     return
@@ -21,7 +21,7 @@ const loadPeers = async () => {
 }
 
 const loadServerInfo = async () => {
-  let r = await http.get('/pg/apis/v1/admin/server_info', { session: session.value })
+  let r = await http.get('/pg/api/v1/server_info', { session: session.value })
   if (r.code != 0) {
     alert(r.msg)
     return
@@ -36,7 +36,7 @@ const signout = () => {
 }
 
 const downloadSecret = async () => {
-  let r = await http.download('/pg/apis/v1/admin/psns.json', { session: session.value })
+  let r = await http.download('/pg/api/v1/psns.json', { session: session.value })
   if (r.code != 0) {
     alert(r.msg)
   }

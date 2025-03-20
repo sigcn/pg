@@ -1,4 +1,4 @@
-package admin
+package api
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/sigcn/pg/langs"
-	"github.com/sigcn/pg/peermap/admin/types"
+	"github.com/sigcn/pg/peermap/api/types"
 	"github.com/sigcn/pg/peermap/auth"
 	"github.com/sigcn/pg/peermap/config"
 	"github.com/sigcn/pg/peermap/oidc"
@@ -25,7 +25,7 @@ var (
 
 type contextKey string
 
-type AdministratorV1 struct {
+type ApiV1 struct {
 	Config    config.Config
 	Auth      *auth.Authenticator
 	PeerStore types.PeerStore
@@ -35,15 +35,15 @@ type AdministratorV1 struct {
 	initOnce sync.Once
 }
 
-func (a *AdministratorV1) init() {
+func (a *ApiV1) init() {
 	a.initOnce.Do(func() {
-		a.mux.HandleFunc("GET /pg/apis/v1/admin/peers", a.handleQueryPeers)
-		a.mux.HandleFunc("GET /pg/apis/v1/admin/psns.json", a.handleDownloadSecret)
-		a.mux.HandleFunc("GET /pg/apis/v1/admin/server_info", a.handleQueryServerInfo)
+		a.mux.HandleFunc("GET /pg/api/v1/peers", a.handleQueryPeers)
+		a.mux.HandleFunc("GET /pg/api/v1/psns.json", a.handleDownloadSecret)
+		a.mux.HandleFunc("GET /pg/api/v1/server_info", a.handleQueryServerInfo)
 	})
 }
 
-func (a *AdministratorV1) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (a *ApiV1) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.init()
 	token := r.Header.Get("X-Token")
 	secret, err := a.Auth.ParseSecret(token)
@@ -65,7 +65,7 @@ func (a *AdministratorV1) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), contextKey("secret"), secret)))
 }
 
-func (a *AdministratorV1) handleQueryPeers(w http.ResponseWriter, r *http.Request) {
+func (a *ApiV1) handleQueryPeers(w http.ResponseWriter, r *http.Request) {
 	peers, err := a.PeerStore.Peers(r.Context().Value(contextKey("secret")).(auth.JSONSecret).Network)
 	if err != nil {
 		langs.Err(err).MarshalTo(w)
@@ -74,7 +74,7 @@ func (a *AdministratorV1) handleQueryPeers(w http.ResponseWriter, r *http.Reques
 	langs.Data[any]{Data: peers}.MarshalTo(w)
 }
 
-func (a *AdministratorV1) handleDownloadSecret(w http.ResponseWriter, r *http.Request) {
+func (a *ApiV1) handleDownloadSecret(w http.ResponseWriter, r *http.Request) {
 	secret := r.Context().Value(contextKey("secret")).(auth.JSONSecret)
 	secretJSON, err := a.Grant(secret.Network, "")
 	if err != nil {
@@ -89,7 +89,7 @@ func (a *AdministratorV1) handleDownloadSecret(w http.ResponseWriter, r *http.Re
 	slog.Info("Generate a secret", "network", secret.Network)
 }
 
-func (a *AdministratorV1) handleQueryServerInfo(w http.ResponseWriter, r *http.Request) {
+func (a *ApiV1) handleQueryServerInfo(w http.ResponseWriter, r *http.Request) {
 	info, err := readBuildInfo()
 	if err != nil {
 		langs.Err(err).MarshalTo(w)

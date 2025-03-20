@@ -19,7 +19,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sigcn/pg/disco"
 	"github.com/sigcn/pg/langs"
-	"github.com/sigcn/pg/peermap/admin"
+	"github.com/sigcn/pg/peermap/api"
 	"github.com/sigcn/pg/peermap/auth"
 	"github.com/sigcn/pg/peermap/config"
 	"github.com/sigcn/pg/peermap/exporter"
@@ -788,7 +788,7 @@ func New(cfg config.Config) (*PeerMap, error) {
 
 	mux := http.NewServeMux()
 	pm.httpServer = &http.Server{Handler: mux, Addr: cfg.Listen}
-	mux.Handle("/pg/apis/v1/admin/", &admin.AdministratorV1{Config: cfg, Auth: pm.authenticator, Grant: pm.Grant, PeerStore: &pm})
+	mux.Handle("/pg/api/v1/", &api.ApiV1{Config: cfg, Auth: pm.authenticator, Grant: pm.Grant, PeerStore: &pm})
 	mux.HandleFunc("/", ui.HandleStaticFiles)
 	mux.HandleFunc("GET /pg", pm.HandlePeerPacketConnect)
 	mux.HandleFunc("GET /pg/networks", pm.HandleQueryNetworks)
