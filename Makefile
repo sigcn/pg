@@ -53,10 +53,10 @@ github: clean all
 	gh release create ${version} --generate-notes --title "pg ${version}" pgcli-${version}*.gz pgcli-${version}*.zip pgmap-${version}*.gz
 
 image:
-	docker build . -t rkonfj/peerguard:${version} --build-arg version=${version} --build-arg githash=${git_hash}
+	docker build . -t rkonfj/openpg:${version} --build-arg version=${version} --build-arg githash=${git_hash}
 
 dockerhub: image
-	docker push rkonfj/peerguard:${version}
+	docker push rkonfj/openpg:${version}
 
 dist: github dockerhub
 
