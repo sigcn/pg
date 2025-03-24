@@ -7,10 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"path"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -86,12 +86,7 @@ func OIDCSelector(w http.ResponseWriter, r *http.Request) {
 }
 
 func OIDCProviders(w http.ResponseWriter, r *http.Request) {
-	var providerIDs []string
-	for provider := range providers {
-		providerIDs = append(providerIDs, provider)
-	}
-	slices.SortStableFunc(providerIDs, func(s1, s2 string) int { return strings.Compare(s1, s2) })
-	langs.Data[any]{Data: providerIDs}.MarshalTo(w)
+	langs.Data[[]string]{Data: slices.Sorted(maps.Keys(providers))}.MarshalTo(w)
 }
 
 type Grant func(email, state string) (disco.NetworkSecret, error)
