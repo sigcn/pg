@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,9 +38,10 @@ type ApiV1 struct {
 
 func (a *ApiV1) init() {
 	a.initOnce.Do(func() {
-		a.mux.HandleFunc("GET /pg/api/v1/peers", a.handleQueryPeers)
-		a.mux.HandleFunc("GET /pg/api/v1/psns.json", a.handleDownloadSecret)
-		a.mux.HandleFunc("GET /pg/api/v1/server_info", a.handleQueryServerInfo)
+		a.mux.HandleFunc("GET /api/v1/r8/stuns", a.handleQuerySTUNs)
+		a.mux.HandleFunc("GET /api/v1/r5/peers", a.handleQueryPeers)
+		a.mux.HandleFunc("GET /api/v1/r5/psns.json", a.handleDownloadSecret)
+		a.mux.HandleFunc("GET /api/v1/r5/server_info", a.handleQueryServerInfo)
 	})
 }
 
@@ -51,7 +53,7 @@ func (a *ApiV1) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		langs.Err(err).MarshalTo(w)
 		return
 	}
-	if !secret.Admin {
+	if strings.HasPrefix(r.URL.Path, "/api/v1/r5/") && !secret.Admin {
 		ErrForbidden.MarshalTo(w)
 		return
 	}
@@ -63,6 +65,18 @@ func (a *ApiV1) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), contextKey("secret"), secret)))
+}
+
+func (a *ApiV1) handleQuerySTUNs(w http.ResponseWriter, r *http.Request) {
+	var ret []string
+	for _, stun := range a.Config.STUNs {
+		if strings.Contains(stun, "://") {
+			ret = append(ret, stun)
+		} else {
+			ret = append(ret, fmt.Sprintf("udp://%s", stun))
+		}
+	}
+	langs.Data[[]string]{Data: ret}.MarshalTo(w)
 }
 
 func (a *ApiV1) handleQueryPeers(w http.ResponseWriter, r *http.Request) {
