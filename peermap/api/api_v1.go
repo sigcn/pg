@@ -59,7 +59,7 @@ func (a *ApiV1) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if time.Until(time.Unix(secret.Deadline, 0)) <
 		a.Config.SecretValidityPeriod-a.Config.SecretRotationPeriod {
-		if newSecret, err := a.Grant(secret.Network, "PG_ADM"); err == nil {
+		if newSecret, err := a.Grant(secret.Network, langs.IfElse(secret.Admin, "PG_ADM", "")); err == nil {
 			b, _ := json.Marshal(newSecret)
 			w.Header().Add("X-Set-Token", string(b))
 		}
