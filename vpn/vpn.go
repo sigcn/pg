@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/sigcn/pg/netlink"
@@ -89,10 +88,7 @@ func (vpn *VPN) nicRead(wg *sync.WaitGroup, nic *nic.VirtualNIC) {
 	for {
 		packet, err := nic.Read()
 		if err != nil {
-			if strings.Contains(err.Error(), os.ErrClosed.Error()) {
-				return
-			}
-			if errors.Is(err, net.ErrClosed) {
+			if errors.Is(err, os.ErrClosed) || errors.Is(err, net.ErrClosed) {
 				return
 			}
 			panic(err)
