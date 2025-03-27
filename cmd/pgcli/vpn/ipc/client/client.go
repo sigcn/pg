@@ -21,17 +21,27 @@ func PrintPeers() error {
 		"IPv6",
 		"Mode",
 		"NAT",
+		"Flags",
 		"UDP Endpoints",
 		"Version",
 	})
 
 	for _, peer := range peers {
+		var flags []string
+		if _, ok := peer.Labels.Get("node.nr"); ok {
+			flags = append(flags, "NR")
+		}
+		if _, ok := peer.Labels.Get("node.off"); ok {
+			flags = append(flags, "OFF")
+			peer.Mode = ""
+		}
 		tw.AppendRow(table.Row{
 			cmp.Or(peer.Hostname, "-"),
 			cmp.Or(peer.IPv4, "-"),
 			cmp.Or(peer.IPv6, "-"),
-			peer.Mode,
+			cmp.Or(peer.Mode, "-"),
 			cmp.Or(peer.NAT, "-"),
+			cmp.Or(strings.Join(flags, ","), "-"),
 			cmp.Or(strings.Join(peer.Addrs, ","), "-"),
 			peer.Version,
 		})

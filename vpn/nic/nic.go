@@ -102,6 +102,25 @@ func (r *VirtualNIC) RemovePeer(addr net.Addr) {
 	}
 }
 
+func (r *VirtualNIC) LabelPeer(addr net.Addr, kv string) {
+	r.init()
+	r.peersMutex.Lock()
+	defer r.peersMutex.Unlock()
+	_, v, ok := r.peers.Find(func(s string, p *Peer) bool {
+		return p.Addr == addr
+	})
+	if !ok {
+		return
+	}
+	v.Meta.Add("label", kv)
+	if v.IPv4 != "" {
+		r.peers.Put(v.IPv4, v)
+	}
+	if v.IPv6 != "" {
+		r.peers.Put(v.IPv6, v)
+	}
+}
+
 func (r *VirtualNIC) AddRoute(dst *net.IPNet, via net.IP) bool {
 	r.init()
 	r.peersMutex.Lock()

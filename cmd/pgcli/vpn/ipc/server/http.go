@@ -109,6 +109,7 @@ type PeerState struct {
 	Mode           string       `json:"mode"`
 	NAT            string       `json:"nat"`
 	Version        string       `json:"version"`
+	Labels         disco.Labels `json:"labels"`
 }
 
 func (s *Server) handleQueryPeers(w http.ResponseWriter, r *http.Request) {
@@ -136,6 +137,7 @@ func (s *Server) handleQueryPeers(w http.ResponseWriter, r *http.Request) {
 			Mode:     "RELAY",
 			NAT:      p.Meta.Get("nat"),
 			Version:  p.Meta.Get("version"),
+			Labels:   p.Meta["label"],
 		}
 		if p2pPeer, ok := p2pPeers[disco.PeerID(p.Addr.String())]; ok {
 			state.Mode = "P2P"

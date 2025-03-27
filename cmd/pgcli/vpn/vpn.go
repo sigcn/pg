@@ -297,8 +297,8 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err e
 	p2pOptions := []p2p.Option{
 		p2p.PeerMeta("version", Version),
 		p2p.PeerMeta("name", hostname),
-		p2p.ListenPeerUp(v.addPeer),
-		p2p.ListenPeerLeave(v.removePeer),
+		p2p.ListenPeerUp(v.onPeerUp),
+		p2p.ListenPeerLeave(v.onPeerLeave),
 		p2p.KeepAlivePeriod(6 * time.Second),
 	}
 	for _, l := range v.Config.Labels {
@@ -341,12 +341,12 @@ func (v *P2PVPN) listenPacketConn(ctx context.Context) (c *p2p.PacketConn, err e
 	return p2p.ListenPacketContext(ctx, peermap, p2pOptions...)
 }
 
-func (v *P2PVPN) addPeer(pi disco.PeerID, m url.Values) {
+func (v *P2PVPN) onPeerUp(pi disco.PeerID, m url.Values) {
 	v.nic.AddPeer(nic.Peer{Addr: pi, IPv4: m.Get("alias1"), IPv6: m.Get("alias2"), Meta: m})
 }
 
-func (v *P2PVPN) removePeer(pi disco.PeerID) {
-	v.nic.RemovePeer(pi)
+func (v *P2PVPN) onPeerLeave(pi disco.PeerID) {
+	v.nic.LabelPeer(pi, "node.off")
 }
 
 func (v *P2PVPN) loginIfNecessary(ctx context.Context) (disco.SecretStore, error) {
