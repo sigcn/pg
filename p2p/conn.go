@@ -121,15 +121,16 @@ func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		return
 	}
 
+	if !errors.Is(err, udp.ErrUDPConnInactive) {
+		c.TryLeadDisco(datagram.PeerID)
+	}
+
 	if relay := c.relayPeer(datagram.PeerID); relay != "" {
 		if n, err = c.udpConn.RelayTo(relay, p, datagram.PeerID); err == nil {
 			return
 		}
 	}
 
-	if !errors.Is(err, udp.ErrUDPConnInactive) {
-		c.TryLeadDisco(datagram.PeerID)
-	}
 	return len(p), c.wsConn.WriteTo(p, datagram.PeerID, disco.CONTROL_RELAY)
 }
 
