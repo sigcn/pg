@@ -63,12 +63,15 @@ onMounted(async () => {
     <ul v-if="peers.length > 0">
       <li v-for="(peer, index) in peers" :key="index">
         <div class="id">{{ (peer.pathname || peer.host).replace(/^\/\//, '') }}</div>
-        <div class="nat">{{ peer.searchParams.get('nat') }}</div>
-        <div class="host">{{ peer.searchParams.get('name') }}</div>
-        <div class="ipv4">IPv4: {{ peer.searchParams.get('alias1') }}</div>
-        <div class="ipv6">IPv6: {{ peer.searchParams.get('alias2') }}</div>
-        <div class="addrs">Endpoints: {{ peer.searchParams.getAll('addr').join(', ') }}</div>
-        <div class="version">Version: {{ peer.searchParams.get('version') }}</div>
+        <div class="meta">
+          <span
+            :class="{ nat: en[0] == 'nat', name: en[0] == 'name', version: en[0] == 'version' }"
+            v-for="(en, i) in peer.searchParams.entries()"
+            :key="i"
+          >
+            {{ en[0] }}={{ en[1] }}
+          </span>
+        </div>
       </li>
     </ul>
     <div v-else class="usage">
@@ -118,11 +121,12 @@ header {
   padding: 0 10px;
 }
 header span {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: bold;
 }
 header a {
   font-size: 14px;
+  margin-left: 5px;
 }
 
 header .generateSecret {
@@ -181,27 +185,30 @@ ul li .id {
   font-size: 16px;
   margin-bottom: 10px;
   overflow-x: scroll;
-}
-ul li .nat {
-  float: right;
-  background-color: #69c;
-  border-radius: 2px;
-  padding: 0px 5px;
-  color: #fff;
-  font-size: 12px;
-  line-height: 18px;
-}
-ul li .host {
   font-weight: bold;
 }
-ul li .ipv4,
-ul li .ipv6,
-ul li .addrs,
-ul li .version {
-  color: var(--vt-c-text-light-1);
-  line-height: 16px;
+
+.meta span {
+  display: inline-block;
+  background-color: #e0e0e0;
+  border-radius: 10px;
+  padding: 0 10px;
+  line-height: 22px;
   font-size: 13px;
+  color: var(--color-text);
+  margin: 0 5px 5px 0;
 }
+
+.meta .name {
+  background-color: #181717;
+  color: #fff;
+}
+
+.meta .nat {
+  background: linear-gradient(90deg, #0df6a4, #19a3f3);
+  color: #fff;
+}
+
 footer {
   width: 100%;
   text-align: center;
