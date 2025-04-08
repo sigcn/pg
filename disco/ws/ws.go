@@ -497,11 +497,14 @@ func (c *WSConn) updateNetworkSecret(secret disco.NetworkSecret) {
 	slog.Error("[WS] NetworkSecretUpdate give up", "secret", secret)
 }
 
-func DialPeermap(ctx context.Context, server *disco.Server, peerID disco.PeerID, metadata url.Values) (*WSConn, error) {
+func Dial(ctx context.Context, self *disco.Peer, server *disco.Server) (*WSConn, error) {
+	if self == nil || server == nil {
+		return nil, errors.New("peer info and server are required")
+	}
 	wsConn := &WSConn{
 		server:      server,
-		peerID:      peerID,
-		metadata:    metadata,
+		peerID:      self.ID,
+		metadata:    self.Metadata,
 		closedSig:   make(chan int),
 		datagrams:   make(chan *disco.Datagram, 50),
 		events:      make(chan Event, 100),

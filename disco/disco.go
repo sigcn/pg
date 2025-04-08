@@ -193,6 +193,25 @@ type Peer struct {
 	Metadata url.Values
 }
 
+// WithMeta set peer meta
+func (p *Peer) WithMeta(key, value string) *Peer {
+	if p.Metadata == nil {
+		p.Metadata = url.Values{}
+	}
+	p.Metadata.Add(key, value)
+	return p
+}
+
+// WithSilenceMode set silenceMode use WithMeta
+func (p *Peer) WithSilenceMode() *Peer {
+	return p.WithMeta("silenceMode", "")
+}
+
+// NewPeer create a Peer struct
+func NewPeer(id PeerID) *Peer {
+	return &Peer{ID: id}
+}
+
 // PeerUDPAddr describe the peer udp addr
 type PeerUDPAddr struct {
 	ID   PeerID

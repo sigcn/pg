@@ -148,7 +148,7 @@ func (c *PacketConn) Close() error {
 
 // LocalAddr returns the local network address, if known.
 func (c *PacketConn) LocalAddr() net.Addr {
-	return c.cfg.PeerID
+	return c.cfg.PeerInfo.ID
 }
 
 // SetDeadline sets the read and write deadlines associated
@@ -428,13 +428,13 @@ func ListenPacket(peermap *disco.Server, opts ...Option) (*PacketConn, error) {
 }
 
 // ListenPacketContext listen the p2p network for read/write packets
-func ListenPacketContext(ctx context.Context, peermap *disco.Server, opts ...Option) (*PacketConn, error) {
+func ListenPacketContext(ctx context.Context, server *disco.Server, opts ...Option) (*PacketConn, error) {
 	id := make([]byte, 16)
 	rand.Read(id)
 	cfg := Config{
 		UDPPort:         29877,
 		KeepAlivePeriod: 10 * time.Second,
-		PeerID:          disco.PeerID(base58.Encode(id)),
+		PeerInfo:        disco.Peer{ID: disco.PeerID(base58.Encode(id))},
 		MinDiscoPeriod:  2 * time.Minute,
 	}
 	for _, opt := range opts {
@@ -447,20 +447,20 @@ func ListenPacketContext(ctx context.Context, peermap *disco.Server, opts ...Opt
 		Port:                  cfg.UDPPort,
 		DisableIPv4:           cfg.DisableIPv4,
 		DisableIPv6:           cfg.DisableIPv6,
-		ID:                    cfg.PeerID,
+		ID:                    cfg.PeerInfo.ID,
 		PeerKeepaliveInterval: cfg.KeepAlivePeriod,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	wsConn, err := ws.DialPeermap(ctx, peermap, cfg.PeerID, cfg.Metadata)
+	wsConn, err := ws.Dial(ctx, &cfg.PeerInfo, server)
 	if err != nil {
 		udpConn.Close()
 		return nil, err
 	}
 
-	slog.Info("ListenPeer", "addr", cfg.PeerID)
+	slog.Info("ListenPeer", "addr", cfg.PeerInfo.ID)
 	pc := PacketConn{
 		cfg:          cfg,
 		closeChan:    make(chan struct{}),

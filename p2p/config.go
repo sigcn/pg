@@ -18,11 +18,10 @@ func SetDefaultSymmAlgo(symmAlgo func(secure.ProvideSecretKey) secure.SymmAlgo) 
 
 type Config struct {
 	UDPPort         int
-	PeerID          disco.PeerID
 	DisableIPv6     bool
 	DisableIPv4     bool
+	PeerInfo        disco.Peer
 	SymmAlgo        secure.SymmAlgo
-	Metadata        url.Values
 	OnPeer          OnPeer
 	OnPeerLeave     OnPeerLeave
 	KeepAlivePeriod time.Duration
@@ -51,7 +50,7 @@ func ListenPeerID(id string) Option {
 		}
 		peerID := disco.PeerID(id)
 		if peerID.Len() > 0 {
-			cfg.PeerID = peerID
+			cfg.PeerInfo.ID = peerID
 		}
 		return nil
 	}
@@ -77,7 +76,7 @@ func ListenPeerCurve25519(privateKey string) Option {
 			return err
 		}
 		cfg.SymmAlgo = defaultSymmAlgo(priv.SharedKey)
-		cfg.PeerID = disco.PeerID(priv.PublicKey.String())
+		cfg.PeerInfo.ID = disco.PeerID(priv.PublicKey.String())
 		return nil
 	}
 }
@@ -114,40 +113,28 @@ func ListenPeerLeave(onPeerLeave OnPeerLeave) Option {
 
 func PeerSilenceMode() Option {
 	return func(cfg *Config) error {
-		if cfg.Metadata == nil {
-			cfg.Metadata = url.Values{}
-		}
-		cfg.Metadata.Set("silenceMode", "")
+		cfg.PeerInfo.WithSilenceMode()
 		return nil
 	}
 }
 
 func PeerAlias1(alias string) Option {
 	return func(cfg *Config) error {
-		if cfg.Metadata == nil {
-			cfg.Metadata = url.Values{}
-		}
-		cfg.Metadata.Set("alias1", alias)
+		cfg.PeerInfo.WithMeta("alias1", alias)
 		return nil
 	}
 }
 
 func PeerAlias2(alias string) Option {
 	return func(cfg *Config) error {
-		if cfg.Metadata == nil {
-			cfg.Metadata = url.Values{}
-		}
-		cfg.Metadata.Set("alias2", alias)
+		cfg.PeerInfo.WithMeta("alias2", alias)
 		return nil
 	}
 }
 
 func PeerMeta(key string, value string) Option {
 	return func(cfg *Config) error {
-		if cfg.Metadata == nil {
-			cfg.Metadata = url.Values{}
-		}
-		cfg.Metadata.Add(key, value)
+		cfg.PeerInfo.WithMeta(key, value)
 		return nil
 	}
 }
