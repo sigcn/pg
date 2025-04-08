@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -32,6 +33,7 @@ import (
 var (
 	ErrAddressAlreadyInuse  = langs.Error{Code: 4000, Msg: "the network address is already in use"}
 	ErrNetworkSecretExpired = langs.Error{Code: 4030, Msg: "network secret is expired"}
+	ErrParseMetadataFailed  = langs.Error{Code: 4050, Msg: "parse metadata failed"}
 
 	_ io.ReadWriter = (*peerConn)(nil)
 )
@@ -663,14 +665,10 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 	peer.metadata = url.Values{}
 	metadata := r.Header.Get("X-Metadata")
 	if len(metadata) > 0 {
-		_, err := base64.StdEncoding.DecodeString(metadata)
-		if err == nil {
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
 		meta, err := url.ParseQuery(metadata)
 		if err != nil {
 			w.WriteHeader(http.StatusForbidden)
+			ErrParseMetadataFailed.Wrap(err).Wrap(errors.New(metadata)).MarshalTo(w)
 			return
 		}
 		peer.metadata = meta
