@@ -1,6 +1,8 @@
 package p2p
 
 import (
+	"crypto/ecdh"
+	"crypto/rand"
 	"errors"
 	"net/url"
 	"time"
@@ -8,6 +10,7 @@ import (
 	"github.com/sigcn/pg/disco"
 	"github.com/sigcn/pg/secure"
 	"github.com/sigcn/pg/secure/chacha20poly1305"
+	"storj.io/common/base58"
 )
 
 var defaultSymmAlgo func(secure.ProvideSecretKey) secure.SymmAlgo = chacha20poly1305.New
@@ -58,11 +61,11 @@ func ListenPeerID(id string) Option {
 
 func ListenPeerSecure() Option {
 	return func(cfg *Config) error {
-		priv, err := secure.GenerateCurve25519()
+		priv, err := ecdh.X25519().GenerateKey(rand.Reader)
 		if err != nil {
 			return err
 		}
-		return ListenPeerCurve25519(priv.String())(cfg)
+		return ListenPeerCurve25519(base58.Encode(priv.Bytes()))(cfg)
 	}
 }
 
@@ -71,12 +74,19 @@ func ListenPeerCurve25519(privateKey string) Option {
 		if cfg.SymmAlgo != nil {
 			return errors.New("repeat secure options")
 		}
-		priv, err := secure.Curve25519PrivateKey(privateKey)
+		curve := ecdh.X25519()
+		priv, err := curve.NewPrivateKey(base58.Decode(privateKey))
 		if err != nil {
 			return err
 		}
-		cfg.SymmAlgo = defaultSymmAlgo(priv.SharedKey)
-		cfg.PeerInfo.ID = disco.PeerID(priv.PublicKey.String())
+		cfg.SymmAlgo = defaultSymmAlgo(func(pubKey string) ([]byte, error) {
+			pub, err := curve.NewPublicKey(base58.Decode(pubKey))
+			if err != nil {
+				return nil, err
+			}
+			return priv.ECDH(pub)
+		})
+		cfg.PeerInfo.ID = disco.PeerID(base58.Encode(priv.PublicKey().Bytes()))
 		return nil
 	}
 }
