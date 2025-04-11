@@ -123,5 +123,6 @@ func (a *Authority) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	w.Write([]byte("ok"))
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte("<h1>Success</h1><script>window.close()</script>"))
 }
