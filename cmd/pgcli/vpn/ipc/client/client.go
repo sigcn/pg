@@ -42,7 +42,7 @@ func PrintPeers() error {
 			cmp.Or(peer.Mode, "-"),
 			cmp.Or(peer.NAT, "-"),
 			cmp.Or(strings.Join(flags, ","), "-"),
-			cmp.Or(strings.Join(peer.Addrs, ","), "-"),
+			cmp.Or(strings.Join(peer.Addrs[:min(len(peer.Addrs), 3)], ","), "-"),
 			peer.Version,
 		})
 	}
