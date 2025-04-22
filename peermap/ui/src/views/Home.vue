@@ -1,5 +1,6 @@
 <script setup>
 import http from '@/http'
+import dayjs from 'dayjs'
 import { onMounted, ref } from 'vue'
 
 const session = ref()
@@ -65,7 +66,13 @@ onMounted(async () => {
         <div class="id">{{ (peer.pathname || peer.host).replace(/^\/\//, '') }}</div>
         <div class="meta">
           <span
-            :class="{ nat: en[0] == 'nat', name: en[0] == 'name', version: en[0] == 'version' }"
+            :class="{
+              nat: en[0] == 'nat',
+              name: en[0] == 'name',
+              version: en[0] == 'version',
+              st: en[0] == 'st',
+            }"
+            :title="en[0] == 'st' ? dayjs.unix(Number(en[1])).format('YYYY-MM-DD HH:mm:ss') : ''"
             v-for="(en, i) in peer.searchParams.entries()"
             :key="i"
           >
