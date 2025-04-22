@@ -122,6 +122,9 @@ func (r *VirtualNIC) LabelPeer(addr net.Addr, kv string) {
 }
 
 func (r *VirtualNIC) AddRoute(dst *net.IPNet, via net.IP) bool {
+	if via.IsUnspecified() {
+		return false
+	}
 	r.init()
 	r.peersMutex.Lock()
 	defer r.peersMutex.Unlock()
@@ -131,6 +134,9 @@ func (r *VirtualNIC) AddRoute(dst *net.IPNet, via net.IP) bool {
 }
 
 func (r *VirtualNIC) DelRoute(dst *net.IPNet, via net.IP) bool {
+	if via.IsUnspecified() {
+		return false
+	}
 	r.init()
 	r.peersMutex.Lock()
 	defer r.peersMutex.Unlock()
