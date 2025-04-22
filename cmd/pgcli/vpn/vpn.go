@@ -67,6 +67,10 @@ func Run(args []string) error {
 		return client.PrintPeers()
 	}
 
+	if cfg.QueryNodeInfo {
+		return client.PrintNodeInfo()
+	}
+
 	slog.SetLogLoggerLevel(slog.Level(logLevel))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -95,6 +99,7 @@ func usage(flagSet *flag.FlagSet) {
 	logLevel := flagSet.Lookup("loglevel")
 	mtu := flagSet.Lookup("mtu")
 	peers := flagSet.Lookup("peers")
+	nodeInfo := flagSet.Lookup("nodeinfo")
 	proxyListen := flagSet.Lookup("proxy-listen")
 	proxyUsers := flagSet.Lookup("proxy-user")
 	server := flagSet.Lookup("s")
@@ -130,6 +135,7 @@ func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("  --udp-crypto string\n\t%s (default %s)\n", cryptoAlgo.Usage, cryptoAlgo.DefValue)
 	fmt.Printf("  --udp-port int\n\t%s (default %s)\n\n", udpPort.Usage, udpPort.DefValue)
 	fmt.Printf("IPC Flags:\n")
+	fmt.Printf("  --nodeinfo \n\t%s\n", nodeInfo.Usage)
 	fmt.Printf("  --peers \n\t%s\n\n", peers.Usage)
 	fmt.Printf("Global Flags:\n")
 	fmt.Printf("  -h, --help\n\tshow help\n")
@@ -137,9 +143,6 @@ func usage(flagSet *flag.FlagSet) {
 }
 
 func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) {
-	// ipc flags
-	var queryPeers bool
-
 	// daemon flags
 	var forcePeerRelay, forceServerRelay bool
 	var ignoredInterfaces, forwards, proxyUsers, nodeLabels stringSlice
@@ -168,7 +171,8 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	flagSet.BoolVar(&cfg.AuthQR, "auth-qr", false, "display the QR code when authentication is required")
 	flagSet.StringVar(&cfg.Server, "server", os.Getenv("PG_SERVER"), "")
 	flagSet.StringVar(&cfg.Server, "s", os.Getenv("PG_SERVER"), "peermap server")
-	flagSet.BoolVar(&queryPeers, "peers", false, "query found peers")
+	flagSet.BoolVar(&cfg.QueryPeers, "peers", false, "query found peers")
+	flagSet.BoolVar(&cfg.QueryNodeInfo, "nodeinfo", false, "get information about this node")
 
 	flagSet.StringVar(&cryptoAlgo, "udp-crypto", "chacha20poly1305", "udp packet crypto algorithm from the list [chacha20poly1305, aescbc]")
 	flagSet.IntVar(&cfg.UDPPort, "udp-port", 29877, "p2p udp listen port")
@@ -180,12 +184,11 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	flagSet.Parse(args)
 
 	cfg.DiscoConfig.IgnoredInterfaces = ignoredInterfaces
-	cfg.QueryPeers = queryPeers
 	cfg.Forwards = forwards
 	cfg.ProxyConfig.Users = proxyUsers
 	cfg.Labels = nodeLabels
 
-	if cfg.QueryPeers {
+	if cfg.QueryPeers || cfg.QueryNodeInfo {
 		return
 	}
 
@@ -219,15 +222,17 @@ type Config struct {
 	NICConfig        nic.Config           `yaml:"nic"`
 	ProxyConfig      rootless.ProxyConfig `yaml:"proxy"`
 	DiscoConfig      udp.DiscoConfig      `yaml:"disco"`
-	QueryPeers       bool
-	UDPPort          int               `yaml:"udp_port"`
-	PrivateKey       string            `yaml:"private_key"`
-	SecretFile       string            `yaml:"secret_file"`
-	Server           string            `yaml:"server"`
-	AuthQR           bool              `yaml:"auth_qr"`
-	P2pTransportMode p2p.TransportMode `yaml:"transport_mode"`
-	Forwards         []string          `yaml:"forwards"`
-	Labels           []string          `yaml:"labels"`
+	UDPPort          int                  `yaml:"udp_port"`
+	PrivateKey       string               `yaml:"private_key"`
+	SecretFile       string               `yaml:"secret_file"`
+	Server           string               `yaml:"server"`
+	AuthQR           bool                 `yaml:"auth_qr"`
+	P2pTransportMode p2p.TransportMode    `yaml:"transport_mode"`
+	Forwards         []string             `yaml:"forwards"`
+	Labels           []string             `yaml:"labels"`
+
+	QueryPeers    bool
+	QueryNodeInfo bool
 }
 
 type P2PVPN struct {
@@ -274,9 +279,9 @@ func (v *P2PVPN) Run(ctx context.Context) (err error) {
 	}
 
 	if err := (&server.Server{
-		Vnic:      v.nic,
-		PeerStore: c.PeerStore(),
-		Meta:      c.PeerMeta}).Start(ctx, &wg); err != nil {
+		Vnic:       v.nic,
+		PacketConn: c,
+		Version:    Version}).Start(ctx, &wg); err != nil {
 		slog.Warn("[IPC] Run http server", "err", err)
 	}
 	return vpn.New(vpn.Config{

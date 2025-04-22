@@ -29,6 +29,12 @@ var (
 	ErrNoRelayPeer = errors.New("no relay peer")
 )
 
+type NodeInfo struct {
+	ID      disco.PeerID  `json:"id"`
+	Meta    url.Values    `json:"meta"`
+	NATInfo disco.NATInfo `json:"nat"`
+}
+
 type PacketConn struct {
 	cfg               Config
 	closeChan         chan struct{}
@@ -263,6 +269,18 @@ func (c *PacketConn) PeerMeta(peerID disco.PeerID) url.Values {
 		return meta
 	}
 	return nil
+}
+
+// NodeInfo get information about this node
+func (c *PacketConn) NodeInfo() NodeInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	natInfo := c.udpConn.DetectNAT(ctx, c.wsConn.STUNs())
+	return NodeInfo{
+		ID:      c.cfg.PeerInfo.ID,
+		Meta:    c.cfg.PeerInfo.Metadata,
+		NATInfo: natInfo,
+	}
 }
 
 // relayPeer find the suitable relay peer
