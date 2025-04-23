@@ -1,8 +1,12 @@
 <script setup>
 import http from '@/http'
 import dayjs from 'dayjs'
+import duration from 'dayjs/plugin/duration'
+import relativeTime from 'dayjs/plugin/relativeTime'
 import { onMounted, ref } from 'vue'
 
+dayjs.extend(duration)
+dayjs.extend(relativeTime)
 const session = ref()
 const peers = ref([])
 const serverInfo = ref()
@@ -72,7 +76,13 @@ onMounted(async () => {
               version: en[0] == 'version',
               st: en[0] == 'st',
             }"
-            :title="en[0] == 'st' ? dayjs.unix(Number(en[1])).format('YYYY-MM-DD HH:mm:ss') : ''"
+            :title="
+              en[0] == 'st'
+                ? `${dayjs.unix(Number(en[1])).format('YYYY-MM-DD HH:mm:ss')}, ${dayjs
+                    .duration(dayjs().unix() - Number(en[1]), 'seconds')
+                    .humanize()}`
+                : ''
+            "
             v-for="(en, i) in peer.searchParams.entries()"
             :key="i"
           >
