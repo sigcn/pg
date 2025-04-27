@@ -1,6 +1,7 @@
 package peermap
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -45,7 +46,7 @@ type peerStat struct {
 }
 type peerConn struct {
 	conn      *websocket.Conn
-	exitSig   chan struct{}
+	closeChan chan struct{}
 	closeOnce sync.Once
 	peerMap   *PeerMap
 
@@ -113,7 +114,7 @@ func (p *peerConn) Close() error {
 		_ = p.conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(2*time.Second))
 		p.conn.Close()
-		close(p.exitSig)
+		close(p.closeChan)
 		close(p.connData)
 		p.broadcastLeave()
 	})
@@ -188,6 +189,17 @@ func (p *peerConn) leadDisco(target *peerConn) {
 	p.write(b1)
 }
 
+func (p *peerConn) relayTo(target *peerConn, b []byte) {
+	data := b[b[1]+2:]
+	bb := make([]byte, 2+len(p.id)+len(data))
+	bb[0] = b[0]
+	bb[1] = p.id.Len()
+	copy(bb[2:p.id.Len()+2], p.id.Bytes())
+	copy(bb[p.id.Len()+2:], data)
+	_ = target.write(bb)
+	p.stat.RelayRx += uint64(len(b))
+}
+
 func (p *peerConn) broadcast(b []byte) {
 	ctx, _ := p.peerMap.getNetwork(p.networkSecret.Network)
 	var peers []*peerConn
@@ -224,7 +236,7 @@ func (p *peerConn) broadcastLeave() {
 func (p *peerConn) readMessageLoop() {
 	for {
 		select {
-		case <-p.exitSig:
+		case <-p.closeChan:
 			return
 		default:
 		}
@@ -267,14 +279,7 @@ func (p *peerConn) readMessageLoop() {
 			p.leadDisco(tgtPeer)
 			continue
 		}
-		data := b[b[1]+2:]
-		bb := make([]byte, 2+len(p.id)+len(data))
-		bb[0] = b[0]
-		bb[1] = p.id.Len()
-		copy(bb[2:p.id.Len()+2], p.id.Bytes())
-		copy(bb[p.id.Len()+2:], data)
-		_ = tgtPeer.write(bb)
-		p.stat.RelayRx += uint64(len(b))
+		p.relayTo(tgtPeer, b)
 	}
 }
 
@@ -302,7 +307,7 @@ func (p *peerConn) keepalive() {
 	ticker := time.NewTicker(12 * time.Second)
 	for {
 		select {
-		case <-p.exitSig:
+		case <-p.closeChan:
 			ticker.Stop()
 			return
 		case <-ticker.C:
@@ -600,7 +605,7 @@ func (pm *PeerMap) HandlePutNetworkMeta(w http.ResponseWriter, r *http.Request) 
 }
 
 func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Request) {
-	networkSecrest := r.Header.Get("X-Network")
+	networkSecrest := cmp.Or(r.Header.Get("X-Secret"), r.Header.Get("X-Network")) //  "X-Network" is deprecated, will be removed in v0.13
 	jsonSecret := auth.JSONSecret{
 		Network:  networkSecrest,
 		Deadline: math.MaxInt64,
@@ -650,7 +655,7 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		srLimiter = rate.NewLimiter(rate.Limit(pm.cfg.RateLimiter.StreamW.Limit), pm.cfg.RateLimiter.StreamW.Burst)
 	}
 	peer := peerConn{
-		exitSig:          make(chan struct{}),
+		closeChan:        make(chan struct{}),
 		peerMap:          pm,
 		networkSecret:    jsonSecret,
 		networkContext:   networkCtx,

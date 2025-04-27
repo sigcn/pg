@@ -205,7 +205,8 @@ func (c *WSConn) dial(ctx context.Context, server string) error {
 		return fmt.Errorf("get network secret failed: %w", err)
 	}
 	handshake := http.Header{}
-	handshake.Set("X-Network", networkSecret.Secret)
+	handshake.Set("X-Secret", networkSecret.Secret)
+	handshake.Set("X-Network", networkSecret.Secret) // deprecated, will be removed in v0.13
 	handshake.Set("X-PeerID", c.peerID.String())
 	handshake.Set("X-Nonce", langs.NewNonce())
 	handshake.Set("X-Metadata", c.metadata.Encode())
