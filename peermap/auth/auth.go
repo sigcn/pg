@@ -17,9 +17,9 @@ var (
 
 type JSONSecret struct {
 	Network   string   `json:"n"`
-	Admin     bool     `json:"adm,omitempty"`
-	Alias     string   `json:"n1"`
-	Neighbors []string `json:"ns"`
+	Admin     bool     `json:"adm,omitzero"`
+	Alias     string   `json:"n1,omitzero"`
+	Neighbors []string `json:"ns,omitempty"`
 	Deadline  int64    `json:"t"`
 }
 

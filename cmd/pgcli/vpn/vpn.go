@@ -90,6 +90,7 @@ func usage(flagSet *flag.FlagSet) {
 	discoPortScanDuration := flagSet.Lookup("disco-port-scan-duration")
 	discoPortScanOffset := flagSet.Lookup("disco-port-scan-offset")
 	cryptoAlgo := flagSet.Lookup("udp-crypto")
+	secret := flagSet.Lookup("secret")
 	secretFile := flagSet.Lookup("f")
 	forcePeerRelay := flagSet.Lookup("force-peer-relay")
 	forceServerRelay := flagSet.Lookup("force-server-relay")
@@ -120,7 +121,6 @@ func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("  --disco-port-scan-count int\n\t%s (default %s)\n", discoPortScanCount.Usage, discoPortScanCount.DefValue)
 	fmt.Printf("  --disco-port-scan-duration duration\n\t%s (default %s)\n", discoPortScanDuration.Usage, discoPortScanDuration.DefValue)
 	fmt.Printf("  --disco-port-scan-offset int\n\t%s (default %s)\n", discoPortScanOffset.Usage, discoPortScanOffset.DefValue)
-	fmt.Printf("  -f, --secret-file string\n\t%s\n", secretFile.Usage)
 	fmt.Printf("  --force-peer-relay \n\t%s\n", forcePeerRelay.Usage)
 	fmt.Printf("  --force-server-relay \n\t%s\n", forceServerRelay.Usage)
 	fmt.Printf("  --forward strings\n\t%s\n", forward.Usage)
@@ -130,6 +130,8 @@ func usage(flagSet *flag.FlagSet) {
 	fmt.Printf("  --mtu int\n\t%s (default %s)\n", mtu.Usage, mtu.DefValue)
 	fmt.Printf("  --proxy-listen string\n\t%s\n", proxyListen.Usage)
 	fmt.Printf("  --proxy-user strings\n\t%s\n", proxyUsers.Usage)
+	fmt.Printf("  --secret string\n\t%s\n", secret.Usage)
+	fmt.Printf("  -f, --secret-file string\n\t%s\n", secretFile.Usage)
 	fmt.Printf("  -s, --server string\n\t%s\n", server.Usage)
 	fmt.Printf("  --tun string\n\t%s (default %s)\n", tun.Usage, tun.DefValue)
 	fmt.Printf("  --udp-crypto string\n\t%s (default %s)\n", cryptoAlgo.Usage, cryptoAlgo.DefValue)
@@ -166,6 +168,7 @@ func createConfig(flagSet *flag.FlagSet, args []string) (cfg Config, err error) 
 	flagSet.StringVar(&cfg.ProxyConfig.Listen, "proxy-listen", "", "start a proxy server to access the PG network (e.g. 127.0.0.1:4090)")
 	flagSet.Var(&proxyUsers, "proxy-user", "user:pass pair for proxy server authenticate (can be specified multiple times)")
 	flagSet.StringVar(&cfg.PrivateKey, "key", "", "curve25519 private key in base58 format (default generate a new one)")
+	flagSet.StringVar(&cfg.Secret, "secret", "", "p2p network secret string (enable this will disable secret rotation)")
 	flagSet.StringVar(&cfg.SecretFile, "secret-file", "", "")
 	flagSet.StringVar(&cfg.SecretFile, "f", "", "p2p network secret file (default ~/.peerguard_network_secret.json)")
 	flagSet.BoolVar(&cfg.AuthQR, "auth-qr", false, "display the QR code when authentication is required")
@@ -224,6 +227,7 @@ type Config struct {
 	DiscoConfig      udp.DiscoConfig      `yaml:"disco"`
 	UDPPort          int                  `yaml:"udp_port"`
 	PrivateKey       string               `yaml:"private_key"`
+	Secret           string               `yaml:"secret"`
 	SecretFile       string               `yaml:"secret_file"`
 	Server           string               `yaml:"server"`
 	AuthQR           bool                 `yaml:"auth_qr"`
@@ -356,6 +360,9 @@ func (v *P2PVPN) onPeerLeave(pi disco.PeerID) {
 }
 
 func (v *P2PVPN) loginIfNecessary(ctx context.Context) (disco.SecretStore, error) {
+	if len(v.Config.Secret) > 0 {
+		return &disco.NetworkSecret{Secret: v.Config.Secret}, nil
+	}
 	if len(v.Config.SecretFile) == 0 {
 		currentUser, err := user.Current()
 		if err != nil {
