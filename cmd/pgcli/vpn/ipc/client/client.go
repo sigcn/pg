@@ -3,6 +3,7 @@ package client
 import (
 	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -24,6 +25,7 @@ func PrintNodeInfo() error {
 	for _, addr := range nodeInfo.NATInfo.Addrs {
 		addrs = append(addrs, addr.String())
 	}
+	addrs = slices.Compact(addrs)
 
 	tw.AppendRows([]table.Row{
 		{"ID", nodeInfo.ID},
