@@ -63,12 +63,12 @@ func RemoveIgnoredLocalCIDRs(cidrs ...string) {
 	ignoredLocalCIDRs = filterd
 }
 
-func IPIgnored(ip net.IP) bool {
+func IsIgnoredLocalIP(ip net.IP) bool {
 	return ignoredLocalCIDRs.Contains(ip)
 }
 
 func GetIgnoredLocalCIDRs() []net.IPNet {
-	return append([]net.IPNet{}, ignoredLocalCIDRs...)
+	return slices.Clone(ignoredLocalCIDRs)
 }
 
 func SetIgnoredLocalInterfaceNamePrefixs(prefixs ...string) {

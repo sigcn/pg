@@ -470,7 +470,7 @@ func (c *UDPConn) udpRead(udpConn *net.UDPConn) {
 
 		// ping
 		if peerID := c.disco.ParsePing(buf[:n]); peerID.Len() > 0 {
-			if disco.IPIgnored(peerAddr.IP) { // ignore packet from ip in the ignore list
+			if disco.IsIgnoredLocalIP(peerAddr.IP) { // ignore packet from ip in the ignore list
 				continue
 			}
 			c.tryGetPeerkeeper(udpConn, peerID).heartbeat(peerAddr)

@@ -341,7 +341,7 @@ func (c *PacketConn) networkChangeDetect() {
 			delete(foundIPMap, e.Addr.IP.String())
 			continue
 		}
-		if disco.IPIgnored(e.Addr.IP) {
+		if disco.IsIgnoredLocalIP(e.Addr.IP) {
 			continue
 		}
 		if _, ok := foundIPMap[e.Addr.IP.String()]; ok {
