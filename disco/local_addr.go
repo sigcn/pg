@@ -48,6 +48,9 @@ func AddIgnoredLocalCIDRs(cidrs ...string) {
 			slog.Debug("SetIgnoredLocalCIDRs parse cidr failed", "err", err)
 			continue
 		}
+		if _cidr.IP.IsUnspecified() {
+			continue
+		}
 		slog.Debug("IgnoreLocalCIDR " + cidr)
 		ignoredLocalCIDRs = append(ignoredLocalCIDRs, *_cidr)
 	}
@@ -83,7 +86,7 @@ func SetLocalIPs(ips ...net.IP) {
 }
 
 func GetIgnoredLocalInterfaceNamePrefixs() []string {
-	return append([]string{}, ignoredLocalInterfaceNamePrefixs...)
+	return slices.Clone(ignoredLocalInterfaceNamePrefixs)
 }
 
 func ListLocalIPs() ([]net.IP, error) {
