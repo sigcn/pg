@@ -39,7 +39,7 @@ type UDPConn struct {
 	disco            *disco.Disco
 	datagrams        chan *disco.Datagram
 	natEvents        chan *disco.NATInfo
-	udpAddrSends     chan *disco.PeerUDPAddr
+	endpoints        chan *disco.Endpoint
 	relayProtocol    relayProtocol
 	upnpPortMapping  upnpPortMapping
 	stunRoundTripper stunRoundTripper
@@ -63,7 +63,7 @@ func (c *UDPConn) Close() error {
 	c.closedWG.Wait()
 	close(c.natEvents)
 	close(c.datagrams)
-	close(c.udpAddrSends)
+	close(c.endpoints)
 	return nil
 }
 
@@ -97,8 +97,8 @@ func (c *UDPConn) Datagrams() <-chan *disco.Datagram {
 	return c.datagrams
 }
 
-func (c *UDPConn) UDPAddrSends() <-chan *disco.PeerUDPAddr {
-	return c.udpAddrSends
+func (c *UDPConn) Endpoints() <-chan *disco.Endpoint {
+	return c.endpoints
 }
 
 func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []string) {
@@ -111,7 +111,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 		}
 		c.closedWG.Add(1)
 		defer c.closedWG.Done()
-		c.udpAddrSends <- &disco.PeerUDPAddr{ID: peerID, Addr: addr, Type: disco.UPnP}
+		c.endpoints <- &disco.Endpoint{ID: peerID, Addr: addr, Type: disco.UPnP}
 		select {
 		case c.natEvents <- &disco.NATInfo{Type: disco.UPnP, Addrs: []*net.UDPAddr{addr}}:
 		default:
@@ -135,7 +135,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 		defer c.closedWG.Done()
 		if natInfo.Type == disco.Hard {
 			for _, addr := range natInfo.Addrs {
-				c.udpAddrSends <- &disco.PeerUDPAddr{
+				c.endpoints <- &disco.Endpoint{
 					ID:   peerID,
 					Addr: addr,
 					Type: natInfo.Type,
@@ -143,7 +143,7 @@ func (c *UDPConn) GenerateLocalAddrsSends(peerID disco.PeerID, stunServers []str
 			}
 			return
 		}
-		c.udpAddrSends <- &disco.PeerUDPAddr{
+		c.endpoints <- &disco.Endpoint{
 			ID:   peerID,
 			Addr: natInfo.Addrs[0],
 			Type: natInfo.Type,
@@ -186,7 +186,7 @@ func (c *UDPConn) DetectNAT(ctx context.Context, stunServers []string) (info dis
 			}
 		}
 	}()
-	udpConn, err := c.getMainUDPConn()
+	udpConn, err := c.mainUDP()
 	if err != nil {
 		return
 	}
@@ -221,7 +221,7 @@ func (c *UDPConn) DetectNAT(ctx context.Context, stunServers []string) (info dis
 	return disco.NATInfo{Type: disco.Easy, Addrs: udpAddrs}
 }
 
-func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
+func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.Endpoint) {
 	slog.Log(context.Background(), -2, "RecvPeerAddr", "peer", udpAddr.ID, "udp", udpAddr.Addr, "nat", udpAddr.Type.String())
 
 	easyChallenges := func(udpConn *net.UDPConn, wg *sync.WaitGroup, packetCounter *int32) {
@@ -273,7 +273,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 		if info := c.natInfo.Load(); info != nil && info.Type == disco.Hard {
 			return
 		}
-		udpConn, err := c.getMainUDPConn()
+		udpConn, err := c.mainUDP()
 		if err != nil {
 			slog.Error("[UDP] HardChallenges", "err", err)
 			return
@@ -305,7 +305,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.PeerUDPAddr) {
 	}
 
 	// use main udpConn do port-scan
-	udpConn, err := c.getMainUDPConn()
+	udpConn, err := c.mainUDP()
 	if err != nil {
 		return
 	}
@@ -402,7 +402,7 @@ func (c *UDPConn) RestartListener() error {
 	return nil
 }
 
-func (c *UDPConn) getMainUDPConn() (*net.UDPConn, error) {
+func (c *UDPConn) mainUDP() (*net.UDPConn, error) {
 	c.udpConnsMutex.RLock()
 	defer c.udpConnsMutex.RUnlock()
 	if c.udpConns == nil {
@@ -579,13 +579,13 @@ func ListenUDP(cfg UDPConfig) (*UDPConn, error) {
 	}
 
 	udpConn := UDPConn{
-		cfg:          cfg,
-		disco:        &disco.Disco{Magic: cfg.DiscoMagic},
-		closedSig:    make(chan int),
-		natEvents:    make(chan *disco.NATInfo, 3),
-		datagrams:    make(chan *disco.Datagram),
-		udpAddrSends: make(chan *disco.PeerUDPAddr, 10),
-		peersIndex:   make(map[disco.PeerID]*peerkeeper),
+		cfg:        cfg,
+		disco:      &disco.Disco{Magic: cfg.DiscoMagic},
+		closedSig:  make(chan int),
+		natEvents:  make(chan *disco.NATInfo, 3),
+		datagrams:  make(chan *disco.Datagram),
+		endpoints:  make(chan *disco.Endpoint, 10),
+		peersIndex: make(map[disco.PeerID]*peerkeeper),
 	}
 
 	if err := udpConn.RestartListener(); err != nil {

@@ -392,14 +392,14 @@ func (c *PacketConn) eventsHandle() {
 				onPeer(peer.ID, peer.Metadata)
 			}
 		case disco.CONTROL_NEW_PEER_UDP_ADDR:
-			c.udpConn.RunDiscoMessageSendLoop(e.Data.(disco.PeerUDPAddr))
+			c.udpConn.RunDiscoMessageSendLoop(e.Data.(disco.Endpoint))
 		case disco.CONTROL_SERVER_CONNECTED:
 			go c.udpConn.DetectNAT(context.Background(), c.wsConn.STUNs())
 		}
 	}
 
 	// send my udp addr to peer
-	sendMyUDPAddr := func(sendUDPAddr *disco.PeerUDPAddr) {
+	sendEndpoint := func(sendUDPAddr *disco.Endpoint) {
 		data := []byte{'a'}
 		addr := []byte(sendUDPAddr.Addr.String())
 		data = append(data, byte(len(addr)))
@@ -431,11 +431,11 @@ func (c *PacketConn) eventsHandle() {
 				return
 			}
 			go c.wsConn.UpdateNATInfo(*natEvent)
-		case udpAddr, ok := <-c.udpConn.UDPAddrSends():
+		case endpoint, ok := <-c.udpConn.Endpoints():
 			if !ok {
 				return
 			}
-			go sendMyUDPAddr(udpAddr)
+			go sendEndpoint(endpoint)
 		}
 	}
 }

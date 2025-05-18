@@ -212,8 +212,8 @@ func NewPeer(id PeerID) *Peer {
 	return &Peer{ID: id}
 }
 
-// PeerUDPAddr describe the peer udp addr
-type PeerUDPAddr struct {
+// Endpoint describe the peer udp addr
+type Endpoint struct {
 	ID   PeerID
 	Addr *net.UDPAddr
 	Type NATType

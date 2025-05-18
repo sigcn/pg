@@ -435,7 +435,7 @@ func (c *WSConn) handleEvents(b []byte) {
 				slog.Error("Resolve udp addr error", "err", err)
 				break
 			}
-			c.events <- Event{ControlCode: disco.ControlCode(b[0]), Data: disco.PeerUDPAddr{ID: disco.PeerID(b[2 : b[1]+2]), Addr: addr}}
+			c.events <- Event{ControlCode: disco.ControlCode(b[0]), Data: disco.Endpoint{ID: disco.PeerID(b[2 : b[1]+2]), Addr: addr}}
 			return
 		}
 		addrLen := b[b[1]+3]
@@ -445,8 +445,7 @@ func (c *WSConn) handleEvents(b []byte) {
 			slog.Error("Resolve udp addr error", "err", err)
 			break
 		}
-		udpAddr := disco.PeerUDPAddr{ID: disco.PeerID(b[2 : b[1]+2]), Addr: addr, Type: disco.NATType(b[s+addrLen:])}
-		c.events <- Event{ControlCode: disco.ControlCode(b[0]), Data: udpAddr}
+		c.events <- Event{ControlCode: disco.ControlCode(b[0]), Data: disco.Endpoint{ID: disco.PeerID(b[2 : b[1]+2]), Addr: addr, Type: disco.NATType(b[s+addrLen:])}}
 	case disco.CONTROL_UPDATE_NETWORK_SECRET:
 		var secret disco.NetworkSecret
 		if err := json.Unmarshal(b[1:], &secret); err != nil {

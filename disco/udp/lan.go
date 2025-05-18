@@ -76,7 +76,7 @@ func (c *UDPConn) lanAddrsGenerate(peerID disco.PeerID) {
 				natType = disco.IP6
 			}
 		}
-		c.udpAddrSends <- &disco.PeerUDPAddr{
+		c.endpoints <- &disco.Endpoint{
 			ID:   peerID,
 			Addr: uaddr,
 			Type: natType,
