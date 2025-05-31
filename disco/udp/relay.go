@@ -2,6 +2,7 @@ package udp
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/sigcn/pg/disco"
 )
@@ -10,6 +11,19 @@ var (
 	MAGIC_TO_RELAY   = []byte{'_', 'p', 'g', 1}
 	MAGIC_FROM_RELAY = []byte{'_', 'p', 'g', 3}
 )
+
+type RelayToPeerError struct {
+	PeerID disco.PeerID
+	err    error
+}
+
+func (e RelayToPeerError) Error() string {
+	return fmt.Errorf("relay to %s : %w", e.PeerID, e.err).Error()
+}
+
+func (e RelayToPeerError) Unwrap() error {
+	return e.err
+}
 
 type relayProtocol struct {
 }

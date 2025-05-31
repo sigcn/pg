@@ -436,6 +436,13 @@ func (c *PacketConn) eventsHandle() {
 				return
 			}
 			go sendEndpoint(endpoint)
+		case err, ok := <-c.udpConn.Errors():
+			if !ok {
+				return
+			}
+			if relayToErr, ok := err.(udp.RelayToPeerError); ok && !errors.Is(relayToErr.Unwrap(), udp.ErrUDPConnInactive) {
+				go c.TryLeadDisco(relayToErr.PeerID) // peer not found, and trying to discover it.
+			}
 		}
 	}
 }
