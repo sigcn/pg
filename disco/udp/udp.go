@@ -271,7 +271,7 @@ func (c *UDPConn) RunDiscoMessageSendLoop(udpAddr disco.Endpoint) {
 			}
 			port, _ := rand.Int(rand.Reader, big.NewInt(65535-1024))
 			udpConn.WriteToUDP(c.disco.NewPing(c.cfg.ID), &net.UDPAddr{IP: udpAddr.Addr.IP, Port: int(port.Int64())})
-			*packetCounter++
+			atomic.AddInt32(packetCounter, 1)
 		}
 	}
 
