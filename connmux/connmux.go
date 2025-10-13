@@ -92,10 +92,9 @@ func (c *MuxConn) Read(b []byte) (n int, err error) {
 			return 0, io.EOF
 		}
 		return 0, N.ErrDeadline
-	case wsb, ok := <-c.inbound:
-		if !ok {
-			return 0, io.EOF
-		}
+	case <-c.finWait:
+		return 0, io.EOF
+	case wsb := <-c.inbound:
 		n = copy(b, wsb)
 		if n < len(wsb) {
 			c.buf = wsb[n:]
@@ -144,6 +143,7 @@ func (c *MuxConn) Close() error {
 			select {
 			case <-c.finWait:
 			case <-timeout.C:
+				close(c.finWait)
 			}
 			c.s.r.Lock()
 			delete(c.s.dials, c.seq)
@@ -157,7 +157,6 @@ func (c *MuxConn) Close() error {
 				time.Sleep(10 * time.Millisecond) // avoid busy wait
 			}
 
-			close(c.inbound) // disable read
 			c.deadlineRead.Close()
 			slog.Debug("MuxConnClosed", "seq", c.seq, "state", "CLOSED")
 		}()
