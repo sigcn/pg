@@ -221,11 +221,8 @@ func (l *MuxSession) Accept() (net.Conn, error) {
 	select {
 	case <-l.exit:
 		return nil, io.ErrClosedPipe
-	case c, ok := <-l.accept:
-		if ok {
-			return c, nil
-		}
-		return nil, io.ErrClosedPipe
+	case c := <-l.accept:
+		return c, nil
 	}
 }
 
@@ -234,7 +231,6 @@ func (l *MuxSession) Accept() (net.Conn, error) {
 func (l *MuxSession) Close() error {
 	l.closeOnce.Do(func() {
 		close(l.exit)
-		close(l.accept)
 		l.closed.Store(true)
 	})
 	return l.c.Close()
