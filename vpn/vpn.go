@@ -110,8 +110,9 @@ func (vpn *VPN) nicWrite(wg *sync.WaitGroup, vnic *nic.VirtualNIC) {
 		return pkt
 	}
 	for packet := range vpn.inbound {
+		in := packet
 		if packet = handle(packet); packet == nil {
-			nic.RecyclePacket(packet)
+			nic.RecyclePacket(in)
 			continue
 		}
 		err := vnic.Write(packet)
@@ -167,8 +168,9 @@ func (vpn *VPN) packetConnWrite(wg *sync.WaitGroup, packetConn net.PacketConn) {
 		return pkt
 	}
 	for packet := range vpn.outbound {
+		out := packet
 		if packet = handle(packet); packet == nil {
-			nic.RecyclePacket(packet)
+			nic.RecyclePacket(out)
 			continue
 		}
 		pkt := packet.AsBytes()
