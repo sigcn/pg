@@ -235,11 +235,6 @@ func (p *peerConn) broadcastLeave() {
 
 func (p *peerConn) readMessageLoop() {
 	for {
-		select {
-		case <-p.closeChan:
-			return
-		default:
-		}
 		mt, b, err := p.conn.ReadMessage()
 		if err != nil {
 			slog.Debug("ReadLoopExited", "err", err.Error())
@@ -261,8 +256,12 @@ func (p *peerConn) readMessageLoop() {
 			p.relayRatelimiter.WaitN(context.Background(), len(b))
 		}
 		if b[0] == disco.CONTROL_CONN.Byte() {
-			p.connData <- b[1:]
-			continue
+			select {
+			case <-p.closeChan:
+				return
+			case p.connData <- b[1:]:
+				continue
+			}
 		}
 		if b[0] == disco.CONTROL_UPDATE_NAT_INFO.Byte() {
 			p.updateNATInfo(b)
