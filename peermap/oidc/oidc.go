@@ -57,6 +57,7 @@ func (p *OIDCProvider) UserInfo(code string) (email string, extra map[string]any
 }
 
 func AddProvider(oidcProviderConfig OIDCProviderConfig) (err error) {
+	usingWellKnownConfig(&oidcProviderConfig)
 	providerCtx, providerCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer providerCancel()
 	var (
@@ -95,4 +96,30 @@ func AddProvider(oidcProviderConfig OIDCProviderConfig) (err error) {
 func Provider(providerName string) (*OIDCProvider, bool) {
 	provider, ok := providers[providerName]
 	return provider, ok
+}
+
+// usingWellKnownConfig fills in the OIDCProviderConfig with well-known configuration for some providers if the Name field is set and the Issuer field is not set.
+func usingWellKnownConfig(oidcProviderConfig *OIDCProviderConfig) {
+	switch oidcProviderConfig.Name {
+	case ProviderGoogle:
+		if len(oidcProviderConfig.Issuer) == 0 {
+			oidcProviderConfig.Issuer = "https://accounts.google.com"
+		}
+		if len(oidcProviderConfig.Scopes) == 0 {
+			oidcProviderConfig.Scopes = []string{oidc.ScopeOpenID, "email", "profile"}
+		}
+	case ProviderGithub:
+		if len(oidcProviderConfig.Scopes) == 0 {
+			oidcProviderConfig.Scopes = []string{"read:user", "user:email"}
+		}
+		if len(oidcProviderConfig.AuthURL) == 0 {
+			oidcProviderConfig.AuthURL = "https://github.com/login/oauth/authorize"
+		}
+		if len(oidcProviderConfig.TokenURL) == 0 {
+			oidcProviderConfig.TokenURL = "https://github.com/login/oauth/access_token"
+		}
+		if len(oidcProviderConfig.UserInfoURL) == 0 {
+			oidcProviderConfig.UserInfoURL = "https://api.github.com/user"
+		}
+	}
 }
