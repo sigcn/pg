@@ -102,10 +102,10 @@ func (cfg *Config) ApplyDefaults() error {
 		}
 	}
 	if cfg.SecretValidityPeriod == 0 {
-		cfg.SecretValidityPeriod = 4 * time.Hour
+		cfg.SecretValidityPeriod = 48 * time.Hour
 	}
 	if cfg.SecretRotationPeriod == 0 {
-		cfg.SecretRotationPeriod = max(cfg.SecretValidityPeriod-time.Hour, time.Minute)
+		cfg.SecretRotationPeriod = max(cfg.SecretValidityPeriod/2, time.Minute)
 	}
 	if cfg.SecretRotationPeriod >= cfg.SecretValidityPeriod {
 		return errors.New("secret rotation period must less than validity period")
