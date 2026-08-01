@@ -69,10 +69,6 @@ onMounted(loadProviders)
         }}
       </li>
     </ul>
-    <div class="tips">
-      <span style="color: #000">{{ $t('first_time') }}</span>
-      {{ $t('read_docs') }} <a href="https://docs.openpg.in">docs.openpg.in</a>
-    </div>
   </main>
 </template>
 
