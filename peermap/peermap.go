@@ -652,7 +652,7 @@ func (pm *PeerMap) HandlePeerPacketConnect(w http.ResponseWriter, r *http.Reques
 		srLimiter = rate.NewLimiter(rate.Limit(pm.cfg.RateLimiter.StreamR.Limit), pm.cfg.RateLimiter.StreamR.Burst)
 	}
 	if pm.cfg.RateLimiter != nil && pm.cfg.RateLimiter.StreamW.Limit > 0 {
-		srLimiter = rate.NewLimiter(rate.Limit(pm.cfg.RateLimiter.StreamW.Limit), pm.cfg.RateLimiter.StreamW.Burst)
+		swLimiter = rate.NewLimiter(rate.Limit(pm.cfg.RateLimiter.StreamW.Limit), pm.cfg.RateLimiter.StreamW.Burst)
 	}
 	peer := peerConn{
 		closeChan:        make(chan struct{}),
